@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>ProjectZ</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #141219;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      image-rendering: pixelated;
+      cursor: none;
+    }
+    #hud, #debug {
+      position: fixed;
+      font: 12px/1.4 ui-monospace, Consolas, monospace;
+      color: #d6d0e2;
+      text-shadow: 0 1px 0 #000;
+      pointer-events: none;
+    }
+    #hud { right: 14px; top: 10px; opacity: 0.7; transition: opacity 1.5s; text-align: right; max-width: 42vw; }
+    #hud.fade { opacity: 0; }
+    #debug { left: 12px; top: 10px; white-space: pre; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">WASD = เดิน · Shift = วิ่ง · กดทิศ 2 ครั้ง = กลิ้งหลบ · เมาส์ = เล็ง/ยิง · R = รีโหลด · 1 = มีด/ระยะประชิด · 2/3 = ปืน · Q = สลับ · E = ซื้อ/เปิด/เก็บ · G = ขว้าง · X = เปลี่ยนของขว้าง · F = เปิด/ปิดไฟฉาย-เลเซอร์ · H = ใช้ยา · TAB = กระเป๋า · ESC = พัก · F3 = debug</div>
+  <div id="debug" hidden></div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
