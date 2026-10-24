@@ -334,7 +334,7 @@ export class Particles {
         g.rotate(p.rot);   // lies at whatever angle it landed
         g.drawImage(p.img, -Math.round(p.img.width / 2), -Math.round(p.img.height / 2));
         g.restore();
-      }, p.x, p.y);
+      });
       return;
     }
     const w = p.w ?? p.size, h = p.h ?? p.size;
@@ -346,7 +346,7 @@ export class Particles {
       }
       g.fillStyle = p.color;
       g.fillRect(x, y, w, h);
-    }, p.x, p.y);
+    });
   }
 
   draw(ctx, layer) {

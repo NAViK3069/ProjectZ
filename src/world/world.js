@@ -14,7 +14,6 @@ import { makeCanvas, rect } from '../engine/pixel.js';
 import { createProp } from './props.js';
 import { createCase } from './guncase.js';
 import { drawText, textWidth } from '../ui/font.js';
-import { buildApoc, APOC_SIZE, drawGround, drawOutdoorWall, MAT } from './apocmap.js';
 
 export const TILE = 16;
 export const WALL_H = 10;     // visible height of a tall wall's front face
@@ -22,8 +21,6 @@ const LOW_H = 6;              // ...and of a low wall's
 const WALL_REACH = 6;         // walls block slightly above their cell so feet tuck behind the wall top
 // floor mess: stays this long (s), then fades out over DECAL_FADE
 const DECAL_LIFE = 30, DECAL_FADE = 12, DECAL_BUCKET = 5;
-const CHUNK = 512;            // big maps keep their floor mess in chunks this size (px)
-const PCELL = 32;             // props are bucketed in cells this size (px) for fast lookups
 
 export const VOID = 0, FLOOR = 1, WALL = 2, LOW = 3;
 
@@ -58,18 +55,11 @@ function hash(x, y, s = 0) {
 }
 
 export class World {
-  // layout: 'lab' (survival), 'training' (the shooting range) or 'apoc' (the
-  // open-world survival map, generated from `seed`)
-  constructor(layout = 'lab', seed = 1) {
+  // layout: 'lab' (survival) or 'training' (the shooting range)
+  constructor(layout = 'lab') {
     this.layout = layout;
-    this.seed = seed;
-    this.w = layout === 'training' ? 46 : layout === 'apoc' ? APOC_SIZE : 52;
-    this.h = layout === 'training' ? 27 : layout === 'apoc' ? APOC_SIZE : 36;
-    this.mat = new Uint8Array(this.w * this.h);        // floor material (MAT; 0 = the lab's tiles)
-    this.wallKind = new Uint8Array(this.w * this.h);   // wall look (0 = metal panels)
-    this.blocked = new Uint8Array(this.w * this.h);    // cells a solid prop sits in (paths go round)
-    this.roofs = [];                                   // buildings' roofs (see apocmap.js)
-    this.focus = null;                                 // where the player is (roofs, tree tops fade)
+    this.w = layout === 'training' ? 46 : 52;
+    this.h = layout === 'training' ? 27 : 36;
     this.wallText = [];   // words painted on wall faces: { cx, cy, text, color }
     this.floorMarks = null;
     this.grid = new Uint8Array(this.w * this.h);
@@ -148,7 +138,6 @@ export class World {
     this.cases = [];
     this.supplies = [];
     if (this.layout === 'training') return this.buildTraining();
-    if (this.layout === 'apoc') return buildApoc(this);
     this.fill(3, 4, 16, 13, FLOOR);    // A: start room
     this.fill(17, 7, 22, 10, FLOOR);   // corridor A -> B
     this.fill(23, 3, 46, 20, FLOOR);   // B: main hall
@@ -285,61 +274,6 @@ export class World {
 
   // All solid rectangles overlapping box {l, t, r, b} (walls + props).
   // shot: for bullets, which fly over low walls and very low props.
-  // ---------- props, bucketed by area ----------
-
-  // The props whose boxes overlap a cell grid built on demand (rebuilt when props change).
-  get propGrid() {
-    if (this._grid && this._gridVersion === this.version && this._gridCount === this.props.length) return this._grid;
-    const gw = Math.ceil((this.w * TILE) / PCELL), gh = Math.ceil((this.h * TILE) / PCELL);
-    const grid = Array.from({ length: gw * gh }, () => null);
-    for (const p of this.props) {
-      const b = p.box;
-      const x0 = Math.max(0, Math.floor(b.l / PCELL)), x1 = Math.min(gw - 1, Math.floor(b.r / PCELL));
-      const y0 = Math.max(0, Math.floor(b.t / PCELL)), y1 = Math.min(gh - 1, Math.floor(b.b / PCELL));
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) (grid[y * gw + x] ??= []).push(p);
-    }
-    this._grid = grid;
-    this._gw = gw;
-    this._gh = gh;
-    this._gridVersion = this.version;
-    this._gridCount = this.props.length;
-    return grid;
-  }
-
-  // Props whose boxes might overlap the area (l, t)-(r, b).
-  propsIn(l, t, r, b) {
-    const grid = this.propGrid, gw = this._gw, gh = this._gh;
-    const x0 = Math.max(0, Math.floor(l / PCELL)), x1 = Math.min(gw - 1, Math.floor(r / PCELL));
-    const y0 = Math.max(0, Math.floor(t / PCELL)), y1 = Math.min(gh - 1, Math.floor(b / PCELL));
-    if (x0 === x1 && y0 === y1) return grid[y0 * gw + x0] ?? [];
-    const out = new Set();
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) for (const p of grid[y * gw + x] ?? []) out.add(p);
-    return [...out];
-  }
-
-  // Props near a point (within r).
-  propsNear(x, y, r) {
-    return this.propsIn(x - r, y - r, x + r, y + r);
-  }
-
-  addProp(p) {
-    this.props.push(p);
-    this.version++;
-    if (p.blocksPath) this.markBlocked(p);
-    return p;
-  }
-
-  // A solid prop's cells are off the zombies' paths.
-  markBlocked(p, v = 1) {
-    const cx = Math.floor(p.x / TILE), cy = Math.floor((p.box.t + p.box.b) / 2 / TILE);
-    if (cx >= 0 && cy >= 0 && cx < this.w && cy < this.h) this.blocked[cy * this.w + cx] = v;
-  }
-
-  // Open for walking round (pathfinding): floor without a solid prop on it.
-  isOpen(cx, cy) {
-    return this.isFloor(cx, cy) && !this.blocked[cy * this.w + cx];
-  }
-
   solidsIn(box, shot = false) {
     const out = [];
     const cx0 = Math.floor(box.l / TILE), cx1 = Math.floor((box.r - 1e-6) / TILE);
@@ -351,19 +285,18 @@ export class World {
         if (overlaps(box, r)) out.push(r);
       }
     }
-    for (const p of this.propsIn(box.l, box.t, box.r, box.b)) if (!p.ghost && !(shot && p.low) && overlaps(box, p.box)) out.push(p.box);
+    for (const p of this.props) if (!(shot && p.low) && overlaps(box, p.box)) out.push(p.box);
     return out;
   }
 
   // The prop at (x, y), with a little slack for things that stopped just short of it.
   propAt(x, y, slack = 1.5) {
-    return this.propsNear(x, y, slack + 1).find((p) => !p.low && !p.ghost && x >= p.box.l - slack && x <= p.box.r + slack && y >= p.box.t - slack && y <= p.box.b + slack);
+    return this.props.find((p) => !p.low && x >= p.box.l - slack && x <= p.box.r + slack && y >= p.box.t - slack && y <= p.box.b + slack);
   }
 
   removeProp(p) {
     const i = this.props.indexOf(p);
     if (i >= 0) this.props.splice(i, 1);
-    if (p.blocksPath) this.markBlocked(p, 0);
     this.version++;
   }
 
@@ -446,10 +379,9 @@ export class World {
       }
       if (t < max && blocks(cx, cy)) hit = t;
     }
-    // props: ray vs box (slab test) - only the ones the ray could reach
-    const ex = ox + dx * hit, ey = oy + dy * hit;
-    for (const p of this.propsIn(Math.min(ox, ex), Math.min(oy, ey), Math.max(ox, ex), Math.max(oy, ey))) {
-      if (p.ghost || (tallOnly && !p.tall)) continue;
+    // props: ray vs box (slab test)
+    for (const p of this.props) {
+      if (tallOnly && !p.tall) continue;
       const b = p.box;
       const t1x = dx ? (b.l - ox) / dx : -Infinity, t2x = dx ? (b.r - ox) / dx : Infinity;
       const t1y = dy ? (b.t - oy) / dy : -Infinity, t2y = dy ? (b.b - oy) / dy : Infinity;
@@ -480,7 +412,7 @@ export class World {
       const i = queue[head++], cx = i % this.w, cy = (i / this.w) | 0;
       for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const nx = cx + ox, ny = cy + oy, ni = ny * this.w + nx;
-        if (!this.isOpen(nx, ny) || flow[ni] !== -1) continue;
+        if (!this.isFloor(nx, ny) || flow[ni] !== -1) continue;
         flow[ni] = flow[i] + 1;
         queue[tail++] = ni;
       }
@@ -495,8 +427,8 @@ export class World {
     let best = null, bestD = here;
     for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
       const nx = cx + ox, ny = cy + oy;
-      if (!this.isOpen(nx, ny)) continue;
-      if (ox && oy && (!this.isOpen(cx + ox, cy) || !this.isOpen(cx, cy + oy))) continue;  // no corner cutting
+      if (!this.isFloor(nx, ny)) continue;
+      if (ox && oy && (!this.isFloor(cx + ox, cy) || !this.isFloor(cx, cy + oy))) continue;  // no corner cutting
       const d = this.flow[ny * this.w + nx];
       if (d >= 0 && d < bestD) {
         bestD = d;
@@ -513,38 +445,25 @@ export class World {
   // seconds after its last stain, then fades out over DECAL_FADE seconds and
   // is recycled. So the floor slowly clears itself, oldest mess first.
 
-  // (x, y): where it lands - big maps keep their mess in chunks round it.
-  stain(draw, x = 0, y = 0) {
-    const big = this.w * TILE > CHUNK * 2;
-    const cx = big ? Math.floor(x / CHUNK) : 0, cy = big ? Math.floor(y / CHUNK) : 0, key = cx + ',' + cy;
-    const chunk = (this.chunks[key] ??= { x: cx * CHUNK, y: cy * CHUNK, w: big ? CHUNK : this.w * TILE, h: big ? CHUNK : this.h * TILE, layers: [] });
-    let layer = chunk.layers[chunk.layers.length - 1];
+  stain(draw) {
+    let layer = this.decals[this.decals.length - 1];
     if (!layer || this.decalTime - layer.born >= DECAL_BUCKET) {
-      let reuse = this.decalPool.findIndex(([c]) => c.width === chunk.w && c.height === chunk.h);
-      const [canvas, ctx] = reuse >= 0 ? this.decalPool.splice(reuse, 1)[0] : makeCanvas(chunk.w, chunk.h);
+      const [canvas, ctx] = this.decalPool.pop() ?? makeCanvas(this.w * TILE, this.h * TILE);
       layer = { canvas, ctx, born: this.decalTime };
-      chunk.layers.push(layer);
+      this.decals.push(layer);
     }
-    layer.ctx.setTransform(1, 0, 0, 1, -chunk.x, -chunk.y);
     draw(layer.ctx);
-    layer.ctx.setTransform(1, 0, 0, 1, 0, 0);
-  }
-
-  get decals() {
-    return Object.values(this.chunks).flatMap((c) => c.layers);
   }
 
   updateDecals(dt) {
     this.decalTime += dt;
-    for (const chunk of Object.values(this.chunks)) {
-      while (chunk.layers.length && this.decalAlpha(chunk.layers[0]) <= 0) {
-        const old = chunk.layers.shift();
-        old.ctx.setTransform(1, 0, 0, 1, 0, 0);
-        old.ctx.globalAlpha = 1;
-        old.ctx.globalCompositeOperation = 'source-over';
-        old.ctx.clearRect(0, 0, old.canvas.width, old.canvas.height);
-        this.decalPool.push([old.canvas, old.ctx]);
-      }
+    while (this.decals.length && this.decalAlpha(this.decals[0]) <= 0) {
+      const old = this.decals.shift();
+      old.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      old.ctx.globalAlpha = 1;
+      old.ctx.globalCompositeOperation = 'source-over';
+      old.ctx.clearRect(0, 0, old.canvas.width, old.canvas.height);
+      this.decalPool.push([old.canvas, old.ctx]);
     }
   }
 
@@ -555,15 +474,12 @@ export class World {
     return k >= 1 ? 1 : k <= 0 ? 0 : k * k * (3 - 2 * k);
   }
 
-  drawDecals(ctx, view = null) {
-    for (const chunk of Object.values(this.chunks)) {
-      if (view && (chunk.x > view.r || chunk.y > view.b || chunk.x + chunk.w < view.l || chunk.y + chunk.h < view.t)) continue;
-      for (const layer of chunk.layers) {
-        const a = this.decalAlpha(layer);
-        if (a <= 0) continue;
-        ctx.globalAlpha = a;
-        ctx.drawImage(layer.canvas, chunk.x, chunk.y);
-      }
+  drawDecals(ctx) {
+    for (const layer of this.decals) {
+      const a = this.decalAlpha(layer);
+      if (a <= 0) continue;
+      ctx.globalAlpha = a;
+      ctx.drawImage(layer.canvas, 0, 0);
     }
     ctx.globalAlpha = 1;
   }
@@ -576,7 +492,7 @@ export class World {
       for (let cx = 0; cx < this.w; cx++) if (this.isFloor(cx, cy)) this.drawFloor(fg, cx, cy);
     this.floorMarks?.(fg);
     this.floorCanvas = fc;
-    this.chunks = {};
+    this.decals = [];
     this.decalPool = [];
     this.decalTime = 0;
 
@@ -616,8 +532,6 @@ export class World {
   }
 
   drawFloor(g, cx, cy) {
-    const m = this.mat[cy * this.w + cx];
-    if (m) return drawGround(this, g, cx, cy, m);
     const x = cx * TILE, y = cy * TILE;
     const r = hash(cx, cy);
     rect(g, (cx + cy) & 1 ? PAL.floorA : PAL.floorB, x, y, 16, 16);
@@ -653,8 +567,6 @@ export class World {
   // Draws into a row strip whose top is at world y = cy * TILE - WALL_H.
   // Low walls sit WALL_H - LOW_H lower in the strip and have a shorter face.
   drawWall(g, cx, cy) {
-    const kind = this.wallKind[cy * this.w + cx];
-    if (kind) return drawOutdoorWall(this, g, cx, cy, kind);
     const x = cx * TILE, type = this.get(cx, cy), low = type === LOW;
     const h = low ? LOW_H : WALL_H, oy = WALL_H - h;
     // only walls of the same height join up

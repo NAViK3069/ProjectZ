@@ -96,7 +96,7 @@ export class Hud {
       text('TRAINING', bx, y0 + 15, '#e6c63a');
       this.drawMeter(px, text, W, training, time);
     } else {
-      text(rounds.roundLabel ?? `ROUND ${Math.max(1, rounds.round)}`, bx, y0 + 15, C.text);
+      text(`ROUND ${Math.max(1, rounds.round)}`, bx, y0 + 15, C.text);
       // money: shakes red when you can't afford something, spent amounts float up
       this.denyTime -= dt;
       const shake = this.denyTime > 0 ? Math.round(Math.sin(time * 60) * 1.5) : 0;
@@ -210,8 +210,7 @@ export class Hud {
       const a = Math.min(1, rounds.banner, 3 - rounds.banner + 0.2);
       ctx.globalAlpha = Math.max(0, Math.min(1, a * 2));
       const s = rounds.bannerText ?? `ROUND ${rounds.round}`;
-      const size = s.length > 16 ? 2 : 3;
-      text(s, W / 2 - textWidth(s, size) / 2, H * 0.22, C.red, size);
+      text(s, W / 2 - textWidth(s, 3) / 2, H * 0.22, C.red, 3);
       ctx.globalAlpha = 1;
     }
 

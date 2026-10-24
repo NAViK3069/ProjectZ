@@ -49,9 +49,9 @@ export class Explosives {
       g.beginPath();
       g.ellipse(x, y, r * 0.45, r * 0.3, 0, 0, Math.PI * 2);
       g.fill();
-    }, x, y);
+    });
     this.onBlast(x, y, r, BLAST_DAMAGE * power);
-    for (const p of this.world.propsNear(x, y, r)) {
+    for (const p of this.world.props) {
       if (p.explosive && !p.blown && Math.hypot(p.x - x, p.y - y) < r) {
         p.blown = true;
         this.pending.push({ prop: p, t: rand(0.12, 0.25) });

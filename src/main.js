@@ -26,22 +26,10 @@ import { Dummy, updateNumbers, drawNumbers } from './entities/dummy.js';
 import { SpecWorld } from './combat/spec.js';
 import { zombieArt } from './entities/zombieart.js';
 import { TYPES } from './entities/zombie.js';
-import { Apocalypse, TREE_KINDS } from './game/apocalypse.js';
-import { Npc, drawApocHud, drawMapScreen, drawSky, generatorPanel, benchPanel, sargePanel, traderPanel } from './ui/apocui.js';
-import { Panel } from './ui/panel.js';
-import { setFocus } from './world/props.js';
-import { Weapon } from './combat/weapons.js';
 
-// '#training' opens the shooting range instead of the survival map;
-// '#apoc:SEED' the open-world survival mode on the map made from SEED.
-const APOC = location.hash.startsWith('#apoc');
-const MODE = location.hash === '#training' ? 'training' : APOC ? 'apoc' : 'survival';
+// '#training' opens the shooting range instead of the survival map.
+const MODE = location.hash === '#training' ? 'training' : 'survival';
 const TRAINING = MODE === 'training';
-let SEED = APOC ? parseInt(location.hash.split(':')[1], 10) || 0 : 0;
-if (APOC && !SEED) {
-  SEED = 1 + Math.floor(Math.random() * 999999);
-  history.replaceState(null, '', `#apoc:${SEED}`);
-}
 
 const CAMERA_FOLLOW = 9;       // higher = tighter
 const CAMERA_LOOKAHEAD = 0.18; // seconds of velocity to look ahead
@@ -61,7 +49,7 @@ const hintEl = document.getElementById('hud');
 
 const renderer = new Renderer(canvas);
 const input = new Input(canvas);
-const world = new World(TRAINING ? 'training' : APOC ? 'apoc' : 'lab', SEED);
+const world = new World(TRAINING ? 'training' : 'lab');
 const particles = new Particles(world);
 const lighting = new Lighting(world);
 const rounds = new Rounds(world, particles);
@@ -124,7 +112,6 @@ function zombieHit(z, res) {
     z.gore(particles);
     money += SCORE.kill + (res.part === 'head' ? SCORE.headshot : 0);
     rounds.kills++;
-    if (apoc) apoc.kills++;
     loot.zombieDrop(z.x, z.y, player);
   }
 }
@@ -211,21 +198,10 @@ function meleeHit(p, m) {
     zombieHit(z, z.hit(m.damage, nx, ny, head ? 22 : 12, head ? 'head' : 'melee'));
   }
   if (targets.length) renderer.kick(nx * (d.style === 'saw' ? 1 : 2.5), ny * (d.style === 'saw' ? 1 : 2.5));
-  // red drums in reach go up too; a tree takes the blade and gives up some wood
-  const hx = p.x + nx * d.reach * 0.6, hy = p.y + ny * d.reach * 0.6;
-  for (const prop of world.propsNear(hx, hy, d.reach)) {
-    if (TREE_KINDS.has(prop.kind) && !d.fists && !m.hits.has(prop) && Math.hypot(prop.x - hx, prop.y - 2 - hy) < d.reach * 0.6 + 8) {
-      m.hits.add(prop);
-      particles.bits(prop.x, prop.y - 4, 10, 6, ['#74533a', '#a07a52', '#5a3f26'], 0.7);
-      loot.drop(newItem('wood', 1), prop.x + nx * 6, prop.y + 4, 0.6);
-      if ((prop.chops = (prop.chops ?? 0) + 1) >= 4) {
-        world.removeProp(prop);
-        hud.notice('TREE DOWN');
-      }
-      continue;
-    }
+  // red drums in reach go up too
+  for (const prop of [...world.props]) {
     if (!prop.explosive || prop.blown || m.hits.has(prop)) continue;
-    if (Math.hypot(prop.x - hx, prop.y - hy) > d.reach * 0.6 + 6) continue;
+    if (Math.hypot(prop.x - (p.x + nx * d.reach * 0.6), prop.y - (p.y + ny * d.reach * 0.6)) > d.reach * 0.6 + 6) continue;
     m.hits.add(prop);
     particles.sparks(prop.x, prop.y, 8, -nx, -ny, 4);
     explosives.damageProp(prop, d.damage);
@@ -261,31 +237,6 @@ const player = new Player(images, world.spawn.x, world.spawn.y, {
 });
 const hud = new Hud(images.head);
 
-// ---------- the survival mode ----------
-let apoc = null, npcs = [];
-const panel = new Panel();
-if (APOC) {
-  Weapon.wear = true;
-  player.hunger = 100;
-  money = 150;
-  // a pistol, a knife, a little food and a couple of bandages - the rest you find
-  player.inventory.takeId('grenade', 9);
-  for (const [id, n] of [['beans', 2], ['water', 2], ['cloth', 2]]) player.inventory.add(newItem(id, n));
-  rounds.apoc = true;
-  rounds.roundLabel = '';
-  apoc = new Apocalypse({
-    world, rounds, player, loot, particles,
-    notice: (t) => hud.notice(t),
-    banner: (t) => { rounds.banner = 3; rounds.bannerText = t; },
-    get money() { return money; },
-    set money(v) { money = v; },
-    hurt: (z, dmg) => hurtZombie(z, dmg, 'melee'),
-  });
-  rounds.env.speedAt = (z) => apoc.speedAt(z);
-  npcs = [new Npc(images, world.npcSpots.sarge.x, world.npcSpots.sarge.y, 'SARGE', 'sarge', 70), new Npc(images, world.npcSpots.trader.x, world.npcSpots.trader.y, 'TRADER', 'trader', 190)];
-  hintEl.textContent = 'WASD = เดิน · Shift = วิ่ง · เมาส์ = เล็ง/ยิง · R = รีโหลด · E = คุย/ใช้เครื่อง · กด E ค้าง = ค้นของ · M = แผนที่ · TAB = กระเป๋า · H = ใช้ยา · 1/2/3 = อาวุธ · ฟันต้นไม้ได้ไม้ · กลางคืนกลับแคมป์!';
-}
-
 // lamps are static lights; one of them flickers
 // the training range is lit up properly; the lab is mostly dark
 const lamps = world.lamps.map((l, i) => ({ ...LAMP, ...(TRAINING ? { radius: 170, intensity: 0.95 } : {}), x: l.x, y: l.y + 2, color: l.color, static: true, flicker: !TRAINING && i === 3 }));
@@ -299,11 +250,7 @@ let showControls = false;
 
 // Restart/quit simply reload the page; '#play' skips the title screen.
 const restart = () => {
-  location.hash = TRAINING ? 'training' : APOC ? 'apoc' : 'play';   // a new run: a new map
-  location.reload();
-};
-const openApoc = () => {
-  location.hash = 'apoc';
+  location.hash = TRAINING ? 'training' : 'play';
   location.reload();
 };
 const openTraining = () => {
@@ -330,7 +277,6 @@ function startGame() {
 const menus = {
   title: new Menu([
     { label: 'START', action: openSurvival },
-    { label: 'APOCALYPSE', action: openApoc },
     { label: 'TRAINING', action: openTraining },
     { label: 'GUN EDITOR', action: () => (location.href = 'editor.html') },
     { label: 'CONTROLS', action: () => (showControls = !showControls) },
@@ -349,7 +295,7 @@ const menus = {
 if (location.hash === '#play') {
   history.replaceState(null, '', location.pathname);
   startGame();
-} else if (TRAINING || APOC) {
+} else if (TRAINING) {
   startGame();
 } else {
   hintEl.hidden = true;
@@ -452,40 +398,12 @@ function nearestCrate() {
 
 function nearestGear() {
   const e = loot.nearest(player.x, player.y, 16);
-  return e && !['ammo', 'med', 'throwable', 'material', 'food', 'drink', 'fuel', 'repair'].includes(e.item.def.type) ? e : null;
+  return e && !['ammo', 'med', 'throwable'].includes(e.item.def.type) ? e : null;
 }
 
-let nearCrate = null, nearGear = null, nearUse = null, nearSearch = null, searchK = null;
-
-// Survival mode: the camp's machines and people in reach (E), or a container to go through (hold E).
-function nearestUse() {
-  if (!apoc) return null;
-  const c = [[world.generator, 'generator', 'GENERATOR'], [world.bench, 'bench', 'WORKBENCH'], ...npcs.map((n) => [n, n.role, n.name])];
-  let best = null, bd = 30;
-  for (const [o, kind, name] of c) {
-    const d = Math.hypot(player.x - o.x, player.y - o.y);
-    if (d < bd) { bd = d; best = { o, kind, name }; }
-  }
-  return best;
-}
-function nearestSearch() {
-  if (!apoc) return null;
-  let best = null, bd = 24;
-  for (const p of world.propsNear(player.x, player.y, 40)) {
-    if (!p.loot || p.searched) continue;
-    const d = Math.hypot(player.x - p.x, player.y - p.y + 3);
-    if (d < bd) { bd = d; best = p; }
-  }
-  return best;
-}
-function openPanel(kind) {
-  const build = { generator: generatorPanel, bench: benchPanel, sarge: sargePanel, trader: traderPanel }[kind];
-  panel.open(() => build(apoc));
-  state = 'panel';
-}
+let nearCrate = null, nearGear = null;
 
 function interact() {
-  if (nearUse) return openPanel(nearUse.kind);
   if (nearCase) return buy(nearCase);
   if (nearCrate) return loot.openCrate(nearCrate, player);
   if (nearGear) {
@@ -505,8 +423,6 @@ function interact() {
 // What the prompt at the bottom of the screen says.
 function currentPrompt() {
   if (state !== 'playing') return null;
-  if (nearUse) return { label: `${nearUse.name}`, free: true };
-  if (nearSearch) return { label: `HOLD E - SEARCH ${({ car: 'CAR', fuel: 'PUMP', wood: 'WOODPILE', scrap: 'JUNK', airdrop: 'AIRDROP' })[nearSearch.loot] ?? nearSearch.kind.toUpperCase()}`, free: true };
   if (nearCase) return { ...offer(nearCase), money };
   if (nearCrate) return { label: 'OPEN SUPPLY CRATE', free: true };
   if (nearGear) return { label: `PICK UP ${nearGear.item.def.name}`, free: true };
@@ -603,7 +519,7 @@ input.onTap = (x, y) => {
   return true;
 };
 
-window.game = { get apoc() { return apoc; }, get npcs() { return npcs; }, panel, MODE, flashFx, throwables, armory, spec, stats, training, applySettings, loot, invScreen, get money() { return money; }, set money(v) { money = v; }, get state() { return state; }, set state(v) { state = v; }, world, player, renderer, input, bullets, particles, rounds, lighting, explosives }; // handy for poking at things from devtools
+window.game = { MODE, flashFx, throwables, armory, spec, stats, training, applySettings, loot, invScreen, get money() { return money; }, set money(v) { money = v; }, get state() { return state; }, set state(v) { state = v; }, world, player, renderer, input, bullets, particles, rounds, lighting, explosives }; // handy for poking at things from devtools
 
 renderer.camera.x = player.x;
 renderer.camera.y = player.y + CAMERA_Y_OFFSET;
@@ -697,21 +613,6 @@ function update(dt) {
     input.endFrame();
     return;
   }
-  if (state === 'panel') {
-    if (!panel.update(hudMouse(), input)) state = 'playing';
-    input.endFrame();
-    return;
-  }
-  if (state === 'map') {
-    if (input.wasPressed('Escape', 'KeyM', 'Tab')) state = 'playing';
-    input.endFrame();
-    return;
-  }
-  if (state === 'playing' && apoc && input.wasPressed('KeyM')) {
-    state = 'map';
-    input.endFrame();
-    return;
-  }
   if (state === 'armory') {
     if (input.wasPressed('Escape', 'KeyE', 'Tab')) state = 'playing';
     else armory.update(hudMouse(), { down: input.wasPressed('Mouse0'), right: input.wasPressed('Mouse2') });
@@ -743,22 +644,7 @@ function update(dt) {
   nearCase = player.dead ? null : nearestCase();
   nearCrate = player.dead || nearCase ? null : nearestCrate();
   nearGear = player.dead || nearCase || nearCrate ? null : nearestGear();
-  nearUse = player.dead ? null : nearestUse();
-  nearSearch = player.dead || nearUse ? null : nearestSearch();
   if (!bagOpen && input.wasPressed('KeyE')) interact();
-  // hold E by a container to search it
-  searchK = null;
-  if (apoc && nearSearch && !bagOpen && input.down('KeyE')) searchK = apoc.search(nearSearch, dt);
-  else if (apoc) apoc.searching = null;
-  if (apoc) {
-    world.focus = { x: player.x, y: player.y, drawing: true };
-    setFocus(world.focus);
-    apoc.update(dt);
-    for (const r of world.roofs) r.update(dt, world.focus);
-    for (const n of npcs) n.update(dt, player);
-    rounds.round = apoc.day;
-    rounds.roundLabel = `DAY ${apoc.day}`;
-  }
   loot.update(dt, player, (item, n) => hud.notice(`+${n > 1 ? n + ' ' : ''}${item.def.name}`));
   if (rounds.round !== lastRound) {
     // a new round: supply crates are restocked
@@ -816,14 +702,8 @@ function render() {
   renderer.beginWorld();
 
   // --- lit scene ---
-  const view = { l: renderer.left - 48, t: renderer.top - 64, r: renderer.left + renderer.viewW + 48, b: renderer.top + renderer.viewH + 64 };
-  {
-    // just the part of the floor in view (big maps)
-    const fc = world.floorCanvas, sx = Math.max(0, Math.floor(renderer.left) - 2), sy = Math.max(0, Math.floor(renderer.top) - 2);
-    const sw = Math.min(fc.width - sx, Math.ceil(renderer.viewW) + 4), sh = Math.min(fc.height - sy, Math.ceil(renderer.viewH) + 4);
-    if (sw > 0 && sh > 0) ctx.drawImage(fc, sx, sy, sw, sh, sx, sy, sw, sh);
-  }
-  world.drawDecals(ctx, view);
+  ctx.drawImage(world.floorCanvas, 0, 0);
+  world.drawDecals(ctx);
   particles.draw(ctx, 'ground');
   hazards.draw(ctx);
   throwables.draw(ctx);
@@ -834,9 +714,7 @@ function render() {
   // cells: anything whose feet are above that line is behind the wall.
   // `order` remembers what was drawn, back to front, so the lighting can
   // light each upright thing the same way round.
-  const inView = (o) => o.x > view.l && o.x < view.r && o.y > view.t && o.y < view.b + 40;
-  const drawables = [...world.propsIn(view.l, view.t, view.r, view.b + 40), ...rounds.zombies.filter(inView), player, ...npcs, ...world.roofs.filter((r) => r.r > view.l && r.l < view.r && r.b > view.t && r.t < view.b)]
-    .sort((a, b) => a.sortY - b.sortY);
+  const drawables = [...world.props, ...rounds.zombies, player].sort((a, b) => a.sortY - b.sortY);
   // shadows and floor rails belong to the floor: under everything standing up
   for (const d of drawables) d.drawShadow?.(ctx, renderer);
   const firstRow = Math.max(0, Math.floor(renderer.top / TILE));
@@ -852,8 +730,7 @@ function render() {
     while (i < drawables.length && drawables[i].sortY < lineY) drawOne(drawables[i++]);
     const strip = world.wallRows[row];
     if (strip && row >= firstRow && row <= lastRow) {
-      const sx = Math.max(0, Math.floor(view.l)), sw = Math.min(strip.width - sx, Math.ceil(view.r - view.l));
-      if (sw > 0) ctx.drawImage(strip, sx, 0, sw, strip.height, sx, lineY - WALL_H, sw, strip.height);
+      ctx.drawImage(strip, 0, lineY - WALL_H);
       order.push({ row });
     }
   }
@@ -862,7 +739,6 @@ function render() {
   particles.draw(ctx, 'mid');
 
   // --- lighting ---
-  if (apoc) lighting.ambient = apoc.ambient;
   lighting.begin(renderer);
   for (const l of lamps) {
     const base = TRAINING ? 0.95 : LAMP.intensity;
@@ -876,7 +752,7 @@ function render() {
   for (const l of spec.lights(player)) lighting.add(l);
   let beam = null;
   if (!player.dead) {
-    lighting.add({ ...PLAYER_GLOW, x: player.x, y: player.y, intensity: (PLAYER_GLOW.intensity ?? 1) * (apoc ? Math.max(0.1, apoc.dark) : 1) });
+    lighting.add({ ...PLAYER_GLOW, x: player.x, y: player.y });
     const f = player.flashlight();   // only with a flashlight on the gun
     if (f) {
       // never let the beam start on the far side of a wall the gun is poking into
@@ -940,8 +816,7 @@ function render() {
     player.drawEmissive(g, renderer);
     if (laserDot) drawLaser(g, laserDot);
   });
-  for (const p of world.propsIn(view.l, view.t, view.r, view.b)) if (p.glow) at(p.sortY + 0.5, (g) => p.glow(g, time));
-  if (apoc) at(Infinity, (g) => drawSky(g, apoc));   // the plane and crates coming down: over everything
+  for (const p of world.props) if (p.glow) at(p.sortY + 0.5, (g) => p.glow(g, time));
   // things lying on the floor: anything standing over them hides them
   at(-Infinity, (g) => {
     explosives.drawEmissive(g);
@@ -967,15 +842,8 @@ function render() {
   const overlay = state === 'inventory' || state === 'armory';
   hintEl.style.visibility = overlay ? 'hidden' : '';
   if (!overlay) hud.draw(ctx, renderer, { player, rounds, money, time, prompt, touch: input.usingTouch, training: TRAINING ? stats : null });
-  if (apoc && !overlay && state !== 'map' && state !== 'panel' && !player.dead) drawApocHud(ctx, renderer, apoc, player, world, time, searchK);
-  if (apoc && state === 'map') drawMapScreen(ctx, renderer, apoc, player, world, time);
-  if (apoc && state === 'panel') panel.draw(ctx, renderer);
-  if (apoc && player.dead && player.deadTime > 1) {
-    const u = renderer.scale, W = renderer.width / u, H = renderer.height / u, s = `YOU SURVIVED ${apoc.day - 1} NIGHT${apoc.day - 1 === 1 ? '' : 'S'}  -  SEED ${world.seed}`;
-    drawText(ctx, s, Math.round((W / 2 - textWidth(s) / 2) * u), Math.round((H * 0.38 + 38) * u), u, '#ffd84a');
-  }
   if (state === 'inventory') {
-    invScreen.info = TRAINING ? { training: true } : { round: rounds.round, money, label: apoc ? `DAY ${apoc.day}` : null };
+    invScreen.info = TRAINING ? { training: true } : { round: rounds.round, money };
     invScreen.draw(ctx, renderer, time);
   }
   if (state === 'armory') armory.draw(ctx, renderer, time);

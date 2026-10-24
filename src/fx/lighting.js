@@ -50,7 +50,6 @@ export class Lighting {
     this.ox = Math.floor(renderer.left) - 1;
     this.oy = Math.floor(renderer.top) - 1;
     this.view = { l: this.ox, t: this.oy, r: this.ox + w, b: this.oy + h };
-    this.lit = [];   // where this frame's lights reach (props out of all of them skip the surface pass)
     const g = this.g;
     g.globalCompositeOperation = 'source-over';
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -67,7 +66,6 @@ export class Lighting {
     const { x, y, radius: r } = light;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     if (x + r < this.view.l || x - r > this.view.r || y + r < this.view.t || y - r > this.view.b) return;
-    if ((light.intensity ?? 1) > 0.01) this.lit.push(light);
     const version = this.world.version;
     const cached = light.poly && light.polyVersion === version;
     const poly = cached ? light.poly : this.shape(light);
@@ -188,9 +186,8 @@ export class Lighting {
       }
       out.push(poly);
     };
-    const R = light.radius;
-    for (const b of this.world.lowRects) if (b.r > light.x - R && b.l < light.x + R && b.b > light.y - R && b.t < light.y + R) add(b, b.h);
-    for (const p of this.world.propsNear(light.x, light.y, light.radius)) if (!p.tall && !p.ghost && p.shadowH && !p.lights?.includes(light)) add(p.box, p.shadowH);
+    for (const b of this.world.lowRects) add(b, b.h);
+    for (const p of this.world.props) if (!p.tall && p.shadowH && !p.lights?.includes(light)) add(p.box, p.shadowH);
     return out;
   }
 
@@ -251,8 +248,6 @@ export class Lighting {
     b.x = Math.floor(b.x);
     b.y = Math.floor(b.y);
     if (b.x + b.w < this.view.l || b.x > this.view.r || b.y + b.h < this.view.t || b.y > this.view.b) return;
-    // a prop no light reaches is just the ambient colour - the floor under it already is
-    if (e.fixedShape && !this.lit.some((l) => b.x - l.radius < l.x && b.x + b.w + l.radius > l.x && b.y - l.radius < l.y && b.y + b.h + l.radius > l.y)) return;
     const rows = e.lightRows ? e.lightRows() : [e.y + 1];
     const t = this.t;
     if (this.temp.width < b.w || this.temp.height < b.h) {

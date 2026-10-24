@@ -304,18 +304,6 @@ const GLOW = {
 };
 const cache = {};
 
-// More prop kinds (the open-world map's) are added from elsewhere.
-export function addPropDefs(defs, glows = {}) {
-  Object.assign(DEFS, defs);
-  Object.assign(GLOW, glows);
-}
-
-// Where the player is: tree tops over them go see-through.
-let FOCUS = null;
-export function setFocus(f) {
-  FOCUS = f;
-}
-
 export function createProp(kind, x, y) {
   const d = DEFS[kind];
   cache[kind] ??= { img: d.art(), openImg: d.open?.(), shadow: makeShadow(...d.shadow) };
@@ -331,12 +319,7 @@ export function createProp(kind, x, y) {
     fixedShape: true,               // never animates (lighting can cache its silhouette)
     explosive: kind === 'barrel',   // red chemical drums go up when shot
     hp: 25,
-    opened: false,                  // supply crates (and searched containers that show it)
-    ghost: !!d.ghost,               // just decoration: walk / shoot / see through it
-    blocksPath: !!d.solid,          // zombies path round it
-    loot: d.loot ?? null,           // a container: what kind of things are in it
-    searched: false,
-    interact: d.interact ?? null,   // camp machines: what E does here
+    opened: false,                  // supply crates
     box: { l: x - d.halfW, t: y - d.depth, r: x + d.halfW, b: y },
     // lighting: the sprite's area, the floor row in front whose light its
     // face takes, and its top face - lit from the floor around it if it's
@@ -348,21 +331,15 @@ export function createProp(kind, x, y) {
       ctx.drawImage(shadow, Math.round(x - shadow.width / 2), y - shadow.height + 2);
     },
     draw(ctx) {
-      // a tree top over the player goes see-through so you can see under it
-      // (only where it's drawn - the lighting keeps its cached solid silhouette)
-      const under = d.fade && FOCUS && FOCUS.drawing && Math.abs(FOCUS.x - x) < d.w / 2 + 2 && FOCUS.y < y - 1 && FOCUS.y > y - d.h + 4;
-      if (under) ctx.globalAlpha = 0.42;
       ctx.drawImage(prop.opened && openImg ? openImg : img, Math.round(x - d.w / 2), y - d.h);
-      if (under) ctx.globalAlpha = 1;
     },
   };
   if (d.light) {
     // a lamp: casts light from just in front of itself, glows after lighting
     const [radius, color, intensity, height] = d.light;
-    prop.lights = [{ x, y: y + 3, radius, color, intensity, height, static: true, base: intensity, powered: !!d.powered }];
+    prop.lights = [{ x, y: y + 3, radius, color, intensity, height, static: true }];
     prop.glow = (ctx, time) => {
-      if (d.powered && prop.lights[0].intensity <= 0.01) return;   // off: no glow
-      const flick = kind === 'terminal' && Math.sin(time * 9 + x) > 0.97 ? 0.6 : kind === 'campfire' ? 0.75 + 0.25 * Math.sin(time * 13 + x) : 1;
+      const flick = kind === 'terminal' && Math.sin(time * 9 + x) > 0.97 ? 0.6 : 1;   // the odd screen flicker
       ctx.globalAlpha = flick;
       for (const [gx, gy, gw, gh, col] of GLOW[kind]) {
         ctx.fillStyle = col;

@@ -7,7 +7,7 @@ import { makeShadow } from '../engine/pixel.js';
 import { ITEMS, AMMO_FOR, itemImage } from './items.js';
 import { newItem } from './inventory.js';
 
-const AUTO = new Set(['ammo', 'med', 'throwable', 'material', 'food', 'drink', 'fuel', 'repair']);
+const AUTO = new Set(['ammo', 'med', 'throwable']);
 const PICK_RANGE = 12;    // px to auto-pickup
 // nobody picked it up: it stays a long while, then fades away (seconds)
 const LOOT_LIFE = 240, LOOT_FADE = 30;
@@ -17,7 +17,6 @@ const pick = (list) => list[(Math.random() * list.length) | 0];
 
 const MODS = Object.values(ITEMS).filter((d) => d.type === 'attachment').map((d) => d.id);
 const GEAR = ['vestLight', 'vestHeavy', 'helmet', 'packLarge', 'chestRig', 'pouch'];
-export { ammoDrop, throwDrop, MODS, GEAR, pick, rand };
 // throwables, the plain grenade most often
 const THROWS = ['grenade', 'grenade', 'grenade', 'frag', 'smoke', 'flashbang', 'stun', 'molotov', 'molotov', 'c4', 'landmine', 'claymore', 'tripmine', 'flare', 'taser'];
 const throwDrop = () => newItem(pick(THROWS), 1);
