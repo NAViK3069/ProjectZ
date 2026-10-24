@@ -231,7 +231,9 @@ export class ArmoryScreen {
       px(cx, cy, CARD_W, CARD_H, hov ? C.cardHi : C.card);
       const im = c.img ?? zombieThumb(c.type);
       const fit = Math.min((CARD_W - 6) / im.width, (CARD_H - 12) / im.height);
-      const sc = fit >= 2 ? 2 : fit >= 1 ? 1 : fit;   // whole-pixel scales where it fits
+      // guns all at the same pixel size (so a pistol looks small next to a rifle,
+      // like it should); other things up to 2x; never an uneven in-between scale
+      const sc = c.kind === 'gun' ? (fit >= 1 ? 1 : Math.max(1, Math.floor(fit * r.scale)) / r.scale) : fit >= 2 ? 2 : fit >= 1 ? 1 : Math.max(1, Math.floor(fit * r.scale)) / r.scale;
       img(im, cx + CARD_W / 2 - (im.width * sc) / 2, cy + 2 + (CARD_H - 12 - im.height * sc) / 2, sc);
       const name = c.name.length > 15 ? c.name.slice(0, 15) : c.name;
       text(name, cx + CARD_W / 2 - textWidth(name) / 2, cy + CARD_H - 7, cur ? C.sel : C.text);

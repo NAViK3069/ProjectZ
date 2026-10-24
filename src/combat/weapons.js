@@ -129,6 +129,16 @@ export class Weapon {
     this.drawT = DRAW_TIME;
     this.events = [];     // things that happened this frame (for effects)
     this.ammo = this.magSize;
+    this.cond = 100;      // condition (survival mode: wears as it's fired, repaired with a kit)
+    this.reloadMul = 1;   // reload speed (coffee)
+  }
+
+  // Guns only wear out in the survival mode.
+  static wear = false;
+
+  // How badly worn: 0 (fine) .. 1 (falling apart).
+  get worn() {
+    return Weapon.wear ? Math.max(0, (50 - this.cond) / 50) : 0;
   }
 
   // --- stats, with attachments applied ---
@@ -140,7 +150,7 @@ export class Weapon {
   }
 
   get magSize() { return Math.round(this.def.magSize * this.mod('magSize')); }
-  get spread() { return this.def.spread * this.mod('spread'); }
+  get spread() { return this.def.spread * this.mod('spread') * (1 + this.worn * 0.9); }
   get climbAmount() { return this.def.climb * this.mod('climb'); }
   get recoilAmount() { return this.def.recoil * this.mod('recoil'); }
   get shake() { return this.def.shake * this.mod('shake'); }
@@ -235,9 +245,10 @@ export class Weapon {
     }
 
     if (!this.reloading) return;
-    if (this.def.reload === 'shells') this.updateShells(dt);
-    else if (this.def.reload === 'steps') this.updateSteps(dt);
-    else this.updateMag(dt);
+    const rdt = dt * this.reloadMul;
+    if (this.def.reload === 'shells') this.updateShells(rdt);
+    else if (this.def.reload === 'steps') this.updateSteps(rdt);
+    else this.updateMag(rdt);
   }
 
   // Break actions / revolvers: run down the def's timeline of steps.
@@ -346,7 +357,14 @@ export class Weapon {
       this.startReload();
       return 'empty';
     }
+    // a badly worn gun jams now and then
+    if (Weapon.wear && this.cond < 25 && Math.random() < (25 - this.cond) / 220) {
+      this.cooldown = 0.7;
+      this.events.push('jam');
+      return 'jam';
+    }
     this.ammo--;
+    if (Weapon.wear) this.cond = Math.max(0, this.cond - Math.min(0.4, Math.max(0.05, 0.03 + this.def.fireInterval * 0.3)));
     this.cooldown = this.def.fireInterval;
     if (this.def.burst) {
       // burst guns fire a few rounds per pull, then pause

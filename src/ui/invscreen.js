@@ -17,6 +17,7 @@ import { CELL, itemIcon, itemImage, gunItem, meleeItem, itemW, itemH } from '../
 import { Grid, newItem } from '../game/inventory.js';
 import { ATTACH_ART } from '../combat/gunart.js';
 import { MAX_HP, MAX_STAMINA } from '../entities/player.js';
+import { Weapon } from '../combat/weapons.js';
 
 const C = {
   bg: 'rgba(8, 11, 7, 0.62)',   // the game carries on behind
@@ -345,7 +346,7 @@ export class InventoryScreen {
     const inBags = hit.kind === 'grid' && !onFloor;
     const o = [];
     const add = (label, run) => o.push({ label, run });
-    if (t === 'med' && inBags) add('USE', () => p.useItem(item));
+    if (['med', 'food', 'drink', 'repair'].includes(t) && inBags) add(t === 'food' ? 'EAT' : t === 'drink' ? 'DRINK' : 'USE', () => p.useItem(item));
     if (t === 'throwable' && inBags) add('SELECT FOR [G]', () => (p.throwSel = item.id));
     if (['helmet', 'armor', 'backpack', 'rig'].includes(t) && hit.kind !== 'equip') add('EQUIP', () => this.toEquip(item, hit, t));
     if (item.weapon && hit.kind === 'weapon') add(`MOVE TO SLOT ${3 - hit.index}`, () => this.toGunSlot(item, hit, 1 - hit.index));
@@ -411,11 +412,12 @@ export class InventoryScreen {
     const drawItem = (item, x, y, w, h) => {
       const img = itemImage(item), rot = item.rot;
       const iw = rot ? img.height : img.width, ih = rot ? img.width : img.height;
-      const sc = Math.min(item.weapon ? 2 * k : k, (w - 2) / iw, (h - 2) / ih);
+      // whole screen pixels per art pixel, so every gun's pixels come out even and crisp
+      const sc = Math.max(1, Math.floor(Math.min(item.weapon ? 2 * k : k, (w - 2) / iw, (h - 2) / ih) * u));
       ctx.save();
       ctx.translate(Math.round((x + w / 2) * u), Math.round((y + h / 2) * u));
       if (rot) ctx.rotate(Math.PI / 2);
-      const dw = Math.round(img.width * sc * u), dh = Math.round(img.height * sc * u);
+      const dw = img.width * sc, dh = img.height * sc;
       ctx.drawImage(img, -Math.round(dw / 2), -Math.round(dh / 2), dw, dh);
       ctx.restore();
     };
@@ -453,8 +455,9 @@ export class InventoryScreen {
     };
     // a picture scaled to fit w x h (at most `max` times), centred
     const fit = (img, x, y, w, h, max = 1) => {
-      const s = Math.min(max, w / img.width, h / img.height);
-      ctx.drawImage(img, Math.round((x + w / 2 - (img.width * s) / 2) * u), Math.round((y + h / 2 - (img.height * s) / 2) * u), Math.round(img.width * s * u), Math.round(img.height * s * u));
+      // whole screen pixels per art pixel (never a blurry in-between size)
+      const d = Math.max(1, Math.floor(Math.min(max, w / img.width, h / img.height) * u));
+      ctx.drawImage(img, Math.round((x + w / 2) * u - (img.width * d) / 2), Math.round((y + h / 2) * u - (img.height * d) / 2), img.width * d, img.height * d);
     };
 
     // column widths: storage fits the biggest bag (7 wide) and gets any
@@ -493,7 +496,7 @@ export class InventoryScreen {
     const info = this.info ?? {};
     if (info.training) text('TRAINING', bx, top + 19, '#e6c63a');
     else {
-      text(`ROUND ${Math.max(1, info.round ?? 1)}`, bx, top + 19, C.text);
+      text(info.label ?? `ROUND ${Math.max(1, info.round ?? 1)}`, bx, top + 19, C.text);
       const m = `$${info.money ?? 0}`;
       text(m, mx + MW - 4 - textWidth(m), top + 19, C.green);
     }
@@ -549,7 +552,8 @@ export class InventoryScreen {
       // the gun as it is now, big
       const slotY = y + ph - 15;
       const img = w.icon, room = slotY - y - 19;
-      const s = Math.max(1, Math.min(3, Math.floor((MW - 12) / img.width), Math.floor(room / img.height)));
+      // the same scale for every gun (sized so the longest fit), so a pistol looks small next to a rifle
+      const s = Math.max(1, Math.min(3, Math.floor((MW - 12) / 52), Math.floor(room / 16), Math.floor((MW - 12) / img.width)));
       fit(img, mx + 4, y + 11, MW - 8, room, s);
       // attachment slots, centred under it
       const n = w.def.slots.length, slotW = Math.min(SLOT_W, Math.floor((MW - 8) / n) - 3), step = slotW + 3;
@@ -599,6 +603,12 @@ export class InventoryScreen {
       const it = h.item, lines = [it.def.name];
       if (it.def.type === 'ammo') lines.push(`${it.count}/${it.def.stack} ROUNDS`);
       if (it.def.type === 'med') lines.push(`HEALS ${it.def.heal}  RCLICK USE`);
+      if (it.def.type === 'food') lines.push(`FOOD +${it.def.food}  RCLICK EAT`);
+      if (it.def.type === 'drink') lines.push(`${it.def.info ?? `FOOD +${it.def.food}  STAMINA +${it.def.stamina ?? 0}`}  RCLICK DRINK`);
+      if (it.def.type === 'repair') lines.push(`${it.def.repair === 'weapon' ? 'REPAIRS THE GUN IN HAND' : 'REPAIRS YOUR ARMOR + HELMET'}  RCLICK USE`);
+      if (it.def.type === 'material') lines.push('CRAFTING MATERIAL - WORKBENCH');
+      if (it.def.type === 'fuel') lines.push(`+${it.def.fuel} GENERATOR FUEL`);
+      if (it.weapon && Weapon.wear) lines.push(`CONDITION ${Math.round(it.weapon.cond ?? 100)}%`);
       if (it.def.durability) lines.push(`${Math.round(it.def.armor * 100)}% ARMOR  ${Math.ceil(it.durability)}/${it.def.durability}`);
       if (it.def.type === 'attachment') lines.push(`${SLOT_NAMES[ATTACH_ART[it.id].slot]}  RCLICK ATTACH`);
       if (it.def.type === 'backpack') lines.push(`${it.def.grid[0]}X${it.def.grid[1]} SPACE`);

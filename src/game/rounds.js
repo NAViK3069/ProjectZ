@@ -84,7 +84,7 @@ export class Rounds {
 
   update(dt, player) {
     this.banner -= dt;
-    if (!this.training) this.updateWaves(dt, player);
+    if (!this.training && !this.apoc) this.updateWaves(dt, player);
 
     this.world.updateFlow(player.x, player.y);
     for (const z of this.zombies) {

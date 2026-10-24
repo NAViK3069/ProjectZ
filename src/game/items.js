@@ -28,6 +28,31 @@ export const ITEMS = {
   vestLight: { name: 'LIGHT VEST', type: 'armor', armor: 0.3, durability: 120, w: 2, h: 2 },
   vestHeavy: { name: 'HEAVY VEST', type: 'armor', armor: 0.5, durability: 220, w: 2, h: 3 },
   helmet: { name: 'HELMET', type: 'helmet', armor: 0.15, durability: 80, w: 2, h: 2 },
+  bikeHelmet: { name: 'BIKE HELMET', type: 'helmet', armor: 0.08, durability: 45, w: 2, h: 2, look: 'bike' },
+  riotHelmet: { name: 'RIOT HELMET', type: 'helmet', armor: 0.25, durability: 150, w: 2, h: 2, look: 'riot' },
+  policeVest: { name: 'POLICE VEST', type: 'armor', armor: 0.38, durability: 160, w: 2, h: 2 },
+
+  // --- survival (the open-world mode) ---
+  // materials: what you craft with at the workbench
+  wood: { name: 'WOOD', type: 'material', stack: 10, w: 1, h: 1 },
+  scrap: { name: 'SCRAP', type: 'material', stack: 10, w: 1, h: 1 },
+  cloth: { name: 'CLOTH', type: 'material', stack: 10, w: 1, h: 1 },
+  chem: { name: 'CHEMICALS', type: 'material', stack: 5, w: 1, h: 1 },
+  elec: { name: 'ELECTRONICS', type: 'material', stack: 5, w: 1, h: 1 },
+  powder: { name: 'GUNPOWDER', type: 'material', stack: 10, w: 1, h: 1 },
+  fuelCan: { name: 'FUEL CAN', type: 'fuel', fuel: 35, stack: 1, w: 1, h: 2 },
+  // food fills your stomach; drinks give you a boost for a while
+  beans: { name: 'CANNED BEANS', type: 'food', food: 30, useTime: 1.6, stack: 3, w: 1, h: 1 },
+  mre: { name: 'MRE', type: 'food', food: 60, useTime: 2.4, stack: 2, w: 1, h: 2 },
+  chips: { name: 'CHIPS', type: 'food', food: 15, useTime: 1, stack: 4, w: 1, h: 1 },
+  water: { name: 'WATER', type: 'drink', food: 8, stamina: 40, useTime: 1, stack: 3, w: 1, h: 1 },
+  energy: { name: 'ENERGY DRINK', type: 'drink', food: 5, buff: 'energy', dur: 60, useTime: 1, stack: 3, w: 1, h: 1, info: 'MOVE +15%  STAMINA X2  60S' },
+  coffee: { name: 'COFFEE', type: 'drink', food: 5, buff: 'coffee', dur: 75, useTime: 1.2, stack: 3, w: 1, h: 1, info: 'RELOAD +35%  75S' },
+  pills: { name: 'PAINKILLERS', type: 'drink', buff: 'pills', dur: 50, useTime: 1, stack: 4, w: 1, h: 1, info: 'DAMAGE TAKEN -30%  50S' },
+  adrenaline: { name: 'ADRENALINE', type: 'drink', buff: 'adrenaline', dur: 18, heal: 15, useTime: 0.8, stack: 2, w: 1, h: 1, info: 'MOVE +30%  +15 HP  18S' },
+  // repairs: guns wear out as they're fired, armour as it's hit
+  gunKit: { name: 'GUN REPAIR KIT', type: 'repair', repair: 'weapon', amount: 60, useTime: 3, stack: 1, w: 2, h: 1 },
+  armorKit: { name: 'ARMOR REPAIR KIT', type: 'repair', repair: 'armor', amount: 0.7, useTime: 3, stack: 1, w: 2, h: 1 },
   packSmall: { name: 'SMALL PACK', type: 'backpack', grid: [5, 3], w: 2, h: 2 },
   packLarge: { name: 'LARGE PACK', type: 'backpack', grid: [7, 5], w: 3, h: 3 },
   // ammo rigs: their own grid, for ammo and throwables only
@@ -50,6 +75,28 @@ export const ITEMS = {
 // every throwable is an item too (G throws the selected one)
 for (const [id, t] of Object.entries(THROWABLES)) ITEMS[id] = { name: t.name, type: 'throwable', stack: id === 'taser' ? 6 : 4, w: 1, h: 1 };
 for (const [id, def] of Object.entries(ITEMS)) def.id = id;
+
+// Pixel art for the survival items: [rows, palette] (scaled to fit the item's cells).
+const ICONS = {
+  wood: [['..ww....', '.wWWw...', 'wWwwWwww', 'wwwwWWWw', '.wwwwwWw', '...www..'], { w: '#6e4a2c', W: '#a07a52' }],
+  scrap: [['..mm.k..', '.mMMmkk.', 'mmrmMMk.', '.mMmmmmm', '..mrrMm.', '...mm...'], { m: '#657575', M: '#8d9c9c', r: '#7a3326', k: '#3c5a5a' }],
+  cloth: [['cccccc..', 'cCCCCcc.', 'ccrcccCc', '.cCCcccc', '..cccrcc', '...cccc.'], { c: '#9a8a6a', C: '#bfae88', r: '#7a3326' }],
+  chem: [['..kk..', '..ww..', '.wggw.', 'wgGggw', 'wggggw', '.wwww.'], { k: '#2b2e2f', w: '#c9d3da', g: '#5ec46a', G: '#a8f0b0' }],
+  elec: [['gggggg', 'gyGgyg', 'gGkkGg', 'gGkkGg', 'gyGgyg', 'gggggg'], { g: '#2f6a3a', G: '#4f8a5a', y: '#e8b84a', k: '#1c2221' }],
+  powder: [['.kkkk.', 'kddddk', 'kdDDdk', 'kddddk', 'kddddk', '.kkkk.'], { k: '#2b2e2f', d: '#3a3a3a', D: '#e8e4d6' }],
+  fuelCan: [['..kkk.', '.krrrk', 'krRrrk', 'krrrrk', 'krrrrk', 'krYYrk', 'krrrrk', 'kkkkkk'], { k: '#1c1c1c', r: '#a8382e', R: '#d4553f', Y: '#e8b84a' }],
+  beans: [['.ssss.', 'srrrrs', 'rwwwwr', 'rwOOwr', 'rrrrrr', '.ssss.'], { s: '#8d9c9c', r: '#a8382e', w: '#e8e4d6', O: '#c4561f' }],
+  mre: [['tttt', 'tTTt', 'tkkt', 'tttt', 'tTTt', 'tttt'], { t: '#857150', T: '#a8936a', k: '#2b2e2f' }],
+  chips: [['.yyyy.', 'yYYYYy', 'yrrrry', 'yYYYYy', 'yYYYYy', '.yyyy.'], { y: '#c9a24a', Y: '#e8c45a', r: '#c23a2e' }],
+  water: [['..kk..', '.bbbb.', 'bBbbbb', 'bBwwbb', 'bBbbbb', '.bbbb.'], { k: '#2b6a9a', b: '#7fb7d9', B: '#c8e6f5', w: '#e8f4fa' }],
+  energy: [['.ssss.', 'gggggg', 'gGkGgg', 'gkGkgg', 'gggggg', '.ssss.'], { s: '#8d9c9c', g: '#4fae3a', G: '#c8f04a', k: '#1c2221' }],
+  coffee: [['.wwww.', 'wbbbbw', 'wbBbbww', 'wbbbbw.w', 'wbbbbww', '.wwww.'], { w: '#e8e4d6', b: '#5a3a24', B: '#8a5a3a' }],
+  pills: [['.wwww.', 'wrrrrw', 'wwwwww', 'wkwkww', 'wwwwww', '.wwww.'], { w: '#e8e4d6', r: '#c23a2e', k: '#2b6a9a' }],
+  adrenaline: [['....kk', '...kgk', '..kgk.', '.kRk..', 'kRk...', 'sk....'], { k: '#1c2221', g: '#8d9c9c', R: '#e8484a', s: '#c3cdcd' }],
+  gunKit: [['kkkkkkkk', 'kgggyggk', 'kgSSSSgk', 'kgggggk.', 'kkkkkkk.'], { k: '#1c1c1c', g: '#4f5a32', y: '#e8b84a', S: '#c3cdcd' }],
+  armorKit: [['kkkkkkkk', 'kbbbwbbk', 'kbwwwwbk', 'kbbbwbbk', 'kkkkkkkk'], { k: '#1c1c1c', b: '#3a4a6a', w: '#e8e4d6' }],
+};
+for (const [id, [rows, pal]] of Object.entries(ICONS)) ITEMS[id].icon = { rows, pal };
 
 export const AMMO_FOR = { battery: 'battery', '9mm': 'ammo9', '.45': 'ammo45', '5.56': 'ammo556', '7.62': 'ammo762', '12g': 'ammo12', '.308': 'ammo308', '.50': 'ammo50' };
 
@@ -101,6 +148,19 @@ export function itemIcon(def) {
   const [c, g] = makeCanvas(w, h);
   const K = '#0d100b';
   const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+  if (def.icon) {
+    // drawn from its rows, scaled to fit, with an outline
+    const rows = def.icon.rows, rw = Math.max(...rows.map((r) => r.length)), rh = rows.length;
+    const s = Math.max(1, Math.floor(Math.min((w - 2) / rw, (h - 2) / rh)));
+    const ox = Math.floor((w - rw * s) / 2), oy = Math.floor((h - rh * s) / 2);
+    const on = (x, y) => rows[y]?.[x] && rows[y][x] !== '.';
+    for (let y = -1; y <= rh; y++) for (let x = -1; x <= rw; x++) {
+      if (on(x, y)) rect(g, def.icon.pal[rows[y][x]], ox + x * s, oy + y * s, s, s);
+      else if (on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1)) rect(g, K, ox + x * s, oy + y * s, s, s);
+    }
+    icons[def.id] = c;
+    return c;
+  }
   switch (def.type) {
     case 'ammo':
       if (def.id === 'battery') {
@@ -141,11 +201,24 @@ export function itemIcon(def) {
     case 'armor':
       // plate carrier
       rect(g, K, 2, 1, w - 4, h - 2);
-      rect(g, def.id === 'vestHeavy' ? '#3e4a2c' : '#5a6640', 3, 2, w - 6, h - 4);
+      rect(g, def.id === 'vestHeavy' ? '#3e4a2c' : def.id === 'policeVest' ? '#2a3448' : '#5a6640', 3, 2, w - 6, h - 4);
       rect(g, K, cx - 3, 1, 6, 3);
       for (let y = 6; y < h - 4; y += 4) rect(g, '#2b331f', 4, y, w - 8, 2);
       break;
     case 'helmet':
+      if (def.look === 'bike') {
+        rect(g, K, 3, 5, w - 6, h - 9);
+        rect(g, '#d4553f', 4, 6, w - 8, h - 11);
+        for (let x = 6; x < w - 6; x += 3) rect(g, '#1c1c1c', x, 7, 1, 2);
+        break;
+      }
+      if (def.look === 'riot') {
+        rect(g, K, 3, 3, w - 6, h - 6);
+        rect(g, '#2b2e2f', 4, 4, w - 8, h - 8);
+        rect(g, '#7fb7d9', 5, h - 9, w - 10, 3);   // visor
+        rect(g, '#c8e6f5', 6, h - 9, 3, 1);
+        break;
+      }
       rect(g, K, 3, 4, w - 6, h - 8);
       rect(g, K, 2, h - 6, w - 4, 3);
       rect(g, '#4a5240', 4, 5, w - 8, h - 10);

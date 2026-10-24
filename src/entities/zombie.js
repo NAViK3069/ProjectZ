@@ -89,6 +89,8 @@ export class Zombie {
     this.wobble = Math.random() * Math.PI * 2;
     this.rise = 0.35;     // spawn: fade in out of the dark
     this.lift = 0;        // height off the ground (leaping)
+    this.aggro = opts.aggro ?? Infinity;   // how close you have to be for it to notice you
+    this.alert = this.aggro === Infinity;  // after you (or still wandering about)
     const sh = this.size.shadow.join('x');
     SHADOWS[sh] ??= makeShadow(...this.size.shadow);
     this.shadow = SHADOWS[sh];
@@ -213,7 +215,8 @@ export class Zombie {
     if (this.rise > 0) this.rise -= dt;
     const T = this.T;
     const pdx = player.x - this.x, pdy = player.y - this.y, pd = Math.hypot(pdx, pdy);
-    if (Math.abs(pdx) > 2 && !this.leaping) this.facing = pdx > 0 ? 1 : -1;
+    if (!this.alert) { if (Math.abs(this.vx) > 2) this.facing = this.vx > 0 ? 1 : -1; }
+    else if (Math.abs(pdx) > 2 && !this.leaping) this.facing = pdx > 0 ? 1 : -1;
 
     if (this.leaping) return this.updateLeap(dt, world, player, pd);
 
@@ -228,7 +231,11 @@ export class Zombie {
       return;
     }
     this.confT = Math.max(0, (this.confT ?? 0) - dt);
-    const lost = this.confT > 0;
+    // out in the open: it notices you when you come close or hurt it, and
+    // loses interest again once you're well away
+    if (!this.alert && !player.dead && (pd < this.aggro || this.hp < this.maxHp)) this.alert = true;
+    else if (this.alert && this.aggro !== Infinity && pd > this.aggro * 3) this.alert = false;
+    const lost = this.confT > 0 || !this.alert;
 
     // head for the player along the flow field; straight at them when close
     let tx = player.x, ty = player.y;
@@ -273,7 +280,7 @@ export class Zombie {
 
     const busy = this.attack >= 0 || this.crouch > 0 || this.fuse >= 0;
     const slow = busy ? 0.2 : this.rise > 0 ? 0.3 : 1;
-    const want = player.dead ? 0 : this.speed * slow * (lost ? 0.35 : 1) * (T.spit && pd < 140 && pd > 80 ? 0.3 : 1);
+    const want = (player.dead && this.alert ? 0 : this.speed * slow * (lost ? 0.35 : 1) * (T.spit && pd < 140 && pd > 80 ? 0.3 : 1)) * (this.env?.speedAt?.(this) ?? 1);
     this.vx += (dx * want + sx * 40 - this.vx) * Math.min(1, dt * 6);
     this.vy += (dy * want + sy * 40 - this.vy) * Math.min(1, dt * 6);
     this.kx *= Math.exp(-10 * dt);
@@ -520,7 +527,7 @@ export class Zombie {
           w.ellipse(x + rand(-14, 14), y + rand(-7, 7), rand(3, 9), rand(2, 5), 0, 0, Math.PI * 2);
           w.fill();
         }
-      });
+      }, x, y);
       return;
     }
     const [c, g] = makeCanvas(a.W + 16, a.H + 8);
@@ -541,6 +548,6 @@ export class Zombie {
       w.globalAlpha = 0.88;
       w.drawImage(c, -(a.W / 2 + 8), -(a.H + 4));
       w.restore();
-    });
+    }, x, y);
   }
 }

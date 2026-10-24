@@ -213,6 +213,8 @@ export class Player {
     this.muzzleLight = 0;
     this.muzzle = { x, y };
     this.using = null;     // { item, t } while using a medkit/bandage
+    this.buffs = {};       // buff id -> seconds left (drinks)
+    this.hunger = undefined;   // 0..100 in the survival mode (undefined: not a thing here)
 
     this.hp = MAX_HP;
     this.hurtTime = 99;    // seconds since last hit
@@ -283,12 +285,23 @@ export class Player {
       this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt);
       this.staminaRest = STAMINA_DELAY;
     } else if ((this.staminaRest -= dt) <= 0) {
-      this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt);
+      this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * (this.buff('energy') ? 2 : 1) * dt);
     }
     this.slowT = Math.max(0, (this.slowT ?? 0) - dt);
+    for (const k of Object.keys(this.buffs)) if ((this.buffs[k] -= dt) <= 0) delete this.buffs[k];
+    if (this.hunger !== undefined) {
+      // you get hungry - faster when running; starving hurts
+      this.hunger = Math.max(0, this.hunger - dt * (this.sprinting ? 0.2 : 0.12));
+      if (this.hunger <= 0 && (this.starveT = (this.starveT ?? 0) + dt) >= 2) {
+        this.starveT = 0;
+        this.hp -= 1;
+        if (this.hp <= 0) { this.hp = 0; this.dead = true; }
+      }
+    }
     this.rollCool -= dt;
     if (controls.roll && moving && !this.roll && !this.dash && this.rollCool <= 0 && !this.using && this.stamina >= ROLL_COST) this.startRoll(mv);
-    const top = MAX_SPEED * (this.sprinting ? SPRINT : 1) * (this.using ? 0.5 : 1) * (this.slowT > 0 ? 0.55 : 1) * (this.held.def.speedMul ?? 1);
+    const boost = (this.buff('energy') ? 1.15 : 1) * (this.buff('adrenaline') ? 1.3 : 1);
+    const top = MAX_SPEED * boost * (this.sprinting ? SPRINT : 1) * (this.using ? 0.5 : 1) * (this.slowT > 0 ? 0.55 : 1) * (this.held.def.speedMul ?? 1);
 
     // accelerate toward the target velocity (snappy, but not instant)
     const tx = mv.x * top, ty = mv.y * top;
@@ -356,7 +369,7 @@ export class Player {
 
     this.hurtTime += dt;
     this.invuln -= dt;
-    if (this.hurtTime > REGEN_DELAY) this.hp = Math.min(MAX_HP, this.hp + REGEN_RATE * dt);
+    if (this.hurtTime > REGEN_DELAY && (this.hunger === undefined || this.hunger > 50)) this.hp = Math.min(MAX_HP, this.hp + (this.hunger === undefined ? REGEN_RATE : 1.2) * dt);
 
     if (this.blinkLeft > 0) {
       this.blinkLeft -= dt;
@@ -439,11 +452,45 @@ export class Player {
   // ---------- meds ----------
 
   // Start using a med item (from the H key or the inventory screen).
+  // Can this item be used right now? (no point healing at full health, eating
+  // when full, repairing what isn't worn)
+  canUse(item) {
+    const d = item.def;
+    if (d.type === 'med') return this.hp < MAX_HP;
+    if (d.type === 'food') return (this.hunger ?? 100) < 100;
+    if (d.type === 'drink') return true;
+    if (d.type === 'repair') {
+      if (d.repair === 'weapon') return !this.meleeOut && !this.weapon?.def.spec && (this.weapon?.cond ?? 100) < 100;
+      return ['armor', 'helmet'].some((s) => { const a = this.inventory.equip[s]; return a && a.durability < a.def.durability; });
+    }
+    return false;
+  }
+
   useItem(item) {
-    if (this.dead || this.using || item.def.type !== 'med' || this.hp >= MAX_HP) return false;
+    if (this.dead || this.using || !item.def.useTime || !this.canUse(item)) return false;
     this.using = { item, t: 0 };
     this.held.cancelReload();
     return true;
+  }
+
+  // What using an item does, once it's done.
+  applyItem(item) {
+    const d = item.def;
+    if (d.heal) this.hp = Math.min(MAX_HP, this.hp + d.heal);
+    if (d.food && this.hunger !== undefined) this.hunger = Math.min(100, this.hunger + d.food);
+    if (d.stamina) this.stamina = Math.min(MAX_STAMINA, this.stamina + d.stamina);
+    if (d.buff) this.buffs[d.buff] = Math.max(this.buffs[d.buff] ?? 0, d.dur);
+    if (d.repair === 'weapon' && this.weapon) this.weapon.cond = Math.min(100, (this.weapon.cond ?? 100) + d.amount);
+    if (d.repair === 'armor') {
+      for (const s of ['armor', 'helmet']) {
+        const a = this.inventory.equip[s];
+        if (a) a.durability = Math.min(a.def.durability, a.durability + a.def.durability * d.amount);
+      }
+    }
+  }
+
+  buff(id) {
+    return (this.buffs[id] ?? 0) > 0;
   }
 
   updateHealing(dt, controls) {
@@ -462,7 +509,7 @@ export class Player {
     this.using.t += dt;
     const { item } = this.using;
     if (this.using.t >= item.def.useTime) {
-      this.hp = Math.min(MAX_HP, this.hp + item.def.heal);
+      this.applyItem(item);
       this.inventory.takeId(item.id, 1);
       this.using = null;
     }
@@ -569,6 +616,7 @@ export class Player {
   updateGun(dt, controls) {
     const w = this.weapon;
     if (w.def.spec) return this.updateSpec(dt, controls);
+    w.reloadMul = this.buff('coffee') ? 1.35 : 1;
     if (controls.reload && !this.using) w.startReload();
     w.update(dt);
     for (const e of w.events) this.reloadEvent(e);
@@ -776,6 +824,7 @@ export class Player {
 
   hurt(damage, fromX, fromY, knock = 160) {
     if (this.dead || this.invuln > 0 || this.god || (this.roll && this.roll.t < ROLL_SAFE) || this.dash?.safe) return false;
+    if (this.buff('pills')) damage *= 0.7;
     // armor soaks part of the hit while it lasts
     for (const slot of ['armor', 'helmet']) {
       const a = this.inventory.equip[slot];
