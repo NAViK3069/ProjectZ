@@ -9,7 +9,7 @@
       margin: 0;
       height: 100%;
       overflow: hidden;
-      background: #141219;
+      background: #0b100f;
       touch-action: none;
       user-select: none;
       -webkit-user-select: none;
@@ -21,22 +21,25 @@
       image-rendering: pixelated;
       cursor: none;
     }
-    #hud, #debug {
+    #hud {
       position: fixed;
+      right: 14px;
+      bottom: 10px;
       font: 12px/1.4 ui-monospace, Consolas, monospace;
-      color: #d6d0e2;
+      color: #d6e0d6;
       text-shadow: 0 1px 0 #000;
       pointer-events: none;
+      opacity: 0.75;
+      transition: opacity 1.5s;
+      text-align: right;
+      max-width: 46vw;
     }
-    #hud { right: 14px; top: 10px; opacity: 0.7; transition: opacity 1.5s; text-align: right; max-width: 42vw; }
     #hud.fade { opacity: 0; }
-    #debug { left: 12px; top: 10px; white-space: pre; }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
-  <div id="hud">WASD = เดิน · Shift = วิ่ง · กดทิศ 2 ครั้ง = กลิ้งหลบ · เมาส์ = เล็ง/ยิง · R = รีโหลด · 1 = มีด/ระยะประชิด · 2/3 = ปืน · Q = สลับ · E = ซื้อ/เปิด/เก็บ · G = ขว้าง · X = เปลี่ยนของขว้าง · F = เปิด/ปิดไฟฉาย-เลเซอร์ · H = ใช้ยา · TAB = กระเป๋า · ESC = พัก · F3 = debug</div>
-  <div id="debug" hidden></div>
-  <script type="module" src="src/main.js"></script>
+  <div id="hud">A/D = เดิน · กด A A / D D ค้าง = วิ่ง (ใช้สแตมินา) · Shift = กลิ้งหลบ (กลางอากาศได้ 1 ครั้ง) · 1 = มีด/หมัด · 2 = ปืน · 3 = ระเบิด (หรือหมุนลูกกลิ้งเมาส์) · W/Space = กระโดด (กดซ้ำกลางอากาศ = กระโดด 2 ชั้น) · W/S ที่บันได = ปีน · S = ลงทะลุทางเดินเหล็ก · เมาส์ = เล็ง/ยิง · R = รีโหลด · F/คลิกขวา = ตีด่วน (ตีคนที่กำลังยิงปืนจะทำปืนหลุดมือ) · G = ขว้างระเบิด · E = สลับอาวุธที่พื้น · ESC = พัก</div>
+  <script type="module" src="src/arena/main.js"></script>
 </body>
 </html>

@@ -1015,7 +1015,7 @@ async function save() {
 $('saveBtn').addEventListener('click', save);
 $('testBtn').addEventListener('click', async () => {
   if (dirty && !(await save())) return;
-  window.open(`index.html?gun=${encodeURIComponent(gun.key)}#training`, '_blank');
+  window.open(`topdown.html?gun=${encodeURIComponent(gun.key)}#training`, '_blank');   // the top-down game's training range
 });
 $('delBtn').addEventListener('click', async () => {
   if (!CUSTOM_GUNS.some((c) => c.key === gun.key)) return say('ปืนนี้ยังไม่ได้บันทึกเป็นไฟล์', true);

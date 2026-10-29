@@ -278,7 +278,7 @@ const menus = {
   title: new Menu([
     { label: 'START', action: openSurvival },
     { label: 'TRAINING', action: openTraining },
-    { label: 'ARENA', action: () => (location.href = 'arena.html') },
+    { label: 'ARENA', action: () => (location.href = 'index.html') },
     { label: 'GUN EDITOR', action: () => (location.href = 'editor.html') },
     { label: 'CONTROLS', action: () => (showControls = !showControls) },
   ]),
@@ -495,7 +495,7 @@ if (TRAINING) {
   for (const d of world.dummySpots) rounds.zombies.push(new Dummy(d.x, d.y, { numbers: { push: (n) => numbers.push(n) }, stats }, d.opts));
   player.equipGun(WEAPONS.m4a1, 1);
   player.slot = 1;
-  // from the gun editor's TEST button (index.html?gun=<key>#training): that gun in hand
+  // from the gun editor's TEST button (topdown.html?gun=<key>#training): that gun in hand
   const testGun = new URLSearchParams(location.search).get('gun');
   if (WEAPONS[testGun]) player.equipGun(WEAPONS[testGun], 0);
   applySettings();

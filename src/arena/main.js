@@ -893,7 +893,7 @@ function drawHud() {
     ctx.fillStyle = 'rgba(4, 6, 6, 0.7)';
     ctx.fillRect(0, 0, W, H);
     centerText(ctx, 'PAUSED', H * 0.38, 4, '#e8e2d0', u);
-    centerText(ctx, 'ESC - RESUME      R - RESTART MATCH      S - ROOM SETUP      Q - QUIT TO MENU', H * 0.38 + 30 * u, 1, '#9aa49c', u);
+    centerText(ctx, 'ESC - RESUME      R - RESTART MATCH      S / Q - ROOM SETUP', H * 0.38 + 30 * u, 1, '#9aa49c', u);
   }
   drawCrosshair(ctx, u);
 }
@@ -944,7 +944,7 @@ function drawTitle(ctx, u, W, H) {
     'HIT SOMEONE WITH MELEE WHILE THEY SHOOT AND THEIR GUN FLIES OUT OF THEIR HANDS',
   ];
   lines.forEach((l, i) => centerText(ctx, l, sy + 16 * u + i * 9 * u, 1, i === 3 ? '#ff8a6a' : '#7a8a80', u));
-  centerText(ctx, 'W S / UP DOWN - PICK   A D / LEFT RIGHT / CLICK - CHANGE   ENTER - START   ESC - MENU', H - 10 * u, 1, '#5a6a60', u);
+  centerText(ctx, 'W S / UP DOWN - PICK   A D / LEFT RIGHT / CLICK - CHANGE   ENTER - START', H - 10 * u, 1, '#5a6a60', u);
 }
 
 // Step a setting one way or the other.
@@ -981,7 +981,6 @@ function titleInput() {
     titleInput.ly = input.mouse.y;
   }
   if (input.wasPressed('Enter') || (menuSel === OPTIONS.length && input.wasPressed('Space'))) startMatch();
-  else if (input.wasPressed('Escape')) location.href = 'index.html';
 }
 
 function drawMatch(ctx, u, W, H) {
@@ -992,7 +991,7 @@ function drawMatch(ctx, u, W, H) {
   const rows = [...game.fighters].sort((a, b) => b.wins - a.wins || b.kills - a.kills);
   centerText(ctx, 'NAME      ROUNDS   KILLS', y + 36 * u, 1, '#5a6a60', u);
   rows.forEach((o, i) => centerText(ctx, `${o.name.padEnd(8)}  ${String(o.wins).padStart(4)}   ${String(o.kills).padStart(5)}`, y + 48 * u + i * 11 * u, 1, tagColor(o), u));
-  if (Math.floor(game.time * 2) % 2 === 0) centerText(ctx, 'CLICK OR ENTER - REMATCH      S - ROOM SETUP      ESC - MENU', y + 110 * u, 1, '#ffd25a', u);
+  if (Math.floor(game.time * 2) % 2 === 0) centerText(ctx, 'CLICK OR ENTER - REMATCH      S / ESC - ROOM SETUP', y + 110 * u, 1, '#ffd25a', u);
 }
 
 // ---------- the loop ----------
@@ -1016,10 +1015,10 @@ function tick(realDt, draw = true) {
   else if (state === 'match') {
     if (stateT > 1 && input.wasPressed('Enter', 'Mouse0')) startMatch();
     else if (stateT > 1 && input.wasPressed('KeyS')) { state = 'title'; banner = null; }
-    else if (input.wasPressed('Escape')) location.href = 'index.html';
+    else if (input.wasPressed('Escape')) { state = 'title'; banner = null; }
   } else if (input.wasPressed('Escape')) paused = !paused;
   if (paused) {
-    if (input.wasPressed('KeyQ')) location.href = 'index.html';
+    if (input.wasPressed('KeyQ')) { paused = false; state = 'title'; banner = null; }
     if (input.wasPressed('KeyR')) { paused = false; startMatch(); }
     if (input.wasPressed('KeyS')) { paused = false; state = 'title'; banner = null; }
   }
