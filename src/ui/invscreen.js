@@ -15,7 +15,7 @@
 import { drawText, textWidth } from './font.js';
 import { CELL, itemIcon, itemImage, gunItem, meleeItem, itemW, itemH } from '../game/items.js';
 import { Grid, newItem } from '../game/inventory.js';
-import { ATTACH_ART } from '../combat/gunart.js';
+import { ATTACH_ART, artW, artH } from '../combat/gunart.js';
 import { MAX_HP, MAX_STAMINA } from '../entities/player.js';
 
 const C = {
@@ -410,9 +410,9 @@ export class InventoryScreen {
     // guns (their own size) shrunk to fit; rotated items turned a quarter.
     const drawItem = (item, x, y, w, h) => {
       const img = itemImage(item), rot = item.rot;
-      const iw = rot ? img.height : img.width, ih = rot ? img.width : img.height;
+      const res = img.res ?? 1, iw = rot ? artH(img) : artW(img), ih = rot ? artW(img) : artH(img);
       // whole screen pixels per art pixel, so every gun's pixels come out even and crisp
-      const sc = Math.max(1, Math.floor(Math.min(item.weapon ? 2 * k : k, (w - 2) / iw, (h - 2) / ih) * u));
+      const sc = Math.max(1, Math.floor((Math.min(item.weapon ? 2 * k : k, (w - 2) / iw, (h - 2) / ih) * u) / res));
       ctx.save();
       ctx.translate(Math.round((x + w / 2) * u), Math.round((y + h / 2) * u));
       if (rot) ctx.rotate(Math.PI / 2);
@@ -455,7 +455,7 @@ export class InventoryScreen {
     // a picture scaled to fit w x h (at most `max` times), centred
     const fit = (img, x, y, w, h, max = 1) => {
       // whole screen pixels per art pixel (never a blurry in-between size)
-      const d = Math.max(1, Math.floor(Math.min(max, w / img.width, h / img.height) * u));
+      const d = Math.max(1, Math.floor((Math.min(max, w / artW(img), h / artH(img)) * u) / (img.res ?? 1)));
       ctx.drawImage(img, Math.round((x + w / 2) * u - (img.width * d) / 2), Math.round((y + h / 2) * u - (img.height * d) / 2), img.width * d, img.height * d);
     };
 
@@ -552,7 +552,7 @@ export class InventoryScreen {
       const slotY = y + ph - 15;
       const img = w.icon, room = slotY - y - 19;
       // the same scale for every gun (sized so the longest fit), so a pistol looks small next to a rifle
-      const s = Math.max(1, Math.min(3, Math.floor((MW - 12) / 52), Math.floor(room / 16), Math.floor((MW - 12) / img.width)));
+      const s = Math.max(1, Math.min(3, Math.floor((MW - 12) / 52), Math.floor(room / 16), Math.floor((MW - 12) / artW(img))));
       fit(img, mx + 4, y + 11, MW - 8, room, s);
       // attachment slots, centred under it
       const n = w.def.slots.length, slotW = Math.min(SLOT_W, Math.floor((MW - 8) / n) - 3), step = slotW + 3;

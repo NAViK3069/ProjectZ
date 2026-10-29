@@ -5,30 +5,46 @@
 // moves, the mag drops out, and so on. Attachments (sights, muzzle devices,
 // grips, mags, stocks) snap onto slots and replace or add parts.
 //
+// Guns are drawn finer than the rest of the game: RES gun pixels to a world
+// pixel, so there's room for shading and detail. Their source art (parts,
+// points, slots, travel) is in gun pixels; GUN_ART exports the points, slots,
+// hinge and moving-part travel in world pixels so the code that holds a gun
+// (hands, muzzle, port...) works in world units, and drawGun scales the art
+// down to match. Gun pictures (gunIcon, part / attachment images) are at gun
+// resolution and say so with `img.res` (see artW / artH).
+//
 // Parts are written as rows of palette letters ('.' = empty); each part gets
 // its own 1px black outline, which also draws the seams between parts.
-// Coordinates are gun pixels; guns point right.
+// Guns point right.
 
 import { makeCanvas } from '../engine/pixel.js';
 import { CATALOG } from './catalog.js';
-import { longGun, handgun } from './gunbuild.js';
+import { longGun, handgun, Sketch, paintMag, paintStock, FURN, BODY } from './gunbuild.js';
 import { CUSTOM_GUNS } from './customguns.js';
+
+export const RES = 2;   // gun pixels per world pixel
+
+// The size of a picture in world pixels (gun art is drawn finer than 1:1).
+export const artW = (img) => img.width / (img.res ?? 1);
+export const artH = (img) => img.height / (img.res ?? 1);
 
 const K = '#000000';
 // gunmetal greys (darkest to lightest), plus furniture and details
 export const GUN_PAL = {
   h: '#111316', f: '#1c2221', g: '#2b2e2f', e: '#343a3a', d: '#4c5455', c: '#657575', l: '#8d9c9c',
-  o: '#3f4a24', O: '#5a6a33', P: '#73843f',            // olive polymer
-  v: '#4a2f19', w: '#6e4426', W: '#93613a',            // wood
-  u: '#5e4e33', t: '#857150', T: '#a8936a',            // tan polymer
-  S: '#c3cdcd', R: '#9e2128',                          // polished steel, dark red paint
-  a: '#c4561f', A: '#ec8a34',                          // orange (chainsaw body)
-  r: '#d7313d', y: '#e8b84a', L: '#fff3c4', b: '#7fb7d9', s: '#c23a2e',
+  S: '#c3cdcd', Z: '#e6eded', q: '#20262a', k: '#0b0c0d',      // polished steel, near-white glint, blued steel, rubber
+  o: '#3f4a24', O: '#5a6a33', P: '#73843f', Q: '#8a9a50',      // olive polymer
+  V: '#3a2412', v: '#4a2f19', w: '#6e4426', W: '#93613a', x: '#b37a4a',   // wood
+  u: '#5e4e33', t: '#857150', T: '#a8936a', U: '#c2ad82',      // tan polymer
+  R: '#9e2128',                                                 // dark red paint
+  a: '#c4561f', A: '#ec8a34',                                   // orange (chainsaw body)
+  r: '#d7313d', y: '#e8b84a', Y: '#f5d27a', n: '#a8822e', L: '#fff3c4', b: '#7fb7d9', B: '#2f5f80', s: '#c23a2e',
 };
 
 // A part sprite with an automatic outline. Returns { img, w, h } where img is
-// 2px bigger than the rows (1px outline all round).
-export function part(rows, pal = GUN_PAL) {
+// 2px bigger than the rows (1px outline all round). res: what resolution the
+// rows are drawn at (gun parts: RES).
+export function part(rows, pal = GUN_PAL, res = 1) {
   const w = Math.max(...rows.map((r) => r.length)), h = rows.length;
   const W = w + 2, H = h + 2;
   const at = (x, y) => (x >= 0 && y >= 0 && x < w && y < h ? rows[y][x] ?? '.' : '.');
@@ -44,6 +60,7 @@ export function part(rows, pal = GUN_PAL) {
       }
     }
   }
+  if (res !== 1) c.res = res;
   return { img: c, w, h };
 }
 
@@ -96,140 +113,131 @@ export const HANDS = {
 //   muzzle, light, port (ejection port centre), trigger
 // slots: where attachments go: { sight, muzzle, under, mag, stock } -> { x, y }
 // moving parts: bolt (in the port), handle (charging handle), slide, pump
+// Every gun in the catalog is built from its spec (gunbuild.js).
 
-const GUNS = {
-  pistol: {
-    parts: {
-      frame: { x: 2, y: 3, rows: ['gggggggggf', 'eeeeee.ff'] },
-      grip: { x: 1, y: 5, rows: ['ggg', 'gfg', 'gfg', 'fff'] },
-      trigger: { x: 5, y: 5, rows: ['h'] },
-      guard: { x: 4, y: 5, rows: ['..f', '.ff'] },
-      barrel: { x: 9, y: 2, rows: ['dd', 'ee'] },
-      slide: { x: 0, y: 0, rows: ['cccccccccl', 'dhdhddddrd', 'eeeeeeeeee'] },
-      mag: { x: 1, y: 6, rows: ['ee', 'ee', 'ee', 'cd'] },
-    },
-    order: ['mag', 'barrel', 'frame', 'grip', 'guard', 'trigger', 'slide'],
-    points: { grip: { x: 2, y: 6 }, support: { x: 2.5, y: 8.5 }, magwell: { x: 2, y: 8 }, muzzle: { x: 11, y: 1.5 }, light: { x: 10, y: 4.5 }, port: { x: 6, y: 0.5 }, trigger: { x: 5, y: 5 } },
-    slots: { sight: { x: 5, y: -1 }, muzzle: { x: 11, y: 1 }, mag: true },
-    slide: { travel: 3 },
-  },
-
-  smg: {
-    parts: {
-      stock: { x: 0, y: 2, rows: ['ffff', 'f...', 'ffff'] },
-      receiver: { x: 4, y: 1, rows: ['fffffffffff', 'ggcggggggge', 'gggggggggge', 'eeeeeeeeeee'] },
-      barrel: { x: 15, y: 2, rows: ['ddd', 'eee'] },
-      grip: { x: 6, y: 5, rows: ['gg', 'gf', '.gf', '.ff'] },
-      trigger: { x: 8, y: 5, rows: ['h'] },
-      mag: { x: 10, y: 5, rows: ['eee', 'eee', 'eee', 'eee', 'cdd'] },
-      fore: { x: 13, y: 5, rows: ['gg', 'gf', 'ff'] },
-      bolt: { x: 9, y: 2, rows: ['ll'] },
-      handle: { x: 4, y: 0, rows: ['cc'] },
-    },
-    order: ['stock', 'barrel', 'mag', 'receiver', 'grip', 'fore', 'trigger', 'bolt', 'handle'],
-    points: { grip: { x: 7, y: 6 }, support: { x: 14, y: 6.5 }, magwell: { x: 11, y: 5 }, muzzle: { x: 18, y: 2.5 }, light: { x: 15, y: 4.5 }, port: { x: 10, y: 2 }, trigger: { x: 8, y: 5 } },
-    slots: { sight: { x: 8, y: 0 }, muzzle: { x: 18, y: 2 }, under: { x: 13, y: 5 }, mag: true, stock: true },
-    bolt: { travel: 2 },
-  },
-
-  rifle: {
-    parts: {
-      stock: { x: 0, y: 2, rows: ['dddddd', 'd...gg', 'd..gg.', 'ddgg..'] },
-      receiver: { x: 6, y: 1, rows: ['fffffffff', 'gcgggggge', 'ggggggggg', 'eeeeeeeee'] },
-      handguard: { x: 15, y: 1, rows: ['dddddddd', 'dedededd', 'edededee', 'eeeeeeee'] },
-      barrel: { x: 23, y: 2, rows: ['ddd', 'fff'] },
-      post: { x: 21, y: 0, rows: ['f'] },
-      grip: { x: 7, y: 5, rows: ['ggg', '.gf', '.gf', '..f'] },
-      trigger: { x: 10, y: 5, rows: ['h'] },
-      guard: { x: 10, y: 5, rows: ['.f', 'ff'] },
-      mag: { x: 12, y: 5, rows: ['ddd', 'eed', '.eed', '.eed', '..cd'] },
-      bolt: { x: 11, y: 2, rows: ['lll'] },
-      handle: { x: 6, y: 0, rows: ['cc'] },
-      sight: { x: 8, y: -1, rows: ['f.f'] },
-    },
-    order: ['stock', 'barrel', 'mag', 'handguard', 'post', 'receiver', 'grip', 'guard', 'trigger', 'bolt', 'handle', 'sight'],
-    points: { grip: { x: 8, y: 6 }, support: { x: 19, y: 5.5 }, magwell: { x: 13, y: 5 }, muzzle: { x: 26, y: 2.5 }, light: { x: 22, y: 4.5 }, port: { x: 12, y: 2 }, trigger: { x: 10, y: 5 } },
-    slots: { sight: { x: 9, y: 0 }, muzzle: { x: 26, y: 2 }, under: { x: 18, y: 5 }, mag: true, stock: true },
-    bolt: { travel: 3 },
-  },
-
-  shotgun: {
-    parts: {
-      stock: { x: 0, y: 2, rows: ['vwwwWW', 'vwwwww', 'vvwwww', '...vww'] },
-      receiver: { x: 6, y: 1, rows: ['ffffffff', 'gcgggggg', 'gggggggg', 'eeeeeeee'] },
-      barrel: { x: 14, y: 1, rows: ['ccccccccccccc', 'ddddddddddddd'] },
-      tube: { x: 14, y: 3, rows: ['eeeeeeeeee'] },
-      grip: { x: 6, y: 5, rows: ['ww', '.ww'] },
-      trigger: { x: 8, y: 5, rows: ['h'] },
-      guard: { x: 8, y: 5, rows: ['.f', 'ff'] },
-      pump: { x: 15, y: 3, rows: ['wWWWWw', 'wwwwww', 'vwvwvw'] },
-      bead: { x: 26, y: 0, rows: ['l'] },
-    },
-    order: ['stock', 'tube', 'barrel', 'bead', 'receiver', 'grip', 'guard', 'trigger', 'pump'],
-    points: { grip: { x: 7, y: 5.5 }, support: { x: 18, y: 6 }, magwell: { x: 10, y: 5 }, muzzle: { x: 27, y: 1.5 }, light: { x: 24, y: 3.5 }, port: { x: 10, y: 2 }, trigger: { x: 8, y: 5 } },
-    slots: { sight: { x: 9, y: 0 }, muzzle: { x: 27, y: 1 }, stock: true },   // a tube magazine: no mag swaps
-    pump: { travel: 4 },
-    shell: { w: 2, h: 1, color: GUN_PAL.s },
-  },
-
-  sniper: {
-    parts: {
-      stock: { x: 0, y: 2, rows: ['oOOOOOOO', 'oooooooO', 'oo..oooo', 'ooo.....'] },
-      receiver: { x: 8, y: 2, rows: ['ffffffff', 'gcgggggg', 'eeeeeeee'] },
-      barrel: { x: 16, y: 3, rows: ['dddddddddddddd', 'ffffffffffffff'] },
-      brake: { x: 30, y: 2, rows: ['dd', 'ff', 'ff', 'dd'] },
-      grip: { x: 8, y: 5, rows: ['oo', '.oo'] },
-      trigger: { x: 10, y: 5, rows: ['h'] },
-      guard: { x: 10, y: 5, rows: ['.f', 'ff'] },
-      mag: { x: 12, y: 5, rows: ['eee', 'cdd'] },
-      bolt: { x: 13, y: 4, rows: ['l', 'l', 'cc'] },
-      bipod: { x: 20, y: 5, rows: ['ffffff'] },
-    },
-    order: ['stock', 'barrel', 'brake', 'bipod', 'mag', 'receiver', 'grip', 'guard', 'trigger', 'bolt'],
-    points: { grip: { x: 9, y: 6 }, support: { x: 22, y: 5.5 }, magwell: { x: 13, y: 5 }, muzzle: { x: 32, y: 3.5 }, light: { x: 26, y: 5 }, port: { x: 12, y: 2 }, trigger: { x: 10, y: 5 }, handle: { x: 14, y: 7 } },
-    slots: { sight: { x: 10, y: 1 }, muzzle: { x: 32, y: 3 }, mag: true, stock: true },
-    bolt: { travel: 4, manual: true },   // worked by hand after each shot
-  },
-};
+const GUNS = {};
 
 // --- attachments ---------------------------------------------------------------
 // slot: which slot it fits; anchor: which of its pixels sits on the slot point;
-// replaces: default part it hides (mag/stock attachments swap the part out)
+// replaces: default part it hides (mag/stock attachments swap the part out).
+// Drawn on the gun grid like the guns.
 
+const sketch = (fn) => {
+  const s = new Sketch();
+  fn(s);
+  return s.part().rows;
+};
 const ATTACH = {
-  redDot: { slot: 'sight', anchor: { x: 2, y: 2 }, rows: ['.fff', 'fbbf', 'ffff'] },
-  scope: { slot: 'sight', anchor: { x: 4, y: 2 }, rows: ['dfffffffd', 'bggggggggb', '..f...f..'] },
-  holo: { slot: 'sight', anchor: { x: 2, y: 2 }, rows: ['ff.f', 'fr.f', 'ffff'] },
-  suppressor: { slot: 'muzzle', anchor: { x: 0, y: 1 }, rows: ['dddddd', 'gggggg', 'eeeeee'] },
-  compensator: { slot: 'muzzle', anchor: { x: 0, y: 1 }, rows: ['ddd', 'fhf', 'eee'] },
-  vgrip: { slot: 'under', anchor: { x: 1, y: 0 }, rows: ['ff', 'gf', 'gf', 'ff'] },
-  agrip: { slot: 'under', anchor: { x: 2, y: 0 }, rows: ['fff', '.ff', '..f'] },
-  extMag: { slot: 'mag', rows: ['ddd', 'eed', 'eed', 'eed', 'eed', 'cdd'] },
-  drumMag: { slot: 'mag', rows: ['.ddd.', 'deeed', 'eeeee', 'deeed', '.ddd.'] },
-  heavyStock: { slot: 'stock', rows: ['OOOOOO', 'oooooo', 'oooooo', 'ooo...'] },
+  redDot: {
+    slot: 'sight', anchor: { x: 4, y: 7 },
+    rows: sketch((s) => {
+      s.rect(1, 0, 7, 1, 'd').rect(0, 1, 9, 4, 'e').rect(0, 1, 9, 1, 'c');
+      s.rect(7, 1, 2, 4, 'g').rect(1, 2, 6, 2, 'B').rect(2, 2, 2, 1, 'b').set(5, 2, 'r');
+      s.rect(0, 5, 9, 1, 'f').rect(2, 6, 5, 2, 'g').rect(2, 6, 5, 1, 'e');
+    }),
+  },
+  holo: {
+    slot: 'sight', anchor: { x: 5, y: 8 },
+    rows: sketch((s) => {
+      s.rect(0, 0, 11, 1, 'd').rect(0, 0, 1, 6, 'e').rect(10, 0, 1, 6, 'g');
+      s.set(5, 3, 'r');
+      s.rect(0, 5, 11, 2, 'g').rect(0, 5, 11, 1, 'e').rect(8, 5, 2, 1, 'b');
+      s.rect(2, 7, 7, 2, 'f').rect(2, 7, 7, 1, 'e');
+    }),
+  },
+  scope: {
+    slot: 'sight', anchor: { x: 10, y: 9 },
+    rows: sketch((s) => {
+      s.rect(5, 2, 12, 5, 'e').rect(5, 2, 12, 1, 'c').rect(5, 3, 12, 1, 'd').rect(5, 6, 12, 1, 'g');   // tube
+      s.rect(0, 1, 6, 7, 'e').rect(0, 1, 6, 1, 'd').rect(0, 7, 6, 1, 'f').rect(0, 2, 1, 5, 'B');      // eyepiece
+      s.rect(16, 0, 7, 9, 'e').rect(16, 0, 7, 1, 'd').rect(16, 8, 7, 1, 'f').rect(22, 1, 1, 7, 'B').set(22, 2, 'b').set(22, 3, 'L');   // objective
+      s.rect(9, 0, 4, 2, 'd').set(10, 0, 'c');                                                        // turret
+      s.rect(6, 7, 3, 2, 'f').rect(13, 7, 3, 2, 'f').rect(6, 9, 10, 1, 'g');                           // rings + base
+    }),
+  },
+  suppressor: {
+    slot: 'muzzle', anchor: { x: 0, y: 3 },
+    rows: sketch((s) => {
+      s.rect(0, 0, 16, 7, 'g').rect(0, 0, 16, 1, 'd').rect(0, 1, 16, 1, 'e').rect(0, 6, 16, 1, 'f');
+      for (const i of [3, 8, 13]) s.rect(i, 1, 1, 5, 'f');
+      s.rect(15, 1, 1, 5, 'e').set(15, 3, 'h');
+    }),
+  },
+  compensator: {
+    slot: 'muzzle', anchor: { x: 0, y: 2 },
+    rows: sketch((s) => {
+      s.rect(0, 0, 7, 5, 'e').rect(0, 0, 7, 1, 'c').rect(0, 4, 7, 1, 'f');
+      s.rect(2, 0, 1, 2, 'h').rect(4, 0, 1, 2, 'h').set(6, 2, 'h');
+    }),
+  },
+  vgrip: {
+    slot: 'under', anchor: { x: 2, y: 0 },
+    rows: sketch((s) => {
+      s.rect(0, 0, 6, 2, 'f').rect(0, 0, 6, 1, 'e');
+      s.rect(1, 2, 4, 8, 'g').rect(1, 2, 1, 8, 'e').rect(4, 2, 1, 8, 'f');
+      for (let j = 4; j < 10; j += 2) s.set(2, j, 'f');
+      s.rect(1, 10, 4, 1, 'f');
+    }),
+  },
+  agrip: {
+    slot: 'under', anchor: { x: 4, y: 0 },
+    rows: sketch((s) => {
+      s.rect(0, 0, 9, 2, 'f').rect(0, 0, 9, 1, 'e');
+      for (let j = 2; j < 7; j++) s.rect(j - 1, j, 10 - j, 1, j === 2 ? 'e' : 'g').set(8, j, 'f');
+    }),
+  },
+  extMag: { slot: 'mag', rows: sketch((s) => paintMag(s, 'straight', 0, 0, 8, ['e', 'd', 'c'])) },
+  drumMag: { slot: 'mag', rows: sketch((s) => paintMag(s, 'drum', 0, 0, 5, ['e', 'd', 'c'])) },
+  heavyStock: { slot: 'stock', rows: sketch((s) => paintStock(s, 'solid', 12, 2, 8, FURN.olive, BODY.olive, 0, 'olive')) },
   // side rail, hanging under the front of the handguard; the lens / emitter is at the front
-  flashlight: { slot: 'side', anchor: { x: 4, y: 0 }, rows: ['ddddl', 'eeeeL'] },
-  laser: { slot: 'side', anchor: { x: 2, y: 0 }, rows: ['ddr', 'eeh'] },
-  laserLight: { slot: 'side', anchor: { x: 4, y: 0 }, rows: ['dddLr', 'eeeeL'] },
+  flashlight: {
+    slot: 'side', anchor: { x: 9, y: 0 },
+    rows: sketch((s) => s.rect(0, 0, 9, 4, 'e').rect(0, 0, 9, 1, 'c').rect(0, 3, 9, 1, 'f').rect(2, 1, 1, 2, 'g').rect(9, 0, 1, 4, 'L').set(9, 0, 'Y')),
+  },
+  laser: {
+    slot: 'side', anchor: { x: 5, y: 0 },
+    rows: sketch((s) => s.rect(0, 0, 5, 3, 'e').rect(0, 0, 5, 1, 'c').rect(0, 2, 5, 1, 'f').rect(5, 0, 1, 3, 'h').set(5, 1, 'r')),
+  },
+  laserLight: {
+    slot: 'side', anchor: { x: 9, y: 0 },
+    rows: sketch((s) => s.rect(0, 0, 9, 5, 'e').rect(0, 0, 9, 1, 'c').rect(0, 4, 9, 1, 'f').rect(9, 0, 1, 3, 'L').rect(9, 3, 1, 2, 'h').set(9, 3, 'r').rect(3, 1, 3, 1, 'g')),
+  },
 };
 
 export const ATTACH_ART = {};
-for (const [k, a] of Object.entries(ATTACH)) ATTACH_ART[k] = { ...a, ...part(a.rows) };
+for (const [k, a] of Object.entries(ATTACH)) ATTACH_ART[k] = { ...a, ...part(a.rows, GUN_PAL, RES) };
 
-// The rest of the catalog is generated from specs (gunbuild.js).
+// The catalog is generated from specs (gunbuild.js).
 for (const [key, , , , spec] of CATALOG) {
-  if (typeof spec === 'string') continue;   // uses a hand-drawn gun above
   GUNS[key] = spec.hand === 'long' ? longGun(spec) : handgun({ ...spec, box: spec.box || spec.hand === 'box' });
 }
 
+// A gun drawn before the art went finer (res 1): every pixel becomes RES x RES.
+export function upscale(gun) {
+  const k = RES / (gun.res ?? 1);
+  if (k === 1) return gun;
+  const pt = (p) => (p && typeof p === 'object' ? { ...p, x: p.x * k, y: p.y * k } : p);
+  const map = (o, f) => o && Object.fromEntries(Object.entries(o).map(([n, v]) => [n, f(v)]));
+  const out = { ...gun, res: RES };
+  out.parts = map(gun.parts, (p) => ({ ...p, x: p.x * k, y: p.y * k, rows: p.rows.flatMap((r) => Array(k).fill([...r].map((ch) => ch.repeat(k)).join(''))) }));
+  out.points = map(gun.points, pt);
+  out.slots = map(gun.slots, pt);
+  for (const m of ['bolt', 'slide', 'pump']) if (gun[m]) out[m] = { ...gun[m], travel: gun[m].travel * k };
+  if (gun.hinge) out.hinge = pt(gun.hinge);
+  if (gun.lever) out.lever = { ...gun.lever, pivot: pt(gun.lever.pivot) };
+  return out;
+}
+
 // Guns from the gun editor (assets/guns/*.json): new ones, or redrawn built-ins.
-for (const c of CUSTOM_GUNS) GUNS[c.key] = { ...c.art, pal: c.pal };
+for (const c of CUSTOM_GUNS) GUNS[c.key] = upscale({ ...c.art, res: c.art.res ?? c.res ?? 1, pal: c.pal });
 
 export const GUN_ART = {};
 
 // Build (or rebuild) one gun's art from its source: { parts: { name: { x, y, rows } },
-// order, points, slots, ... , pal? } - parts keep their rows (the gun editor reads them).
+// order, points, slots, ... , pal? } in gun pixels - parts keep their rows and
+// `src` the source as given (the gun editor reads them).
 export function buildGunArt(key, gun) {
+  gun = upscale({ ...gun, res: gun.res ?? RES });
   const pal = gun.pal ? { ...GUN_PAL, ...gun.pal } : GUN_PAL;
   // every gun takes a light / laser on its side rail, just under where its light point is
   const lp = gun.points.light;
@@ -238,19 +246,28 @@ export function buildGunArt(key, gun) {
   const parts = {};
   for (const [name, p] of Object.entries(gun.parts)) {
     if (!p.rows?.length) continue;
-    parts[name] = { x: p.x, y: p.y, rows: p.rows, ...part(p.rows, pal) };
+    parts[name] = { x: p.x, y: p.y, rows: p.rows, ...part(p.rows, pal, RES) };
   }
-  GUN_ART[key] = { ...gun, parts, order: (gun.order ?? Object.keys(parts)).filter((n) => parts[n]) };
+  // where the off hand grabs to rack it: the charging handle, else the slide (gun pixels)
+  const ph = gun.parts.handle, ps = gun.parts.slide;
+  const rack = gun.points.handle ?? (ph?.rows?.length ? { x: ph.x + 2, y: ph.y + 1 } : ps?.rows?.length ? { x: ps.x + 3, y: ps.y + 2 } : null);
+  if (rack) gun.points = { ...gun.points, handle: rack };
+  // gun pixels -> world pixels for everything the holding code reads
+  const w = (p) => (p && typeof p === 'object' ? { ...p, x: p.x / RES, y: p.y / RES } : p);
+  const map = (o) => o && Object.fromEntries(Object.entries(o).map(([n, v]) => [n, w(v)]));
+  const travel = (m) => m && { ...m, travel: m.travel / RES };
+  GUN_ART[key] = {
+    ...gun, src: gun, parts, order: (gun.order ?? Object.keys(parts)).filter((n) => parts[n]),
+    points: map(gun.points), slots: map(gun.slots), hinge: w(gun.hinge), lever: gun.lever && { ...gun.lever, pivot: w(gun.lever.pivot) },
+    bolt: travel(gun.bolt), slide: travel(gun.slide), pump: travel(gun.pump),
+  };
   return GUN_ART[key];
 }
 for (const [k, gun] of Object.entries(GUNS)) buildGunArt(k, gun);
 
-// Draw a gun with its grip point at the origin. state (all optional):
-//   attach: { slot: attachmentKey }, bolt: px back, slide: px back,
-//   pump: px back, magDrop: px (null = no mag), trigger: px pulled,
-//   open: radians a break action is hinged open, lever: radians a lever is swung down
-export function drawGun(ctx, key, state = {}) {
-  const gun = GUN_ART[key], { grip } = gun.points, a = state.attach ?? {};
+// Draw a gun on its own grid (gun pixels), grip point at the origin. state as drawGun, in gun pixels.
+function drawGunFine(ctx, key, state) {
+  const gun = GUN_ART[key], src = gun.src, { grip } = src.points, a = state.attach ?? {};
   const ox = -grip.x, oy = -grip.y;
   const swap = { mag: a.mag && ATTACH_ART[a.mag], stock: a.stock && ATTACH_ART[a.stock] };
   for (const name of gun.order) {
@@ -263,13 +280,24 @@ export function drawGun(ctx, key, state = {}) {
     }
     if (name === 'stock' && swap.stock) img = swap.stock.img;
     if (name === 'sight' && a.sight) continue;           // iron sights fold away under an optic
-    if (name === 'bolt' || name === 'handle') x -= name === 'bolt' ? state.bolt ?? 0 : state.handle ?? 0;
+    if (name === 'bolt') x -= state.bolt ?? 0;
+    if (name === 'handle') x -= (state.handle ?? 0) + (gun.handleRides ? state.bolt ?? 0 : 0);
+    if (name === 'bolt' && src.port) {
+      const pr = src.port;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(ox + pr.x, oy + pr.y, pr.w, pr.h);
+      ctx.clip();
+      ctx.drawImage(img, ox + x - 1, oy + y - 1);
+      ctx.restore();
+      continue;
+    }
     if (name === 'slide') x -= state.slide ?? 0;
     if (name === 'pump') x -= state.pump ?? 0;
     if (name === 'trigger') x -= state.trigger ?? 0;
     // parts that swing on a pivot: the barrels of a break action, a loop lever
-    const pivot = state.open && gun.breakParts?.includes(name) ? [gun.hinge, state.open]
-      : state.lever && name === 'lever' ? [gun.lever.pivot, state.lever] : null;
+    const pivot = state.open && gun.breakParts?.includes(name) ? [src.hinge, state.open]
+      : state.lever && name === 'lever' ? [src.lever.pivot, state.lever] : null;
     if (pivot) {
       const [at, ang] = pivot;
       ctx.save();
@@ -282,27 +310,41 @@ export function drawGun(ctx, key, state = {}) {
     ctx.drawImage(img, ox + x - 1, oy + y - 1);
   }
   for (const slot of ['under', 'side', 'muzzle', 'sight']) {
-    const k = a[slot], s = gun.slots[slot];
+    const k = a[slot], s = src.slots[slot];
     if (!k || !s) continue;
     const art = ATTACH_ART[k];
     ctx.drawImage(art.img, ox + s.x - art.anchor.x - 1, oy + s.y - art.anchor.y - 1);
   }
 }
 
-// How far an attachment moves the muzzle forward (suppressors are long).
-export function muzzleOffset(attach) {
-  const k = attach?.muzzle;
-  return k ? ATTACH_ART[k].w - ATTACH_ART[k].anchor.x : 0;
+// Draw a gun with its grip point at the origin, in world pixels. state (all optional):
+//   attach: { slot: attachmentKey }, bolt: px back, slide: px back,
+//   pump: px back, magDrop: px (null = no mag), trigger: px pulled,
+//   open: radians a break action is hinged open, lever: radians a lever is swung down
+export function drawGun(ctx, key, state = {}) {
+  const fine = (v) => (v === null || v === undefined ? v : Math.round(v * RES));
+  ctx.save();
+  ctx.scale(1 / RES, 1 / RES);
+  drawGunFine(ctx, key, {
+    ...state, bolt: fine(state.bolt), slide: fine(state.slide), pump: fine(state.pump), handle: fine(state.handle),
+    trigger: fine(state.trigger), magDrop: fine(state.magDrop),
+  });
+  ctx.restore();
 }
 
-// A finished picture of a gun (for cases, the HUD and the inventory).
+// How far an attachment moves the muzzle forward (suppressors are long), in world pixels.
+export function muzzleOffset(attach) {
+  const k = attach?.muzzle;
+  return k ? (ATTACH_ART[k].w - ATTACH_ART[k].anchor.x) / RES : 0;
+}
+
+// A finished picture of a gun (for cases, the HUD and the inventory), at gun resolution.
 export function gunIcon(key, attach = {}) {
-  const W = 80, H = 32;
+  const W = 80 * RES, H = 32 * RES;
   const [c, g] = makeCanvas(W, H);
-  g.translate(16, 12);
-  const p = GUN_ART[key].points.grip;
-  g.translate(p.x, p.y);
-  drawGun(g, key, { attach });
+  const p = GUN_ART[key].src.points.grip;
+  g.translate(16 * RES + p.x, 12 * RES + p.y);
+  drawGunFine(g, key, { attach });
   // trim to the drawn area
   const d = g.getImageData(0, 0, W, H).data;
   let x0 = W, y0 = H, x1 = 0, y1 = 0;
@@ -312,5 +354,6 @@ export function gunIcon(key, attach = {}) {
   if (x1 < x0) return makeCanvas(1, 1)[0];   // nothing drawn yet (a new gun in the editor)
   const [t, tg] = makeCanvas(x1 - x0 + 1, y1 - y0 + 1);
   tg.drawImage(c, -x0, -y0);
+  t.res = RES;
   return t;
 }

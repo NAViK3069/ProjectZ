@@ -5,6 +5,7 @@
 // layer when they come to rest, so casings, mags and blood stay forever.
 
 import { makeCanvas } from '../engine/pixel.js';
+import { artW, artH } from '../combat/gunart.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -332,7 +333,7 @@ export class Particles {
         g.save();
         g.translate(Math.round(p.x), Math.round(p.y));
         g.rotate(p.rot);   // lies at whatever angle it landed
-        g.drawImage(p.img, -Math.round(p.img.width / 2), -Math.round(p.img.height / 2));
+        g.drawImage(p.img, -Math.round(artW(p.img) / 2), -Math.round(artH(p.img) / 2), artW(p.img), artH(p.img));
         g.restore();
       });
       return;
@@ -359,7 +360,7 @@ export class Particles {
         ctx.translate(Math.round(p.x), Math.round(p.y - p.z));
         ctx.rotate(p.rot);
         if (p.spin !== undefined) ctx.scale(Math.max(0.3, Math.abs(Math.cos(p.spin))), 1);   // end-on as it tumbles
-        ctx.drawImage(p.img, -Math.round(p.img.width / 2), -Math.round(p.img.height / 2));
+        ctx.drawImage(p.img, -Math.round(artW(p.img) / 2), -Math.round(artH(p.img) / 2), artW(p.img), artH(p.img));
         ctx.restore();
         continue;
       }

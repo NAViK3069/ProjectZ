@@ -5,7 +5,7 @@
 // backpacks carry their own grid of items.
 
 import { makeCanvas, rect } from '../engine/pixel.js';
-import { ATTACH_ART } from '../combat/gunart.js';
+import { ATTACH_ART, artW, artH } from '../combat/gunart.js';
 import { THROWABLES, throwableIcon } from '../combat/throwables.js';
 
 export const CELL = 12;   // grid cell size in HUD pixels
@@ -79,7 +79,7 @@ export function gunItem(weapon) {
 const meleeDefs = {};
 export function meleeItem(melee) {
   const d = melee.def;
-  meleeDefs[d.key] ??= { id: `melee:${d.key}`, name: d.name, type: 'melee', w: Math.max(2, Math.ceil((d.img.width + 2) / CELL)), h: Math.max(1, Math.ceil((d.img.height - 2) / CELL)) };
+  meleeDefs[d.key] ??= { id: `melee:${d.key}`, name: d.name, type: 'melee', w: Math.max(2, Math.ceil((artW(d.img) + 2) / CELL)), h: Math.max(1, Math.ceil((artH(d.img) - 2) / CELL)) };
   melee.item ??= { id: meleeDefs[d.key].id, def: meleeDefs[d.key], rot: false, melee };
   return melee.item;
 }
@@ -170,10 +170,14 @@ export function itemIcon(def) {
       rect(g, '#4a3f32', 6, cy + 1, w - 12, 2);
       break;
     case 'attachment': {
-      const art = ATTACH_ART[def.id].img;
-      const s = Math.max(1, Math.floor(Math.min((w - 2) / art.width, (h - 2) / art.height)));
-      g.drawImage(art, Math.floor((w - art.width * s) / 2), Math.floor((h - art.height * s) / 2), art.width * s, art.height * s);
-      break;
+      // drawn on the finer gun grid, like the attachment itself
+      const art = ATTACH_ART[def.id].img, R = art.res ?? 1;
+      const [fc, fg] = makeCanvas(w * R, h * R);
+      const s = Math.max(1, Math.floor(Math.min(((w - 2) * R) / art.width, ((h - 2) * R) / art.height)));
+      fg.drawImage(art, Math.floor((w * R - art.width * s) / 2), Math.floor((h * R - art.height * s) / 2), art.width * s, art.height * s);
+      fc.res = R;
+      icons[def.id] = fc;
+      return fc;
     }
   }
   icons[def.id] = c;

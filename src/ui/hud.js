@@ -2,6 +2,7 @@
 // portrait + health/stamina bars + round + money top-left, weapon + ammo
 // bottom-left, round banner, damage flash and the game-over screen.
 
+import { artW, artH } from '../combat/gunart.js';
 import { drawText, textWidth } from './font.js';
 import { MAX_HP, MAX_STAMINA } from '../entities/player.js';
 import { THROWABLES } from '../combat/throwables.js';
@@ -112,12 +113,12 @@ export class Hud {
 
     // --- weapon + ammo (or the melee weapon) ---
     const w = player.held, melee = player.meleeOut, wy = H - 26;
-    const img = w.icon;
-    const pw = Math.max(46, img.width + 6);
+    const img = w.icon, iw = artW(img), ih = artH(img);
+    const pw = Math.max(46, iw + 6);
     px(x0 - 1, wy - 1, pw + 2, 21, C.frame);
     px(x0, wy, pw, 19, C.panel);
     px(x0, wy, pw, 1, C.panelHi);
-    ctx.drawImage(img, Math.round((x0 + pw / 2 - img.width / 2) * u), Math.round((wy + 9 - img.height / 2) * u), img.width * u, img.height * u);
+    ctx.drawImage(img, Math.round((x0 + pw / 2 - iw / 2) * u), Math.round((wy + 9 - ih / 2) * u), iw * u, ih * u);
     const blink = Math.floor(time * 4) % 2 === 0;
     const ax = x0 + pw + 6;
     if (melee) {

@@ -11,7 +11,8 @@
 // angle it's raised by) and `recoil` (how far it's pulled back / thrust out),
 // which the rig already applies to whatever is in hand.
 
-import { part, GUN_PAL } from './gunart.js';
+import { part, GUN_PAL, RES, artW, artH } from './gunart.js';
+import { Sketch } from './gunbuild.js';
 import { makeCanvas } from '../engine/pixel.js';
 
 // style, damage, time (s per attack), reach (px from the body), arc (radians),
@@ -19,100 +20,45 @@ import { makeCanvas } from '../engine/pixel.js';
 export const MELEE = {
   knife: {
     name: 'KNIFE', style: 'stab', damage: 45, time: 0.3, reach: 20, arc: 0.9, knock: 40, lunge: 7, hands: 1,
-    rows: ['.....clll..', 'ffffhlllllS', '.....cccc..'],
   },
   tacknife: {
     name: 'TACTICAL KNIFE', style: 'stab', damage: 55, time: 0.3, reach: 22, arc: 0.9, knock: 50, lunge: 8, hands: 1,
-    rows: ['......clllll.', 'fgfgfhllllllS', '......c.c.cc.'],
   },
   bat: {
     name: 'BAT', style: 'swing', damage: 60, time: 0.55, reach: 26, arc: 2.2, knock: 170, hands: 2,
-    rows: ['..............WWWW..', '..........WWWWwwwwW.', 'vwwwwwwwwwwwwwwwwwwW', '..........vvvvwwwwv.', '..............vvvv..'],
   },
   crowbar: {
     name: 'CROWBAR', style: 'swing', damage: 55, time: 0.48, reach: 24, arc: 1.9, knock: 110, hands: 1,
-    rows: ['...............RRR', 'dRRRRRRRRRRRRRR..R', '.................R', '................R.'],
   },
   // a long-hafted battle axe: capped haft with a wrapped grip, a steel head with
   // a spike on top and a wide crescent blade hanging below
   axe: {
     name: 'AXE', style: 'swing', damage: 85, time: 0.62, reach: 28, arc: 1.8, knock: 120, hands: 2,
-    rows: [
-      '..................l',
-      '.................dl',
-      '.................dld',
-      '.................edd',
-      '.................edd',
-      'hfgfgfgWWWWWWWWWWeddd',
-      'hgfgfgfwwvwwwwvwwedde',
-      '.................edddd',
-      '.................edddddl',
-      '................Seeeeeel',
-      '................SSSSSSSSl',
-    ],
   },
   hammer: {
     name: 'HAMMER', style: 'swing', damage: 115, time: 0.85, reach: 26, arc: 2.0, knock: 240, hands: 2,
-    rows: ['............dddd', '............dccd', 'wwwwwwwwwwwwdccd', 'vvvvvvvvvvvvdccd', '............dccd', '............dddd'],
   },
   // brass pommel, a grip wrapped in worn steel-blue diamonds, brass guard and
   // collar, then a long blade - dark spine, bright edge, tip turned up
   katana: {
     name: 'KATANA', style: 'swing', damage: 75, time: 0.4, reach: 34, arc: 2.4, knock: 70, hands: 2,
-    rows: [
-      '..........t......................cS',
-      'yNhNhNhNhNyyccccccccccccccccccccclS',
-      'yhNhNhNhNhyylllllllllllllllllllllS',
-      'yNhNhNhNhNyySSSSSSSSSSSSSSSSSSS',
-      '..........t',
-    ],
   },
   machete: {
     name: 'MACHETE', style: 'swing', damage: 65, time: 0.42, reach: 24, arc: 2.0, knock: 80, hands: 1,
-    rows: ['.....cccccccccl.', 'ffffhllllllllllS', '.....llllllllll.', '......ccccccc...'],
   },
   spear: {
     name: 'SPEAR', style: 'stab', damage: 70, time: 0.5, reach: 38, arc: 0.5, knock: 90, lunge: 12, hands: 2,
-    rows: ['.........................cl..', 'wwwwwwwwwwwwwwwwwwwwwwwwdlllS', '.........................cl..'],
   },
   shovel: {
     name: 'SHOVEL', style: 'swing', damage: 65, time: 0.6, reach: 27, arc: 2.0, knock: 150, hands: 2,
-    rows: ['ff................dddd.', 'f.fwwwwwwwwwwwwwwdcccdd', 'ff.vvvvvvvvvvvvvvdcccdd', '..................dddd.'],
   },
   chainsaw: {
     name: 'CHAINSAW', style: 'saw', damage: 14, time: 0.08, reach: 27, arc: 1.0, knock: 25, hands: 2, speedMul: 0.9, battery: true,
-    rows: ['..ff.................', '.f..f................', 'aaaaaaeeeeeeeeeeeeee.', 'AAAAAAdlllllllllllllS', 'aaaaaaeeeeeeeeeeeeee.', '.aaaa................'],
   },
   fireaxe: {
     name: 'FIRE AXE', style: 'swing', damage: 100, time: 0.72, reach: 29, arc: 2.0, knock: 180, hands: 2,
-    rows: ['.................RRR.', '.................RRRR', 'wwwwwwwwwwwwwwwddRRRl', 'vvvvvvvvvvvvvvvdd.Rll', '.................d.l.'],
   },
 };
-
-// The cordless chainsaw, drawn from code so the chain can run: a motor body with
-// a loop handle on top and a pistol grip at the back, a battery pack slotted
-// into its rear, and a bar whose teeth move round it (phase = how far along).
-function chainsawRows(phase, pack = true) {
-  const W = 29, H = 9, g = Array.from({ length: H }, () => Array(W).fill('.'));
-  const set = (x, y, c) => { if (x >= 0 && y >= 0 && x < W && y < H) g[y][x] = c; };
-  const rect = (x, y, w, h, c) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) set(x + i, y + j, c); };
-  rect(4, 0, 6, 1, 'h'); set(3, 1, 'h'); set(10, 1, 'h');             // loop handle
-  rect(3, 2, 9, 5, 'a'); rect(3, 2, 9, 1, 'A'); rect(4, 6, 8, 1, 'R');  // motor housing
-  rect(5, 4, 4, 1, 'f');                                               // vents
-  set(11, 3, 'h'); set(11, 5, 'h');
-  rect(1, 7, 5, 1, 'h'); set(1, 6, 'h'); set(5, 6, 'h');               // rear grip + trigger
-  if (pack) { rect(0, 2, 3, 5, 'h'); rect(1, 3, 1, 3, 'y'); }          // battery pack
-  rect(12, 4, 15, 3, 'd'); rect(12, 5, 15, 1, 'e');                     // guide bar
-  // chain teeth: along the top they run out to the tip, along the bottom back in
-  for (let x = 12; x < 27; x++) {
-    if ((x - phase + 300) % 3 === 0) set(x, 3, 'S');
-    if ((x + phase) % 3 === 0) set(x, 7, 'S');
-  }
-  set(27, 4 + (phase % 3), 'S');
-  return g.map((r) => r.join(''));
-}
-MELEE.chainsaw.rows = chainsawRows(0);
-const PACK_ROWS = ['hhh', 'hyh', 'hyh', 'hyh', 'hhh'];
 
 // How each weapon is held at rest - its stance (radians raised above level,
 // facing the way you face). It doesn't follow the mouse until you attack.
@@ -124,18 +70,189 @@ const STANCE = {
 // Bare hands, when the melee slot is empty: a quick jab (not an item, not for sale).
 export const FISTS = {
   name: 'FISTS', style: 'stab', damage: 16, time: 0.4, reach: 20, arc: 0.9, knock: 60, lunge: 7, hands: 1, fists: true,
-  rows: ['.'],
 };
 
 // The gun palette, plus a couple of colours only melee weapons use.
 const MELEE_PAL = { ...GUN_PAL, N: '#3a5064' };   // N: the katana's steel-blue grip wrap
 
-// where the hands hold it (in the rows' pixels)
+// ---------- the art ----------
+// Drawn on the fine gun grid (RES gun pixels to a world pixel), each weapon
+// pointing right, with the same lighting pass as the guns (a lit top edge and
+// a shadowed bottom edge on every part). HOLD: where the hands go, in gun pixels.
+
+const hash = (x, y) => {
+  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+
+// A blade from x0, L long, between rows y0 (spine) and y1 (edge); the last
+// `tip` columns sweep the spine down to the point. clip: the edge rises to the
+// point instead (a clip point / katana tip). Spine dark, flat bright, edge brightest.
+function blade(s, x0, L, y0, y1, tip, { spine = 'c', flat = 'l', edge = 'S', clip = false, fuller = false } = {}) {
+  for (let i = 0; i < L; i++) {
+    const x = x0 + i, k = Math.max(0, i - (L - tip)) / tip;
+    let top = y0, bot = y1;
+    if (clip) bot = Math.round(y1 - (y1 - y0) * k * k);
+    else top = Math.round(y0 + (y1 - y0) * k * k);
+    if (top > bot) continue;
+    for (let y = top; y <= bot; y++) s.set(x, y, y === top ? spine : y === bot ? edge : flat);
+    if (fuller && bot - top > 3 && i > 2 && i < L - tip) s.set(x, top + 1, 'c');
+  }
+}
+// A round haft from x0 to x1 on centre row cy, `r` px either side, wood (or anything).
+function haft(s, x0, x1, cy, r, [lo, mid, hi, top] = ['v', 'w', 'W', 'x'], grain = true) {
+  for (let x = x0; x <= x1; x++) for (let y = cy - r; y <= cy + r; y++) {
+    let c = y === cy - r ? top : y === cy + r ? lo : y < cy ? hi : mid;
+    if (grain && c === mid && hash(x >> 2, y) < 0.25) c = lo;
+    s.set(x, y, c);
+  }
+}
+// grip wrap: crossing bands
+function wrap(s, x0, x1, cy, r, a = 'g', b = 'f') {
+  for (let x = x0; x <= x1; x++) for (let y = cy - r; y <= cy + r; y++) s.set(x, y, (x + y) % 3 === 0 ? b : a);
+}
+
+const ART = {
+  knife(s) {
+    s.rect(0, 1, 10, 4, 'g').rect(0, 1, 10, 1, 'e').rect(0, 1, 1, 4, 'f');
+    for (let i = 2; i < 9; i += 2) s.set(i, 3, 'f');        // grip ridges
+    s.rect(10, 0, 2, 6, 'd').rect(10, 0, 2, 1, 'c');         // guard
+    blade(s, 12, 13, 1, 4, 5);
+  },
+  tacknife(s) {
+    s.rect(0, 1, 11, 4, 'o').rect(0, 1, 11, 1, 'O').rect(0, 1, 1, 4, 'q');
+    for (let i = 2; i < 10; i += 3) s.rect(i, 2, 1, 2, 'q');
+    s.rect(11, 0, 2, 7, 'e').rect(11, 0, 2, 1, 'd');
+    blade(s, 13, 15, 1, 5, 6, { spine: 'e', flat: 'd', edge: 'S', clip: true });
+    for (let x = 14; x < 21; x += 2) s.set(x, 0, 'e');        // saw-back
+  },
+  bat(s) {
+    // a tapered bat: knob, taped handle, the barrel thickening to a rounded end
+    const cy = 5;
+    for (let x = 0; x < 40; x++) {
+      let r = x < 2 ? 2.6 : 1.3 + Math.max(0, x - 10) / 29 * 3.4;
+      if (x >= 38) r -= (x - 37) * 1.1;
+      const ri = Math.round(r);
+      for (let y = cy - ri; y <= cy + ri; y++) {
+        let c = y === cy - ri ? 'x' : y === cy + ri ? 'v' : y < cy ? 'W' : 'w';
+        if (c === 'w' && hash(x >> 2, y) < 0.2) c = 'v';
+        s.set(x, y, c);
+      }
+    }
+    wrap(s, 2, 11, cy, 1);
+  },
+  crowbar(s) {
+    // a red steel bar: flat chisel at the back, the curved claw at the front
+    s.rect(0, 4, 3, 2, 'c');
+    s.rect(2, 3, 30, 3, 'R').rect(2, 3, 30, 1, 'r').rect(2, 5, 30, 1, 'v');
+    for (const [x, y] of [[32, 3], [33, 2], [34, 1], [35, 0], [36, 0], [37, 1], [37, 2], [36, 3]]) s.rect(x, y, 2, 3, 'R');
+    s.set(35, 0, 'r').set(36, 0, 'r').rect(37, 4, 2, 1, 'v').set(38, 5, 'c');   // the split claw
+  },
+  axe(s) {
+    haft(s, 4, 38, 11, 1);
+    wrap(s, 0, 13, 11, 2, 'g', 'f');
+    s.rect(0, 9, 2, 5, 'h');
+    // the head: spike on top, crescent blade hanging below
+    s.rect(34, 6, 7, 10, 'e').rect(34, 6, 7, 1, 'd');
+    s.rect(36, 0, 3, 7, 'd').set(37, 0, 'l');                 // spike
+    for (let y = 9; y <= 21; y++) {                           // the bearded blade
+      const w = Math.round(3 + Math.sin(((y - 9) / 12) * Math.PI) * 6);
+      s.rect(40, y, w, 1, 'd').set(40 + w - 1, y, 'S').set(40 + w - 2, y, 'l');
+    }
+    s.rect(37, 9, 3, 2, 'c');                                 // a rivet
+  },
+  hammer(s) {
+    haft(s, 0, 26, 6, 1);
+    wrap(s, 0, 10, 6, 1, 'f', 'h');
+    s.rect(24, 0, 9, 13, 'e').rect(24, 0, 9, 1, 'c').rect(24, 1, 9, 1, 'd').rect(24, 12, 9, 1, 'f');
+    s.rect(25, 2, 1, 9, 'd').rect(31, 2, 1, 9, 'f');          // bevelled faces
+    s.rect(23, 4, 1, 5, 'f').rect(33, 4, 1, 5, 'g');
+  },
+  katana(s) {
+    // brass pommel, the wrapped grip (diamonds), oval guard, collar, a long curved blade
+    s.rect(0, 2, 2, 6, 'y').rect(0, 2, 2, 1, 'Y');
+    for (let x = 2; x < 20; x++) for (let y = 2; y <= 7; y++) s.set(x, y, (x + y) % 4 < 2 ? 'N' : (x - y + 8) % 4 < 2 ? 'h' : 'g');
+    s.rect(20, 0, 2, 10, 'n').rect(20, 0, 2, 1, 'Y').rect(20, 9, 2, 1, 'n');   // tsuba
+    s.rect(22, 2, 3, 6, 'y').rect(22, 2, 3, 1, 'Y');                           // habaki
+    // the blade: a gentle upward curve along its length, tip swept up
+    for (let i = 0; i < 46; i++) {
+      const x = 25 + i, lift = Math.round((i / 46) ** 2 * 3), k = Math.max(0, i - 40) / 6;
+      const top = 3 - lift, bot = Math.round(7 - lift - k * k * 4);
+      for (let y = top; y <= bot; y++) s.set(x, y, y === top ? 'c' : y === bot ? 'Z' : y === bot - 1 && i % 5 < 3 ? 'S' : 'l');   // spine, flat, wavy hamon, edge
+    }
+  },
+  machete(s) {
+    s.rect(0, 2, 10, 4, 'w').rect(0, 2, 10, 1, 'W').rect(0, 5, 10, 1, 'v');
+    s.set(3, 3, 'y').set(7, 3, 'y');                          // rivets
+    s.rect(10, 1, 2, 6, 'f');
+    // a wide blade, widening toward the clipped tip
+    for (let i = 0; i < 22; i++) {
+      const x = 12 + i, bot = 5 + Math.round(Math.min(i, 16) / 16 * 3) - (i > 18 ? i - 18 : 0), top = i > 17 ? 1 + (i - 17) : 1;
+      for (let y = top; y <= bot; y++) s.set(x, y, y === top ? 'c' : y === bot ? 'S' : 'l');
+    }
+  },
+  spear(s) {
+    haft(s, 0, 47, 3, 1);
+    s.rect(0, 1, 3, 5, 'e').rect(0, 1, 3, 1, 'd');            // butt cap
+    s.rect(44, 1, 5, 5, 'e').rect(44, 1, 5, 1, 'd');          // socket
+    for (let i = 0; i < 12; i++) {                           // a leaf-shaped head
+      const x = 49 + i, w = Math.round(Math.sin(((i + 2) / 13) * Math.PI) * 3.2);
+      for (let y = 3 - w; y <= 3 + w; y++) s.set(x, y, y === 3 ? 'S' : y < 3 ? 'l' : 'c');
+    }
+  },
+  shovel(s) {
+    // a D-handle, the wooden shaft, the steel spade
+    s.rect(0, 0, 2, 9, 'f').rect(0, 0, 5, 2, 'f').rect(0, 7, 5, 2, 'f');
+    haft(s, 4, 36, 4, 1);
+    s.rect(34, 2, 4, 5, 'e');                                // socket
+    for (let i = 0; i < 12; i++) {
+      const x = 38 + i, half = 5 - (i > 8 ? i - 8 : 0);
+      for (let y = 4 - half; y <= 4 + half; y++) s.set(x, y, y === 4 - half ? 'l' : y === 4 + half ? 'e' : i === 0 ? 'c' : 'd');
+    }
+    s.rect(40, 3, 8, 1, 'c');                                // the pressed rib down the middle
+  },
+  fireaxe(s) {
+    haft(s, 0, 34, 6, 1);
+    s.rect(0, 4, 3, 5, 'R');
+    // a red head: the pick behind, the wide blade in front
+    s.rect(30, 0, 7, 12, 'R').rect(30, 0, 7, 1, 'r');
+    for (let i = 0; i < 6; i++) s.rect(24 + i, 3 + Math.floor(i / 2), 1, 3 - Math.floor(i / 2), 'R');   // pick
+    for (let y = 0; y < 16; y++) {
+      const w = Math.round(2 + Math.sin((y / 15) * Math.PI) * 4);
+      s.rect(37, y, w, 1, 'R').set(37 + w - 1, y, 'S').set(37 + w - 2, y, 'l');
+    }
+    s.rect(31, 5, 4, 2, 'c');
+  },
+};
 const HOLD = {
   fists: [0, 0],
-  knife: [1, 1], tacknife: [1, 1], bat: [2, 2, 7], crowbar: [3, 1], axe: [2, 5, 11], hammer: [2, 2, 7],
-  katana: [8, 2, 3], machete: [1, 1], spear: [5, 1, 11], shovel: [5, 1, 10], chainsaw: [3, 7, 7], fireaxe: [2, 2, 8],
+  knife: [3, 3], tacknife: [3, 3], bat: [5, 5, 15], crowbar: [6, 4], axe: [4, 11, 22], hammer: [4, 6, 15],
+  katana: [15, 5, 6], machete: [3, 4], spear: [10, 3, 22], shovel: [9, 4, 20], chainsaw: [7, 15, 14], fireaxe: [4, 6, 16],
 };
+
+// The cordless chainsaw, drawn from code so the chain can run: a motor body with
+// a loop handle on top and a pistol grip at the back, a battery pack slotted
+// into its rear, and a bar whose teeth move round it (phase = how far along).
+function chainsawArt(s, phase, pack = true) {
+  s.rect(8, 0, 12, 2, 'h').rect(6, 2, 2, 2, 'h').rect(20, 2, 2, 2, 'h');          // loop handle
+  s.rect(6, 4, 18, 10, 'a').rect(6, 4, 18, 1, 'A').rect(6, 5, 18, 1, 'A').rect(8, 12, 16, 2, 'R');   // motor housing
+  for (let x = 10; x < 18; x += 2) s.rect(x, 8, 1, 3, 'f');                       // vents
+  s.rect(22, 6, 2, 2, 'h').rect(22, 10, 2, 2, 'h');
+  s.rect(2, 14, 10, 2, 'h').rect(2, 12, 2, 2, 'h').rect(10, 12, 2, 2, 'h');       // rear grip + trigger
+  if (pack) packArt(s, 0, 4);
+  s.rect(24, 8, 30, 6, 'd').rect(24, 8, 30, 1, 'c').rect(24, 10, 30, 2, 'e');     // guide bar
+  s.rect(52, 9, 2, 4, 'c');
+  // chain teeth: along the top they run out to the tip, along the bottom back in
+  for (let x = 24; x < 54; x++) {
+    if ((x - phase * 2 + 600) % 6 < 2) s.set(x, 7, 'S');
+    if ((x + phase * 2) % 6 < 2) s.set(x, 14, 'S');
+  }
+  s.rect(54, 9 + (phase % 3) * 2, 1, 2, 'S');
+}
+function packArt(s, x, y) {
+  s.rect(x, y, 6, 10, 'h').rect(x + 2, y + 2, 2, 6, 'y').set(x + 2, y + 2, 'Y');
+}
 
 for (const [key, d] of [...Object.entries(MELEE), ['fists', FISTS]]) {
   d.key = key;
@@ -144,26 +261,38 @@ for (const [key, d] of [...Object.entries(MELEE), ['fists', FISTS]]) {
   if (['bat', 'crowbar', 'axe', 'hammer', 'shovel', 'fireaxe', 'machete'].includes(key)) d.combo = 'chop';
   // knives already point down, so they stay at chest height; the rest drop to the waist
   if (['knife', 'tacknife', 'machete'].includes(key)) d.restHeight = 9;
-  const p = part(d.rows, MELEE_PAL);
-  const [gx, gy, sx] = HOLD[key];
+  // the art on the gun grid; the points the hands and the rig read are in world pixels
+  const draw = (fn) => {
+    const sk = new Sketch();
+    fn(sk);
+    return sk.part();
+  };
+  const src = key === 'fists' ? { x: 0, y: 0, rows: ['.'] } : key === 'chainsaw' ? draw((sk) => chainsawArt(sk, 0)) : draw(ART[key]);
+  const p = part(src.rows, MELEE_PAL, RES);
+  const [gx, gy, sx] = HOLD[key].map((v) => v);
+  // (the trimmed art may not start at 0, 0: points are relative to its top-left)
+  const pt = (x, y) => ({ x: (x - src.x) / RES, y: (y - src.y) / RES });
   d.art = {
     img: p.img,
     points: {
-      grip: { x: gx, y: gy },
-      support: sx !== undefined ? { x: sx, y: key === 'chainsaw' ? 0 : gy } : null,
-      light: { x: gx + 3, y: gy + 1 },
-      muzzle: { x: p.w, y: gy },   // the tip
-      port: { x: gx, y: gy },
+      grip: pt(gx, gy),
+      support: sx !== undefined ? pt(sx, gy) : null,
+      light: pt(gx + 6, gy + 2),
+      muzzle: { x: p.w / RES, y: (gy - src.y) / RES },   // the tip
+      port: pt(gx, gy),
     },
   };
   // the chainsaw: three frames of the chain running (without its pack, which
   // is drawn on its own so it can slide out), the top handle for the other hand
   if (key === 'chainsaw') {
-    d.art.points.support = { x: 7, y: 0 };
-    d.art.points.muzzle = { x: 28, y: 5 };
-    d.art.frames = [0, 1, 2].map((ph) => part(chainsawRows(ph, false), GUN_PAL).img);
-    d.art.pack = part(PACK_ROWS, GUN_PAL).img;
-    d.art.packAt = { x: 0, y: 2 };
+    d.art.points.support = pt(14, 1);
+    d.art.points.muzzle = pt(55, 11);
+    d.art.frames = [0, 1, 2].map((ph) => {
+      const f = draw((sk) => chainsawArt(sk, ph, false));
+      return { img: part(f.rows, MELEE_PAL, RES).img, x: f.x - src.x, y: f.y - src.y };
+    });
+    d.art.pack = part(draw((sk) => packArt(sk, 0, 0)).rows, MELEE_PAL, RES).img;
+    d.art.packAt = pt(0, 4);
   }
   // icon: the weapon on a transparent canvas (trimmed by part() already)
   d.img = p.img;
@@ -303,7 +432,7 @@ export class MeleeWeapon {
     if (this.t >= 1) {
       this.t = -1;
       // bare fists catch a breath between punches, and a longer one after the hook
-      this.cooldown = d.fists ? (this.step === 2 ? 0.4 : 0.1) : 0.04;
+      this.cooldown = d.fists ? (this.step === 2 ? d.hookRest ?? 0.4 : d.jabRest ?? 0.1) : 0.04;   // (a def can set its own breathers)
       this.sinceHit = 0;
     }
   }
@@ -344,16 +473,18 @@ export class MeleeWeapon {
     return 0;
   }
 
-  // Grip at the origin, pointing along +x.
+  // Grip at the origin, pointing along +x (world pixels; the art is on the finer gun grid).
   draw(ctx) {
-    const { grip } = this.art.points;
+    const { grip } = this.art.points, gx = Math.round(grip.x * RES), gy = Math.round(grip.y * RES);
+    ctx.save();
+    ctx.scale(1 / RES, 1 / RES);
     if (this.art.frames) {
-      ctx.drawImage(this.art.frames[Math.floor(this.chain) % 3], -grip.x - 1, -grip.y - 1);
+      const f = this.art.frames[Math.floor(this.chain) % 3];
+      ctx.drawImage(f.img, f.x - gx - 1, f.y - gy - 1);
       const off = this.packOffset;
-      if (off !== null) ctx.drawImage(this.art.pack, this.art.packAt.x - grip.x + off - 1, this.art.packAt.y - grip.y - 1);
-      return;
-    }
-    ctx.drawImage(this.art.img, -grip.x - 1, -grip.y - 1);
+      if (off !== null) ctx.drawImage(this.art.pack, Math.round((this.art.packAt.x + off) * RES) - gx - 1, Math.round(this.art.packAt.y * RES) - gy - 1);
+    } else ctx.drawImage(this.art.img, -gx - 1, -gy - 1);
+    ctx.restore();
   }
 
   drawFlash() {}
@@ -367,8 +498,8 @@ export function meleeIcon(key) {
 // Small helper for menus that want a fixed-size thumbnail.
 export function thumb(img, w, h) {
   const [c, g] = makeCanvas(w, h);
-  const s = Math.min(1, w / img.width, h / img.height);
+  const s = Math.min(1, w / artW(img), h / artH(img));
   g.imageSmoothingEnabled = false;
-  g.drawImage(img, Math.round((w - img.width * s) / 2), Math.round((h - img.height * s) / 2), Math.round(img.width * s), Math.round(img.height * s));
+  g.drawImage(img, Math.round((w - artW(img) * s) / 2), Math.round((h - artH(img) * s) / 2), Math.round(artW(img) * s), Math.round(artH(img) * s));
   return c;
 }

@@ -8,7 +8,7 @@
 // rows of palette letters, points and slots in gun pixels. Every change rebuilds
 // the art with the game's own builder, so what you see is what the game draws.
 
-import { GUN_ART, GUN_PAL, HANDS, ATTACH_ART, buildGunArt } from '../combat/gunart.js';
+import { GUN_ART, GUN_PAL, HANDS, ATTACH_ART, RES, buildGunArt, upscale } from '../combat/gunart.js';
 import { WEAPONS, customDef } from '../combat/weapons.js';
 import { CLASSES, CALIBERS } from '../combat/catalog.js';
 import { CUSTOM_GUNS } from '../combat/customguns.js';
@@ -32,8 +32,8 @@ const h = (tag, props = {}, ...kids) => {
 
 // ---------- what can be set ----------
 
-// The view: gun pixels from (VX, VY), VW x VH of them.
-const VX = -10, VY = -12, VW = 64, VH = 32;
+// The view: gun pixels from (VX, VY), VW x VH of them (the gun grid: RES gun pixels to a world pixel).
+const VX = -10 * RES, VY = -12 * RES, VW = 64 * RES, VH = 32 * RES;
 
 const POINTS = [
   ['grip', 'มือลั่นไก', 'จับด้ามปืน + จุดหมุนของปืน', '#ff5a4a'],
@@ -111,9 +111,10 @@ const STAT_KEYS = STATS.map(([k]) => k).concat(['auto', 'caliber']);
 function fromGame(key) {
   const custom = CUSTOM_GUNS.find((c) => c.key === key);
   if (custom) return clone(custom);
-  const d = WEAPONS[key], a = GUN_ART[d.art];
+  const d = WEAPONS[key], a = GUN_ART[d.art].src;   // the source art, in gun pixels
   const { parts, pal, ...rest } = a;
   const art = clone(rest);
+  delete art.src;
   art.parts = {};
   for (const [n, p] of Object.entries(parts)) art.parts[n] = { x: p.x, y: p.y, rows: [...p.rows] };
   const stats = {};
@@ -129,13 +130,14 @@ function blank() {
   const g = fromGame('m4a1');
   g.key = 'my_gun';
   g.name = 'MY GUN';
-  g.art.parts = { body: { x: 6, y: 1, rows: [] } };
+  g.art.parts = { body: { x: 6 * RES, y: RES, rows: [] } };
   g.art.order = ['body'];
   g.pal = {};
   return g;
 }
 
 function load(g) {
+  if ((g.art.res ?? 1) !== RES) g.art = upscale({ ...g.art, res: g.art.res ?? 1 });   // a gun saved before the finer grid
   gun = g;
   gun.art.order ??= Object.keys(gun.art.parts);
   gun.art.points ??= {};
@@ -260,7 +262,7 @@ function apply() {
 
 function fit() {
   const stage = $('stage');
-  Z = Math.max(5, Math.floor(Math.min((stage.clientWidth - 24) / VW, (stage.clientHeight - 24) / VH)));
+  Z = Math.max(3, Math.floor(Math.min((stage.clientWidth - 24) / VW, (stage.clientHeight - 24) / VH)));
   paint.width = VW * Z;
   paint.height = VH * Z;
   draw();
@@ -301,8 +303,9 @@ function draw() {
     c.globalAlpha = 0.75;
     for (const [hand, pt] of [['trigger', gun.art.points.grip], ['support', gun.art.points.support]]) {
       if (!pt) continue;
+      // the hands are world-pixel art: RES gun pixels each
       const H = HANDS[hand];
-      c.drawImage(H.img, sx(pt.x - H.at.x - 1), sy(pt.y - H.at.y - 1), H.img.width * Z, H.img.height * Z);
+      c.drawImage(H.img, sx(pt.x - (H.at.x + 1) * RES), sy(pt.y - (H.at.y + 1) * RES), H.img.width * Z * RES, H.img.height * Z * RES);
     }
     c.globalAlpha = 1;
   }
@@ -992,6 +995,7 @@ async function save() {
   if (!/^[a-z0-9_-]{1,40}$/.test(gun.key)) return say('คีย์ใช้ได้แค่ a-z 0-9 _ -', true);
   if (!Object.values(gun.art.parts).some((p) => p.rows.length)) return say('ยังไม่ได้วาดอะไรเลย', true);
   for (const p of Object.values(gun.art.parts)) trim(p);
+  gun.art.res = RES;   // drawn on the fine gun grid
   try {
     const r = await fetch(`/api/guns/${gun.key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(gun) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? r.status);

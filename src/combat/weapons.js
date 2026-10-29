@@ -9,7 +9,7 @@
 // calibre is in the inventory (see `ammoSource`).
 
 import { spriteFromRows } from '../engine/pixel.js';
-import { GUN_ART, ATTACH_ART, drawGun, gunIcon, muzzleOffset } from './gunart.js';
+import { GUN_ART, ATTACH_ART, RES, drawGun, gunIcon, muzzleOffset } from './gunart.js';
 import { CATALOG, CLASSES, BOLT, PUMP, LEVER } from './catalog.js';
 import { CUSTOM_GUNS } from './customguns.js';
 
@@ -30,10 +30,10 @@ export function customDef(src) {
   } else {
     def.reload = src.reload === 'shells' ? 'shells' : 'mag';
   }
-  const art = src.art ?? {};
+  const art = src.art ?? {}, k = art.res ?? 1;   // the art's travel is in gun pixels
   const act = src.action ?? 'none';
-  if (act === 'pump') def.action = { ...PUMP.action, travel: art.pump?.travel ?? PUMP.action.travel };
-  else if (act === 'bolt') def.action = { ...BOLT.action, travel: art.bolt?.travel ?? BOLT.action.travel };
+  if (act === 'pump') def.action = { ...PUMP.action, travel: art.pump ? art.pump.travel / k : PUMP.action.travel };
+  else if (act === 'bolt') def.action = { ...BOLT.action, travel: art.bolt ? art.bolt.travel / k : BOLT.action.travel };
   else if (act === 'lever') def.action = { ...LEVER.action };
   else def.action = undefined;
   if (src.loadFrom === 'top') def.loadFrom = 'top';
@@ -197,7 +197,7 @@ export class Weapon {
   get actionOffset() {
     const t = this.actionProgress;
     if (t < 0) return 0;
-    return Math.round(Math.sin(Math.PI * Math.min(1, t * 1.15)) * this.def.action.travel);
+    return Math.round(Math.sin(Math.PI * Math.min(1, t * 1.15)) * this.def.action.travel * RES) / RES;
   }
 
   // 0..1 how far the gun is still coming up after being switched to.
@@ -378,7 +378,7 @@ export class Weapon {
     const lockedBack = this.ammo === 0 && (!this.reloading || this.reload < RELOAD_EVENTS.rack);
     if (lockedBack) return s.travel;
     if (this.reloading && this.reload >= 0.8 && this.reload < RELOAD_EVENTS.rack + 0.04) return s.travel;   // hand pulls it
-    return this.cycleT > 0 ? Math.round((this.cycleT / CYCLE_TIME) * s.travel) : 0;
+    return this.cycleT > 0 ? Math.round((this.cycleT / CYCLE_TIME) * s.travel * RES) / RES : 0;
   }
 
   get boltOffset() {
@@ -386,7 +386,7 @@ export class Weapon {
     if (!b) return 0;
     if (b.manual) return this.actionOffset;
     if (this.ammo === 0 && !this.reloading) return b.travel;   // bolt held open on an empty mag
-    return this.cycleT > 0 ? Math.round((this.cycleT / CYCLE_TIME) * b.travel) : 0;
+    return this.cycleT > 0 ? Math.round((this.cycleT / CYCLE_TIME) * b.travel * RES) / RES : 0;
   }
 
   get handleOffset() {

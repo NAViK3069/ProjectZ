@@ -12,7 +12,7 @@ import { Weapon, WEAPONS, RELOAD_EVENTS, SHELL_IN } from '../combat/weapons.js';
 import { MeleeWeapon, MELEE, FISTS, WIND, STRIKE } from '../combat/melee.js';
 import { THROWABLE_IDS } from '../combat/throwables.js';
 import { SpecWeapon, specAct, isSpec, spinHead } from '../combat/spec.js';
-import { HANDS, part, GUN_PAL } from '../combat/gunart.js';
+import { HANDS, part, GUN_PAL, artW, artH } from '../combat/gunart.js';
 import { Inventory, newItem } from '../game/inventory.js';
 import { ORIGIN_X, ORIGIN_Y, WALK_BODY, WALK_HEAD, STEP_FRAMES, walkLegs, enterFacing } from './rig.js';
 
@@ -946,11 +946,8 @@ export class Player {
 
   // Charging handle / slide / bolt handle, wherever this gun has one.
   get handlePoint() {
-    const art = this.weapon.art, p = art.parts;
-    if (art.points.handle) return art.points.handle;
-    if (p.handle) return { x: p.handle.x + 1, y: p.handle.y };
-    if (p.slide) return { x: p.slide.x + 1, y: p.slide.y + 1 };
-    return art.points.support;
+    const art = this.weapon.art;
+    return art.points.handle ?? art.points.support;   // (worked out in gunart.js)
   }
 
   // Muzzle height above the ground (for bullets/lights fired from the gun).
@@ -1286,7 +1283,7 @@ export class Player {
     drawHand(ctx, 'trigger', 0, 0);
     ctx.restore();
     this.enterGun(ctx, g, hx, hy);
-    if (t > 0.38 && t < 0.65) ctx.drawImage(m.art.pack, -Math.round(m.art.pack.width / 2), -m.art.pack.height + 2);   // the fresh pack
+    if (t > 0.38 && t < 0.65) ctx.drawImage(m.art.pack, -Math.round(artW(m.art.pack) / 2), -artH(m.art.pack) + 2, artW(m.art.pack), artH(m.art.pack));   // the fresh pack
     drawHand(ctx, t < 0.06 || t > 0.9 ? 'support' : t < 0.2 || (t > 0.62 && t < 0.8) ? 'grab' : 'open', 0, 0);
     ctx.restore();
   }
@@ -1475,7 +1472,7 @@ export class Player {
     if (h?.under) {
       // a round being pushed into the gun goes in under its art, so it vanishes inside
       this.enterGun(ctx, g, h.x, h.y);
-      ctx.drawImage(h.holding, -Math.round(h.holding.width / 2), -h.holding.height + 1);
+      ctx.drawImage(h.holding, -Math.round(artW(h.holding) / 2), -artH(h.holding) + 1, artW(h.holding), artH(h.holding));
       ctx.restore();
     }
     this.enterGun(ctx, g);
@@ -1508,7 +1505,7 @@ export class Player {
     if (reloading) {
       // the loading hand travels in the world, still turned the same way as the gun
       this.enterGun(ctx, g, h.x, h.y);
-      if (h.holding && !h.under) ctx.drawImage(h.holding, -Math.round(h.holding.width / 2), -h.holding.height + 1);
+      if (h.holding && !h.under) ctx.drawImage(h.holding, -Math.round(artW(h.holding) / 2), -artH(h.holding) + 1, artW(h.holding), artH(h.holding));
       drawHand(ctx, h.pose, 0, 0);
       ctx.restore();
     }

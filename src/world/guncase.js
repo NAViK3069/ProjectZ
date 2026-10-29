@@ -12,19 +12,23 @@ import { WEAPONS } from '../combat/weapons.js';
 import { MELEE } from '../combat/melee.js';
 import { ITEMS, itemIcon } from '../game/items.js';
 import { drawText, textWidth } from '../ui/font.js';
+import { RES, artW, artH } from '../combat/gunart.js';
 
 const W = 48, H = 30, TOP = 11;   // canvas size (3 tiles wide); rows 0..TOP-1 are the cabinet top
 export const BUY_RANGE = 24;      // px from the case's front
 
 // Several pictures stacked in one canvas, centred.
+// (on the gun grid)
 function stack(imgs, gap = 1) {
-  const w = Math.max(...imgs.map((i) => i.width)), h = imgs.reduce((n, i) => n + i.height + gap, -gap);
-  const [c, g] = makeCanvas(w, h);
+  const w = Math.max(...imgs.map(artW)), h = imgs.reduce((n, i) => n + artH(i) + gap, -gap);
+  const [c, g] = makeCanvas(w * RES, h * RES);
+  g.scale(RES, RES);
   let y = 0;
   for (const i of imgs) {
-    g.drawImage(i, Math.round((w - i.width) / 2), y);
-    y += i.height + gap;
+    g.drawImage(i, Math.round((w - artW(i)) / 2), y, artW(i), artH(i));
+    y += artH(i) + gap;
   }
+  c.res = RES;
   return c;
 }
 
@@ -45,13 +49,17 @@ function displayImage(offer) {
   }
   // mods: a scope with a question mark
   const [c, g] = makeCanvas(22, 12);
-  g.drawImage(itemIcon(ITEMS.scope), 0, 1);
+  const scope = itemIcon(ITEMS.scope);
+  g.drawImage(scope, 0, 1, artW(scope), artH(scope));
   drawText(g, '?', 17, 3, 1, '#d7313d', null);
   return c;
 }
 
 function caseArt(offer) {
-  const [c, g] = makeCanvas(W, H);
+  const [c, g] = makeCanvas(W * RES, H * RES);
+  c.res = RES;
+  g.scale(RES, RES);
+  g.imageSmoothingEnabled = false;
   // cabinet top
   rect(g, '#0d100b', 0, 0, W, TOP);
   rect(g, '#1d241a', 1, 1, W - 2, TOP - 1);
@@ -70,9 +78,9 @@ function caseArt(offer) {
   for (let i = 0; i < 3; i++) rect(g, '#8f9b8f', gx + 1, gy + 3 + i * 3, 1, 2);   // rail marks
   // what's on display, centred (shrunk to fit if it's big)
   const img = displayImage(offer);
-  const s = Math.min(1, (gw - 4) / img.width, (gh - 2) / img.height);
-  const dw = Math.round(img.width * s), dh = Math.round(img.height * s);
-  g.drawImage(img, Math.round(gx + gw / 2 - dw / 2), Math.round(gy + gh / 2 - dh / 2), dw, dh);
+  const s = Math.min(1, (gw - 4) / artW(img), (gh - 2) / artH(img));
+  const dw = Math.round(artW(img) * s * RES) / RES, dh = Math.round(artH(img) * s * RES) / RES;
+  g.drawImage(img, Math.round((gx + gw / 2 - dw / 2) * RES) / RES, Math.round((gy + gh / 2 - dh / 2) * RES) / RES, dw, dh);
   // plinth
   rect(g, '#151a12', 1, H - 3, W - 2, 2);
   return c;
@@ -107,7 +115,7 @@ export function createCase(offer, x, y) {
     ],
     draw(ctx) {
       ctx.drawImage(SHADOW, x - 25, y - 3);
-      ctx.drawImage(img, x - W / 2, y - H);
+      ctx.drawImage(img, x - W / 2, y - H, W, H);
     },
   };
 }

@@ -11,7 +11,7 @@ import { WEAPON_CLASSES, ATTACH_STATS } from '../combat/weapons.js';
 import { MELEE } from '../combat/melee.js';
 import { SPEC } from '../combat/spec.js';
 import { THROWABLES } from '../combat/throwables.js';
-import { ATTACH_ART } from '../combat/gunart.js';
+import { ATTACH_ART, artW, artH } from '../combat/gunart.js';
 import { ITEMS, itemIcon } from '../game/items.js';
 import { TYPES } from '../entities/zombie.js';
 import { zombieArt } from '../entities/zombieart.js';
@@ -152,7 +152,7 @@ export class ArmoryScreen {
     };
     // dark text on a lit button gets no drop shadow
     const text = (s, x, y, color, size = 1) => drawText(ctx, s, Math.round(x * u), Math.round(y * u), u * size, color, color === C.frame ? null : undefined);
-    const img = (im, x, y, s = 1) => ctx.drawImage(im, Math.round(x * u), Math.round(y * u), Math.round(im.width * s * u), Math.round(im.height * s * u));
+    const img = (im, x, y, s = 1) => ctx.drawImage(im, Math.round(x * u), Math.round(y * u), Math.round(artW(im) * s * u), Math.round(artH(im) * s * u));
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
@@ -230,11 +230,11 @@ export class ArmoryScreen {
       px(cx - 1, cy - 1, CARD_W + 2, CARD_H + 2, cur ? C.sel : C.frame);
       px(cx, cy, CARD_W, CARD_H, hov ? C.cardHi : C.card);
       const im = c.img ?? zombieThumb(c.type);
-      const fit = Math.min((CARD_W - 6) / im.width, (CARD_H - 12) / im.height);
+      const fit = Math.min((CARD_W - 6) / artW(im), (CARD_H - 12) / artH(im)), px1 = r.scale * (im.res ?? 1);   // device px per art pixel at 1x
       // guns all at the same pixel size (so a pistol looks small next to a rifle,
       // like it should); other things up to 2x; never an uneven in-between scale
-      const sc = c.kind === 'gun' ? (fit >= 1 ? 1 : Math.max(1, Math.floor(fit * r.scale)) / r.scale) : fit >= 2 ? 2 : fit >= 1 ? 1 : Math.max(1, Math.floor(fit * r.scale)) / r.scale;
-      img(im, cx + CARD_W / 2 - (im.width * sc) / 2, cy + 2 + (CARD_H - 12 - im.height * sc) / 2, sc);
+      const sc = c.kind === 'gun' ? (fit >= 1 ? 1 : Math.max(1, Math.floor(fit * px1)) / px1) : fit >= 2 ? 2 : fit >= 1 ? 1 : Math.max(1, Math.floor(fit * px1)) / px1;
+      img(im, cx + CARD_W / 2 - (artW(im) * sc) / 2, cy + 2 + (CARD_H - 12 - artH(im) * sc) / 2, sc);
       const name = c.name.length > 15 ? c.name.slice(0, 15) : c.name;
       text(name, cx + CARD_W / 2 - textWidth(name) / 2, cy + CARD_H - 7, cur ? C.sel : C.text);
       zone({ kind: 'card', card: c, x: cx, y: cy, w: CARD_W, h: CARD_H });

@@ -5,6 +5,7 @@
 
 import { makeShadow } from '../engine/pixel.js';
 import { ITEMS, AMMO_FOR, itemImage } from './items.js';
+import { artW, artH } from '../combat/gunart.js';
 import { newItem } from './inventory.js';
 
 const AUTO = new Set(['ammo', 'med', 'throwable']);
@@ -136,10 +137,10 @@ export class Loot {
   draw(ctx) {
     for (const e of this.items) {
       const icon = itemImage(e.item);
-      const x = Math.round(e.x - icon.width / 2), y = Math.round(e.y - e.z - icon.height);
+      const iw = artW(icon), ih = artH(icon), x = Math.round(e.x - iw / 2), y = Math.round(e.y - e.z - ih);
       ctx.globalAlpha = this.alpha(e);
       ctx.drawImage(SHADOW, Math.round(e.x) - 5, Math.round(e.y) - 2);
-      ctx.drawImage(icon, x, y + Math.round(Math.sin(this.time * 3 + e.bob) * (e.z > 0 ? 0 : 1)));
+      ctx.drawImage(icon, x, y + Math.round(Math.sin(this.time * 3 + e.bob) * (e.z > 0 ? 0 : 1)), iw, ih);
     }
     ctx.globalAlpha = 1;
   }
@@ -150,7 +151,7 @@ export class Loot {
       const t = (this.time * 1.5 + e.bob) % 3;
       if (t > 0.4) continue;
       const icon = itemImage(e.item), k = t / 0.4;
-      const x = Math.round(e.x - icon.width / 2 + icon.width * k), y = Math.round(e.y - e.z - icon.height * 0.7);
+      const x = Math.round(e.x - artW(icon) / 2 + artW(icon) * k), y = Math.round(e.y - e.z - artH(icon) * 0.7);
       ctx.fillStyle = '#fffbe6';
       ctx.globalAlpha = (1 - Math.abs(k - 0.5) * 2) * this.alpha(e);
       ctx.fillRect(x, y, 1, 1);
