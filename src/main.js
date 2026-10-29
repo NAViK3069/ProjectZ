@@ -278,6 +278,7 @@ const menus = {
   title: new Menu([
     { label: 'START', action: openSurvival },
     { label: 'TRAINING', action: openTraining },
+    { label: 'ARENA', action: () => (location.href = 'arena.html') },
     { label: 'GUN EDITOR', action: () => (location.href = 'editor.html') },
     { label: 'CONTROLS', action: () => (showControls = !showControls) },
   ]),
