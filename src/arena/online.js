@@ -938,7 +938,7 @@ function drawServers(k, u, W, H) {
   y += ph + 6 * u;
   k.text('THE SERVER IS WHERE PLAYERS FIND EACH OTHER. IN A GAME YOU CONNECT STRAIGHT TO THE HOST.', W / 2, y, { small: true, color: K.faint, align: 'center' });
   y += 10 * u;
-  k.button('back', px, y, 80 * u, 18 * u, 'BACK');
+  k.button('back', px, y, 80 * u, 18 * u, 'BACK', { kind: 'danger' });
   k.hints('CLICK A SERVER  CONNECT      ENTER  THE RECOMMENDED ONE      N  CHANGE NAME      ESC  BACK');
 }
 
@@ -976,9 +976,10 @@ function drawLobby(k, u, W, H) {
   if (!list.length) k.text('NO ROOMS ON THIS SERVER YET - MAKE ONE, AND TELL YOUR FRIENDS WHICH SERVER', W / 2, ry0 + rowH * 1.5, { small: true, color: K.muted, align: 'center' });
   y += ph + 8 * u;
   const bw = Math.floor((pw - 16 * u) / 3);
-  k.button('create', px, y, bw, 18 * u, 'CREATE ROOM', { kind: 'primary' });
+  // back out at the left (red), on at the right
+  k.button('servers', px, y, bw, 18 * u, 'CHANGE SERVER', { kind: 'danger' });
   k.button('quick', px + bw + 8 * u, y, bw, 18 * u, 'QUICK JOIN');
-  k.button('servers', px + (bw + 8 * u) * 2, y, bw, 18 * u, 'CHANGE SERVER');
+  k.button('create', px + (bw + 8 * u) * 2, y, bw, 18 * u, 'CREATE ROOM', { kind: 'primary' });
   k.hints('CLICK A ROOM  JOIN (PLAYING OR FULL: WATCH)      C  CREATE      ENTER  QUICK JOIN      ESC  SERVERS');
   if (N.creating) drawCreateBox(k, u, W, H);
   else if (N.joinAsk) drawPassBox(k, u, W, H);

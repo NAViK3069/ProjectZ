@@ -2081,7 +2081,7 @@ function drawTitle(ctx, u, W, H) {
     CONTROLS.forEach((l, i) => kit.text(l, px + 8 * u, ty + i * 9 * u, { small: true, color: i === CONTROLS.length - 1 ? '#ffa080' : KC.text }));
     y += ch + 8 * u;
   }
-  kit.button('back', px, y, 80 * u, 18 * u, 'BACK');
+  kit.button('back', px, y, 80 * u, 18 * u, 'BACK', { kind: 'danger' });
   kit.button('start', px + pw - 130 * u, y, 130 * u, 18 * u, 'START MATCH', { kind: 'primary', selected: menuSel === OPTIONS.length });
   kit.hints('W S  PICK A SETTING      A D / CLICK  CHANGE IT      ENTER  START      ESC  BACK');
   drawPicker();
@@ -2672,7 +2672,7 @@ function drawSoon(ctx, u, W, H) {
   let y = kit.panel(px, py, pw, ph, { title: m.name, note: 'COMING SOON', noteColor: KC.red });
   m.soon.forEach((l, i) => kit.text(l, W / 2, y + i * 10 * u, { small: true, color: i ? KC.muted : KC.text, align: 'center' }));
   y += m.soon.length * 10 * u + 8 * u;
-  kit.button('back', W / 2 - 50 * u, y, 100 * u, 18 * u, 'BACK');
+  kit.button('back', W / 2 - 50 * u, y, 100 * u, 18 * u, 'BACK', { kind: 'danger' });
 }
 
 // ---------- online ----------
