@@ -6,8 +6,8 @@ The game is now **ARENA**: the side-view brawler in the research lab
 (Superfighters / Gun Mayhem style). It's the front page, `index.html`, and
 `start.bat` opens it.
 
-It opens on a main menu: STORY, SINGLE PLAYER, MULTIPLAYER, TRAINING and the
-GUN EDITOR. SINGLE PLAYER (you against bots, after the room setup),
+It opens on a main menu: STORY, SINGLE PLAYER, MULTIPLAYER and TRAINING (the
+gun editor, `editor.html`, is off the menu). SINGLE PLAYER (you against bots, after the room setup),
 MULTIPLAYER (online rooms, below) and TRAINING (every gun, melee weapon and
 skill from the cabinets or TAB, dummies to try them on) are built; STORY shows
 a "coming soon" page (`MODES` in `src/arena/main.js`).
@@ -19,7 +19,10 @@ branch, served as it is - there's no build step; `.nojekyll` keeps Pages from
 touching it). Push to `main` and it's live a minute later.
 
 MULTIPLAYER: choose a server, then make a room or join one from the list, set
-it up, everyone READY, the host STARTs. There's no game server: players
+it up, everyone READY, the host STARTs. A room has 8 slots in two columns (in
+TEAMS, the left BLUE and the right RED); the host opens or closes each one or
+puts a bot in it - the only bots are the ones in slots - and players click an
+open slot to move to it. There's no game server: players
 connect to each other directly (WebRTC), introduced through Trystero over
 public Nostr relays (`src/arena/net.js`; the library comes from jsDelivr,
 pinned). A "server" is just a channel everyone on it meets in.

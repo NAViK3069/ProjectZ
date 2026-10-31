@@ -2351,15 +2351,14 @@ function drawMeter(ctx, u, W) {
 
 // ---------- the main menu ----------
 // The way into everything: SINGLE PLAYER (you against bots, set up the room
-// first), MULTIPLAYER (online rooms - see online.js), TRAINING and the gun
-// editor; STORY shows what it'll be.
+// first), MULTIPLAYER (online rooms - see online.js) and TRAINING; STORY shows
+// what it'll be. (The gun editor, editor.html, is off the menu.)
 
 const MODES = [
   { key: 'story', name: 'STORY', desc: 'FIGHT YOUR WAY OUT OF THE LAB', soon: ['A CAMPAIGN THROUGH THE RESEARCH FACILITY:', 'LEVEL AFTER LEVEL OF GUARDS, BOSSES AND WHAT GOT OUT OF THE TANKS,', 'WITH A STORY TOLD BETWEEN THE FIGHTS'] },
   { key: 'single', name: 'SINGLE PLAYER', desc: 'YOU AGAINST BOTS - SET UP THE ROOM AND FIGHT' },
   { key: 'multi', name: 'MULTIPLAYER', desc: 'ONLINE - PICK A SERVER, MAKE OR JOIN A ROOM WITH FRIENDS' },
   { key: 'training', name: 'TRAINING', desc: 'EVERY WEAPON AND SKILL - A RANGE, A COURSE, A GRAPPLE SHAFT' },
-  { key: 'editor', name: 'GUN EDITOR', desc: 'DRAW YOUR OWN GUNS' },
 ];
 let modeSel = 1, soonMode = null;
 const modeRows = [];
@@ -2367,7 +2366,6 @@ const onMenu = () => state === 'menu' || state === 'soon' || state === 'title' |
 
 function pickMode(m) {
   if (m.key === 'single') { state = 'title'; menuSel = OPTIONS.length; return; }
-  if (m.key === 'editor') { location.href = 'editor.html'; return; }
   if (m.key === 'training') { startTraining(); return; }
   if (m.key === 'multi') { openOnline(); return; }
   soonMode = m;
@@ -2478,10 +2476,16 @@ banner = null;
 
 let last = performance.now();
 function frame(now) {
-  if (frozen) { drawWorld(); drawHud(); }
-  else tick(Math.min(1 / 30, (now - last) / 1000));
+  requestAnimationFrame(frame);   // (asked for first: a frame that goes wrong doesn't stop the game)
+  try {
+    if (frozen) { drawWorld(); drawHud(); }
+    else tick(Math.min(1 / 30, (now - last) / 1000));
+  } catch (e) {
+    if (!frame.errors || frame.errors < 5) console.error(e);
+    frame.errors = (frame.errors ?? 0) + 1;
+    input.endFrame();
+  }
   last = now;
-  requestAnimationFrame(frame);
 }
 
 function tick(realDt, draw = true) {
