@@ -104,7 +104,7 @@ export class Kit {
     return y + 20 * u;
   }
   // a button: primary (gold), normal, danger; hover lights it; disabled greys it and it can't be clicked
-  button(id, x, y, w, h, label, { kind = 'normal', disabled = false, selected = false, size = 1, sub = '' } = {}) {
+  button(id, x, y, w, h, label, { kind = 'normal', disabled = false, selected = false, size = 1, sub = '', small = false } = {}) {
     const u = this.u, hot = !disabled && (this.hover === id || selected);
     const edge = disabled ? K.edge : kind === 'primary' ? K.gold : kind === 'danger' ? K.red : hot ? K.teal : K.edge;
     const fill = disabled ? 'rgba(20, 26, 24, 0.9)' : kind === 'primary' ? (hot ? '#5a4a14' : '#3a3212') : kind === 'danger' ? (hot ? '#4a1a16' : '#2a1412') : hot ? '#1f3a36' : '#18211e';
@@ -113,10 +113,10 @@ export class Kit {
     this.rect(x + u, y + u, w - 2 * u, h - 2 * u, fill);
     this.rect(x + u, y + u, w - 2 * u, u, 'rgba(255, 255, 255, 0.08)');
     const col = disabled ? K.faint : kind === 'primary' ? K.gold : kind === 'danger' ? K.red : hot ? '#ffffff' : K.text;
-    const th = 7 * size * u, ty = sub ? y + (h - th - 8 * u) / 2 : y + (h - th) / 2;
-    this.text(label, x + w / 2, ty, { size, color: col, align: 'center' });
+    const th = (small ? 5 : 7 * size) * u, ty = sub ? y + (h - th - 8 * u) / 2 : y + (h - th) / 2;
+    this.text(label, x + w / 2, ty, { size, color: col, align: 'center', small });
     if (sub) this.text(sub, x + w / 2, ty + th + 3 * u, { small: true, color: disabled ? K.faint : K.muted, align: 'center' });
-    if (hot && !disabled && kind !== 'primary') this.text('>', x + 5 * u, ty, { size, color: K.teal });
+    if (hot && !disabled && kind !== 'primary' && !small) this.text('>', x + 5 * u, ty, { size, color: K.teal });
     if (!disabled) this.hit(id, x, y, w, h);
   }
   // a setting: its name at the left, its value at the right between arrows (clickable when it can be changed)

@@ -120,14 +120,16 @@ export class Lobby {
 // (`msg`: hello, the room as it stands, ready, start ...), the state of the
 // game (`snap`, host to everyone) and controls (`ctl`, everyone to the host).
 export class GameRoom {
-  static async open(server, hostId) {
+  // rid: the room's own name - its first host's, and it keeps it if someone else is made host
+  static async open(server, hostId, rid = `game-${hostId}`) {
     const T = await trystero();
-    return new GameRoom(T, server, hostId);
+    return new GameRoom(T, server, hostId, rid);
   }
-  constructor(T, server, hostId) {
+  constructor(T, server, hostId, rid) {
     this.hostId = hostId;
-    this.isHost = hostId === T.selfId;
-    this.room = T.joinRoom(config(server), `game-${hostId}`);
+    this.me = T.selfId;
+    this.rid = rid;
+    this.room = T.joinRoom(config(server), rid);
     this.peers = new Set();
     this.ping = 0;
     this.onMsg = () => {};
@@ -143,6 +145,9 @@ export class GameRoom {
     this.room.onPeerJoin = (id) => { this.peers.add(id); this.onJoin(id); };
     this.room.onPeerLeave = (id) => { this.peers.delete(id); this.onLeave(id); };
     this.pingT = 0;
+  }
+  get isHost() {
+    return this.hostId === this.me;
   }
   send(data, target) {
     this.msg.send(data, target ? { target } : undefined);

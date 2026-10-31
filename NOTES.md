@@ -29,6 +29,15 @@ who); at the end of the match the watchers get the open slots. Hold TAB in a
 match for the scores. CREATE ROOM asks for a name and an optional password
 (a padlock in the room list; joining asks for it - only the host checks it).
 The host can rename the room or change the password from the room.
+On a player's slot the host has KICK (out, and not back for a minute) and
+HOST (they take the room over - it keeps its name, `rid`, so the lobby and
+everyone in it carry on); both ask SURE? first. In a match, ESC: the host
+can END THE MATCH (everyone back to the room) or CLOSE THE ROOM (twice); a
+player can go BACK TO THE ROOM (out of that match, WATCH it from there).
+
+The others draw everyone a moment behind the host's latest state, eased
+between states (`clientFrame`), so movement stays smooth however unevenly
+states arrive; the moment grows with the gaps between them.
 
 Skills: YOUR SKILL and BOT SKILLS (RANDOM, one of them, or NONE) are picked
 from a list (the setup screen, and the room for online); SKILLS (Q) OFF turns

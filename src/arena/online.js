@@ -31,7 +31,10 @@ const LOOKS = [
   { color: '#7affc8', hue: 100, sat: 1.2 }, { color: '#ff9ad8', hue: 320, sat: 1.2 },
 ];
 const BOT_NAMES = ['VEX', 'KORA', 'DUKE', 'ROOK', 'NYX', 'ZED', 'IVO', 'MOX'];
-const NEXT_KIND = { open: 'closed', closed: 'bot', bot: 'open' };   // (the host clicking a slot that's not a player's: open - closed - a bot - open)
+// (the others) everyone else is drawn a moment behind the latest from the host, eased between its states - smooth,
+// however unevenly they come in. How far behind goes with how far apart they've been coming (the longest gap lately, and a bit).
+const DELAY_MIN = 0.08, DELAY_MAX = 0.3;
+const delay = () => Math.max(DELAY_MIN, Math.min(DELAY_MAX, (N.gap ?? 0.05) * 1.3 + 0.03));
 const teamOf = (i) => (i < SLOTS / 2 ? 0 : 1);
 const TEAM_LOOKS = [{ color: '#6ad8ff', hue: 210, sat: 1.2 }, { color: '#ff6a5a', hue: 8, sat: 1.7 }];   // in TEAMS everyone wears their side's colour: BLUE, RED (the art's own hair is red)
 const MAX_WATCH = 8;   // how many can watch a room besides those in its slots
@@ -47,7 +50,8 @@ const N = {
   roomName: '', made: 0, members: [], slots: [], playing: false,
   msg: '', msgT: 0, busy: '', sel: -1, pings: {}, pingT: 0,
   watching: false, match: null, deadT: 0,
-  pass: '', creating: null, joinAsk: null, joinPass: '',   // pass: (the host) the room's password, '' for none; creating: the CREATE ROOM box ({ name, pass }); joinAsk: a locked room we're asked the password for   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
+  pass: '', creating: null, joinAsk: null, joinPass: '',
+  confirm: null, banned: new Map(), out: false, offset: undefined,   // confirm: a button waiting for its second click; banned: (the host) kicked -> till when; out: sat out of the match, in the room   // pass: (the host) the room's password, '' for none; creating: the CREATE ROOM box ({ name, pass }); joinAsk: a locked room we're asked the password for   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
   ctl: new Map(), sendT: 0, snaps: [], gotSnap: false, menu: false, saved: null, ctlT: 0, lastCtl: '', pend: {},
   fighters: new Map(), props: new Map(), nextNid: 100, propIds: 0, fistsDef: null,
   sent: new Map(),   // (the host) what each fighter and prop was last sent as, field by field - only what's changed goes again
@@ -177,7 +181,7 @@ const LISTS = [['bu', 'bullets'], ['gr', 'grenades'], ['pk', 'pickups'], ['th', 
 function snapshot() {
   const g = A.game;
   return {
-    t: Math.round(g.time * 1000) / 1000, st: A.state, sT: ser(A.stateT), rd: A.round, rT: ser(A.roundT), ot: A.overtime, sl: A.slow,
+    t: Math.round(g.time * 1000) / 1000, rt: Math.round(performance.now()) / 1000, st: A.state, sT: ser(A.stateT), rd: A.round, rT: ser(A.roundT), ot: A.overtime, sl: A.slow,
     bn: ser(A.banner), wi: ser(A.winner), ch: ser(A.champion),
     f: g.fighters.map((f) => ({ n: nidOf(f), i: [f.name, f.color, f.hue ?? 0, f.sat ?? 1, f.team ?? 0, f.peer ?? null], s: changed(f, f) })),
     p: g.props.map((p) => ({ n: (p.nid ??= ++N.propIds), k: p.kind, s: changed(p, p) })),
@@ -203,19 +207,28 @@ function applySnapshot(s) {
     }
     keep.push(f);
   }
+  // where the host is in time against us (the least delayed of what comes in counts most)
+  const lag = s.rt - performance.now() / 1000;
+  N.offset = N.offset === undefined || lag > N.offset ? lag : N.offset + (lag - N.offset) * 0.01;
+  // the gap between states (the longest lately, fading)
+  if (N.lastRt !== undefined) N.gap = Math.max(s.rt - N.lastRt, (N.gap ?? 0.05) * 0.985);
+  N.lastRt = s.rt;
   for (const e of s.f) {
     const f = N.fighters.get(e.n), ox = f.x, oy = f.y, had = f._seen;
     assign(f, e.s);
-    f._tx = f.x;
-    f._ty = f.y;
-    if (had && Math.hypot(f.x - ox, f.y - oy) < 48) { f.x = ox; f.y = oy; }
+    // where it is now by the host, kept with the time - drawn from these (see clientFrame), not jumped to
+    if (e.s.x !== undefined || f._sx === undefined) f._sx = f.x;
+    if (e.s.y !== undefined || f._sy === undefined) f._sy = f.y;
+    (f._h ??= []).push({ t: s.rt, x: f._sx, y: f._sy });
+    if (f._h.length > 12) f._h.shift();
+    if (had) { f.x = ox; f.y = oy; }
     f._seen = true;
   }
   for (const id of [...N.fighters.keys()]) if (!keep.includes(N.fighters.get(id))) N.fighters.delete(id);
   g.fighters = keep;
   const me = keep.find((f) => f.peer === myId());
-  if (me) A.player = me;
-  else if (!keep.includes(A.player)) A.player = keep.find((f) => !f.isDecoy) ?? keep[0] ?? A.player;
+  if (me && !N.watching) A.player = me;
+  else if (!keep.includes(A.player) || (N.watching && A.player === me && !me.alive)) A.player = keep.find((f) => !f.isDecoy) ?? keep[0] ?? A.player;
   // the props
   const props = [];
   for (const e of s.p) {
@@ -229,6 +242,8 @@ function applySnapshot(s) {
   // everything else
   for (const [k, name] of LISTS) g[name] = rev(s.l[k]) ?? [];
   for (const o of g.thrown) if (!o.img) o.img = o.kind === 'gun' ? A.iconOf(o.key) : MELEE[o.key]?.img;
+  // (shots and throws put back as far as the fighters are drawn behind, so they come out of the gun)
+  for (const list of [g.bullets, g.grenades, g.thrown, g.arrows]) for (const o of list) if (o && typeof o.vx === 'number') { o.x -= o.vx * delay(); o.y -= o.vy * delay(); }
   [...s.la].forEach((c, i) => { const l = g.lights.lamps[i]; if (l) l.on = c === '1'; });
   g.time = s.t;
   A.state = s.st;
@@ -282,11 +297,35 @@ export function clientFrame(dt) {
   if (N.snaps.length) { for (const s of N.snaps.splice(0)) applySnapshot(s); N.gotSnap = true; }
   if (!N.gotSnap) return;
   g.time += dt;
+  // everyone drawn where they were a moment ago by the host, eased between the two states either
+  // side of then - so they move smoothly however unevenly the states arrive; our own (not watching)
+  // straight toward the latest, quickly - it feels less behind our hands
+  const then = performance.now() / 1000 + (N.offset ?? 0) - delay();
   for (const f of g.fighters) {
-    if (f._tx === undefined) continue;
-    const k = Math.min(1, dt * (f === A.player ? 30 : 16));   // (our own a good deal quicker: it feels less behind our hands)
-    f.x += (f._tx - f.x) * k;
-    f.y += (f._ty - f.y) * k;
+    const h = f._h;
+    if (!h?.length) continue;
+    if (f.peer === myId() && !N.watching) {
+      const k = Math.min(1, dt * 30), far = Math.hypot(f._sx - f.x, f._sy - f.y) > 60;
+      f.x = far ? f._sx : f.x + (f._sx - f.x) * k;
+      f.y = far ? f._sy : f.y + (f._sy - f.y) * k;
+      continue;
+    }
+    let a = h[0], b = h[h.length - 1];
+    for (let i = h.length - 1; i > 0; i--) if (h[i - 1].t <= then) { a = h[i - 1]; b = h[i]; break; }
+    let x = b.x, y = b.y;
+    if (then <= h[0].t) { x = h[0].x; y = h[0].y; }
+    else if (then > b.t && h.length > 1) {
+      // past the newest (a state late): on the way it was going, a little, rather than stop dead
+      const p = h[h.length - 2], span = b.t - p.t, ahead = Math.min(then - b.t, 0.12);
+      if (span > 0.005 && Math.hypot(b.x - p.x, b.y - p.y) < 60) { x = b.x + ((b.x - p.x) / span) * ahead; y = b.y + ((b.y - p.y) / span) * ahead; }
+    }
+    else if (then < b.t && b.t > a.t && Math.hypot(b.x - a.x, b.y - a.y) < 60) {   // (further apart than that: a respawn, a teleport - no gliding across)
+      const k = (then - a.t) / (b.t - a.t);
+      x = a.x + (b.x - a.x) * k;
+      y = a.y + (b.y - a.y) * k;
+    }
+    f.x = x;
+    f.y = y;
   }
   for (const list of [g.bullets, g.grenades, g.thrown, g.arrows]) for (const o of list) if (o && typeof o.vx === 'number') { o.x += o.vx * dt; o.y += o.vy * dt; }
   for (const list of [g.fists, g.galaxies, g.punches, g.blasts, g.numbers]) for (const o of list) if (o && typeof o.t === 'number') o.t += dt;
@@ -325,10 +364,10 @@ const seatOf = (id) => N.slots.findIndex((x) => x.k === 'p' && x.id === id);
 const seated = () => N.members.filter((m) => seatOf(m.id) >= 0);
 const watchers = () => N.members.filter((m) => seatOf(m.id) < 0);
 function lobbyAd() {
-  return { name: N.roomName, mode: A.settings.mode, map: A.settings.map, n: seated().length, max: roomSize(), w: watchers().length, playing: N.playing, made: N.made, lock: !!N.pass };
+  return { name: N.roomName, mode: A.settings.mode, map: A.settings.map, n: seated().length, max: roomSize(), w: watchers().length, playing: N.playing, made: N.made, lock: !!N.pass, rid: N.room?.rid };
 }
 function roomState() {
-  return { t: 'room', name: N.roomName, members: N.members, slots: N.slots, settings: { ...A.settings }, playing: N.playing, lock: !!N.pass };
+  return { t: 'room', name: N.roomName, members: N.members, slots: N.slots, settings: { ...A.settings }, playing: N.playing, lock: !!N.pass, host: myId() };
 }
 // (the host) a player into slot i (if it's open), out of the one they were in
 function moveTo(id, i) {
@@ -340,11 +379,63 @@ function moveTo(id, i) {
   to.id = id;
   return true;
 }
-// (the host) a slot that isn't a player's: open - closed - a bot - open
-function cycleSlot(i) {
+// (the host) a slot that isn't a player's: open, closed or a bot
+function setSlot(i, kind) {
   const x = N.slots[i];
-  if (!x || x.k === 'p') return;
-  x.k = NEXT_KIND[x.k];
+  if (!x || x.k === 'p' || !['open', 'closed', 'bot'].includes(kind)) return;
+  x.k = kind;
+  shareRoom();
+}
+// A button that does something drastic asks first: the first click arms it (SURE?), a second within 2.5 s does it.
+const asking = (id) => N.confirm?.id === id && performance.now() - N.confirm.at < 2500;
+function sure(id) {
+  if (asking(id)) { N.confirm = null; return true; }
+  N.confirm = { id, at: performance.now() };
+  return false;
+}
+// (the host) a player out of the room - and not back in for a minute
+function kick(id) {
+  const m = N.members.find((x) => x.id === id);
+  if (!m || id === myId()) return;
+  N.room.send({ t: 'kicked' }, id);
+  N.banned.set(id, performance.now() + 60000);
+  N.members = N.members.filter((x) => x !== m);
+  for (const x of N.slots) if (x.k === 'p' && x.id === id) { x.k = 'open'; x.id = null; }
+  say(`${m.name} WAS KICKED`, 2);
+  shareRoom();
+}
+// (the host) someone else made host: they take the room over as it stands - its name, password,
+// slots, settings - and this one becomes a player in it like the rest
+function handOver(id) {
+  const m = N.members.find((x) => x.id === id);
+  if (!m || id === myId() || N.playing) return;
+  for (const x of N.members) x.ready = x.id === id;
+  N.room.send({ t: 'host', to: id, st: { ...roomState(), pass: N.pass, made: N.made } });
+  N.lobby?.advertise(null);
+  N.room.hostId = id;
+  N.mode = 'client';
+  N.welcomed = true;
+  N.hostSettings = { ...A.settings };
+  N.locked = !!N.pass;
+  N.pass = '';
+  say(`${m.name} IS THE HOST NOW`, 2.5);
+}
+// (a player) made host: the room's ours to run now
+function takeOver(st) {
+  N.room.hostId = myId();
+  N.mode = 'host';
+  N.roomName = st.name;
+  N.members = st.members;
+  N.slots = st.slots;
+  N.pass = st.pass ?? '';
+  N.made = st.made ?? Date.now();
+  N.playing = false;
+  N.match = null;
+  N.ctl = new Map();
+  N.saved ??= { ...A.settings };
+  Object.assign(A.settings, st.settings);
+  for (const x of N.members) if (x.id === myId()) x.ready = true;
+  say('YOU ARE THE HOST NOW', 2.5);
   shareRoom();
 }
 // (the host) everyone told how the room stands, the lobby too
@@ -403,7 +494,7 @@ async function joinRoom(ad, pass = '') {
   N.joinPass = pass;
   N.busy = `${ad.playing || ad.n >= ad.max ? 'GOING IN TO WATCH' : 'JOINING'} ${ad.name}...`;
   try {
-    N.room = await GameRoom.open(N.server, ad.host);
+    N.room = await GameRoom.open(N.server, ad.host, ad.rid);
     N.mode = 'client';
     N.welcomed = false;
     N.members = [];
@@ -431,6 +522,8 @@ function leaveRoom(quiet = false) {
   N.watching = false;
   N.match = null;
   N.pass = '';
+  N.out = false;
+  N.confirm = null;
   N.menu = false;
   N.busy = '';
   N.snaps = [];
@@ -475,12 +568,13 @@ function hookRoom() {
     delete held.cycle;
     e.held = held;
   };
-  r.onSnap = (s, from) => { if (N.mode === 'client' && from === r.hostId) N.snaps.push(s); };
+  r.onSnap = (s, from) => { if (N.mode === 'client' && from === r.hostId && !N.out) N.snaps.push(s); };
 }
 function hostMsg(m, from) {
   if (m.t === 'hello') {
     // into an open slot - or, with the game going or no slot open, in to watch
     const name = String(m.name).slice(0, 12);
+    if (N.banned.get(from) > performance.now()) return N.room.send({ t: 'no', why: 'YOU WERE KICKED - TRY AGAIN LATER' }, from);
     if (!N.members.some((x) => x.id === from) && N.pass && m.pass !== N.pass) return N.room.send({ t: 'no', why: m.pass ? 'WRONG PASSWORD' : 'THAT ROOM HAS A PASSWORD' }, from);
     if (!N.members.some((x) => x.id === from)) {
       const free = N.playing ? -1 : N.slots.findIndex((x) => x.k === 'open');
@@ -504,7 +598,10 @@ function hostMsg(m, from) {
     shareRoom();
   } else if (m.t === 'slot') {
     if (moveTo(from, m.i)) shareRoom();
-  }
+  } else if (m.t === 'out') {
+    // back to the room in the middle of the match: their fighter drops out of it
+    for (const f of A.game.fighters) if (f.peer === from) { f.lives = 0; f.respawnT = 0; if (f.alive) f.die(null, 'LEFT', 0, 0); }
+  } else if (m.t === 'resync') N.sent = new Map();   // (someone starting to watch again: the next state goes out whole)
 }
 // (watching) on to the next one still in it (dir -1: the one before)
 function watchNext(dir) {
@@ -523,6 +620,7 @@ function clientMsg(m) {
     N.playing = m.playing;
     N.hostSettings = m.settings;
     N.locked = !!m.lock;
+    if (m.host) N.room.hostId = m.host;
   } else if (m.t === 'start') {
     N.saved ??= { ...A.settings };
     Object.assign(A.settings, m.settings);
@@ -539,6 +637,7 @@ function clientMsg(m) {
   } else if (m.t === 'back') {
     N.playing = false;
     N.watching = false;
+    N.out = false;
     N.menu = false;
     A.state = 'net-room';
     A.banner = null;
@@ -546,6 +645,12 @@ function clientMsg(m) {
   } else if (m.t === 'close') {
     leaveRoom(true);
     say('THE HOST CLOSED THE ROOM');
+  } else if (m.t === 'kicked') {
+    leaveRoom(true);
+    say('THE HOST KICKED YOU OUT');
+  } else if (m.t === 'host') {
+    if (m.to === myId()) takeOver(m.st);
+    else { N.room.hostId = m.to; const h = m.st.members.find((x) => x.id === m.to); say(`${h?.name ?? 'SOMEONE'} IS THE HOST NOW`, 2.5); }
   }
 }
 // (the host) everyone in: a fighter for each player and each bot in the slots (no bots
@@ -683,7 +788,18 @@ export function netScreenInput() {
     } else if (click === 'servers' || I.wasPressed('Escape')) leaveServer();
   } else if (state === 'net-room') {
     const host = N.mode === 'host', me = N.members.find((m) => m.id === myId());
-    if (click?.startsWith('tog:') && host) cycleSlot(+click.slice(4));
+    if (click?.startsWith('set:') && host) { const [, i, kind] = click.split(':'); setSlot(+i, kind); }
+    else if (click?.startsWith('kick:') && host) { const i = +click.slice(5); if (sure(click)) kick(N.slots[i]?.id); }
+    else if (click?.startsWith('mkhost:') && host) { const i = +click.slice(7); if (sure(click)) handOver(N.slots[i]?.id); }
+    else if (click === 'watch-match' && N.playing && N.out) {
+      // back to watching the match going on (sat out of it: from the others')
+      N.out = false;
+      N.watching = true;
+      N.snaps = [];
+      N.gotSnap = false;
+      N.room.send({ t: 'resync' }, N.room.hostId);
+      A.state = 'fight';
+    }
     else if (click?.startsWith('team:')) {
       // a side picked: the first open slot in its column
       const t = +click.slice(5), i = N.slots.findIndex((x, j) => x.k === 'open' && teamOf(j) === t);
@@ -721,7 +837,19 @@ export function netGameInput() {
   const I = A.input, click = A.kit.click;
   if (A.state === 'match' && N.mode === 'host' && A.stateT > 2 && (click === 'back-room' || I.wasPressed('Enter'))) return backToRoom();
   if (I.wasPressed('Escape') || click === 'net-resume') N.menu = !N.menu;
-  else if (N.menu && (I.wasPressed('KeyL') || click === 'net-leave')) leaveRoom();
+  else if (N.menu && click === 'net-room') {
+    // the host: the match ends, everyone back to the room. A player: out of this match, back to the room (it goes on without them)
+    if (N.mode === 'host') backToRoom();
+    else {
+      N.room.send({ t: 'out' }, N.room.hostId);
+      N.out = true;
+      N.watching = false;
+      N.menu = false;
+      N.snaps = [];
+      A.state = 'net-room';
+      A.banner = null;
+    }
+  } else if (N.menu && click === 'net-leave' && (N.mode !== 'host' || sure('net-leave'))) leaveRoom();
   else if (N.watching && !N.menu && A.state !== 'match') {
     const dir = I.wasPressed('KeyD', 'ArrowRight', 'Mouse0') ? 1 : I.wasPressed('KeyA', 'ArrowLeft', 'Mouse2') ? -1 : 0;
     if (dir) watchNext(dir);
@@ -916,7 +1044,7 @@ function drawRoom(k, u, W, H) {
     }
     y += 14 * u;
   } else {
-    const status = `${N.locked ? 'LOCKED ROOM   -   ' : ''}WAITING FOR THE HOST TO START${N.room?.ping ? `   -   PING ${N.room.ping} MS` : ''}`;
+    const status = `${N.locked ? 'LOCKED ROOM   -   ' : ''}${N.playing ? 'A MATCH IS GOING ON' : 'WAITING FOR THE HOST TO START'}${N.room?.ping ? `   -   PING ${N.room.ping} MS` : ''}`;
     k.text(`${N.server?.name ?? ''}   -   ${status}`, W / 2, y, { small: true, color: K.teal, align: 'center' });
     y += 10 * u;
   }
@@ -948,18 +1076,36 @@ function drawRoom(k, u, W, H) {
     if (mine) k.rect(sx + colW - u, sy, u, h, K.gold);
     k.text(i + 1, sx + 6 * u, sy + 4 * u, { small: true, color: K.faint });
     if (x.k === 'p') {
-      const m = N.members.find((o) => o.id === x.id), isHost = N.members[0]?.id === x.id;
+      const m = N.members.find((o) => o.id === x.id), isHost = N.room?.hostId === x.id;
       k.text(m?.name ?? '...', sx + 14 * u, sy + 2 * u, { color: '#ffffff' });
       k.text(SKILLS.find(([s]) => s === m?.skill)?.[1] ?? 'NO SKILL', sx + 14 * u, sy + 10 * u, { small: true, color: K.teal });
       const tag = isHost ? 'HOST' : m?.ready ? 'READY' : 'NOT READY';
-      k.text(tag, sx + colW - 5 * u, sy + 4 * u, { color: isHost ? K.gold : m?.ready ? K.green : K.red, align: 'right' });
+      let tx = sx + colW - 5 * u;
+      // the host's buttons on everyone else's slot: KICK, MAKE HOST (each asks SURE? first)
+      if (host && !isHost && !N.playing) {
+        for (const [act, label] of [['mkhost', 'HOST'], ['kick', 'KICK']]) {
+          const bid = `${act}:${i}`, ask = asking(bid), t = ask ? 'SURE?' : label, bw = k.width(t, { small: true }) + 10 * u;
+          tx -= bw;
+          k.button(bid, tx + 3 * u, sy + 3 * u, bw - 2 * u, h - 6 * u, t, { kind: act === 'kick' || ask ? 'danger' : 'normal', small: true });
+          tx -= 2 * u;
+        }
+        tx -= 3 * u;
+      }
+      k.text(tag, tx, sy + 4 * u, { color: isHost ? K.gold : m?.ready ? K.green : K.red, align: 'right', small: host && !isHost && !N.playing });
     } else {
       const bots = N.slots.slice(0, i).filter((o) => o.k === 'bot').length;
       const label = x.k === 'bot' ? `BOT  ${BOT_NAMES[bots]}` : x.k === 'open' ? (hot ? 'CLICK TO MOVE HERE' : 'OPEN') : 'CLOSED';
       k.text(label, sx + 14 * u, sy + 4 * u, { color: x.k === 'bot' ? K.text : x.k === 'open' ? (hot ? K.teal : K.muted) : K.faint });
       if (host) {
-        const t = x.k === 'open' ? 'CLOSE' : x.k === 'closed' ? 'ADD BOT' : 'OPEN', bw = k.width(t) + 10 * u;
-        k.button(`tog:${i}`, sx + colW - bw - 2 * u, sy + 2 * u, bw, h - 4 * u, t);
+        // two buttons: what else the slot can be
+        const acts = x.k === 'open' ? [['bot', 'ADD BOT'], ['closed', 'CLOSE']] : x.k === 'closed' ? [['bot', 'ADD BOT'], ['open', 'OPEN']] : [['open', 'REMOVE'], ['closed', 'CLOSE']];
+        let bx = sx + colW - 2 * u;
+        for (const [kind, label] of acts.reverse()) {
+          const bw = k.width(label, { small: true }) + 10 * u;
+          bx -= bw;
+          k.button(`set:${i}:${kind}`, bx, sy + 3 * u, bw, h - 6 * u, label, { small: true });
+          bx -= 3 * u;
+        }
       }
     }
     k.hit(id, sx, sy, colW, h);
@@ -983,10 +1129,11 @@ function drawRoom(k, u, W, H) {
   k.select('pick-skill', px, y, colW + 8 * u, 18 * u, 'YOUR SKILL', settings.skills ? sk : 'SKILLS OFF', { img: settings.skills ? info?.img : null });
   const rx = px + colW + 8 * u + gap, rw = pw - (colW + 8 * u + gap), allReady = seated().every((m) => m.ready), bw = Math.round(rw * 0.64);
   if (host) k.button('start', rx, y, bw, 18 * u, allReady ? 'START' : 'NOT ALL READY', { kind: 'primary', disabled: !allReady });
+  else if (N.playing && N.out) k.button('watch-match', rx, y, bw, 18 * u, 'WATCH THE MATCH', { kind: 'primary' });
   else if (seatOf(myId()) < 0) k.button('ready', rx, y, bw, 18 * u, 'WATCHING', { disabled: true });
   else k.button('ready', rx, y, bw, 18 * u, me?.ready ? 'READY!' : 'READY', { kind: me?.ready ? 'normal' : 'primary', selected: !!me?.ready });
   k.button('leave', rx + bw + 6 * u, y, rw - bw - 6 * u, 18 * u, 'LEAVE', { kind: 'danger' });
-  k.hints(host ? 'CLICK AN OPEN SLOT  MOVE THERE      ENTER  START      Q  SKILL      ESC  LEAVE' : 'CLICK AN OPEN SLOT  MOVE THERE      ENTER  READY      Q  SKILL      ESC  LEAVE');
+  k.hints(host ? 'CLICK AN OPEN SLOT  MOVE THERE      KICK / HOST  CLICK TWICE      ENTER  START      ESC  LEAVE' : N.playing && N.out ? 'THE MATCH IS GOING ON - WATCH IT, OR WAIT FOR THE NEXT ONE      ESC  LEAVE' : 'CLICK AN OPEN SLOT  MOVE THERE      ENTER  READY      Q  SKILL      ESC  LEAVE');
 }
 
 // In a game, over the HUD: the ping, what's happening, and the menu (ESC).
@@ -1005,11 +1152,16 @@ export function drawNetOverlay(ctx, u, W, H) {
   if (N.msgT > 0) k.toast(N.msg);
   if (!N.menu) return;
   k.shade(0.65);
-  const pw = 210 * u, ph = 26 * u + 16 * u + 2 * 23 * u, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
+  const host = N.mode === 'host', pw = 220 * u, ph = 26 * u + 16 * u + 3 * 23 * u + 10 * u, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
   let y = k.panel(px, py, pw, ph, { title: N.roomName.slice(0, 20) });
   k.text('THE GAME GOES ON WHILE THIS IS OPEN', W / 2, y, { small: true, color: K.muted, align: 'center' });
   y += 14 * u;
   k.button('net-resume', px + 8 * u, y, pw - 16 * u, 18 * u, 'BACK TO THE GAME', { kind: 'primary' });
   y += 23 * u;
-  k.button('net-leave', px + 8 * u, y, pw - 16 * u, 18 * u, N.mode === 'host' ? 'LEAVE (ENDS THE ROOM)' : 'LEAVE THE ROOM', { kind: 'danger' });
+  k.button('net-room', px + 8 * u, y, pw - 16 * u, 18 * u, host ? 'END THE MATCH - ALL TO THE ROOM' : 'BACK TO THE ROOM');
+  y += 23 * u;
+  const ask = asking('net-leave');
+  k.button('net-leave', px + 8 * u, y, pw - 16 * u, 18 * u, host ? (ask ? 'SURE? CLICK AGAIN TO CLOSE IT' : 'CLOSE THE ROOM') : 'LEAVE THE ROOM', { kind: 'danger' });
+  y += 21 * u;
+  k.text(host ? 'CLOSING THE ROOM SENDS EVERYONE BACK TO THE LOBBY' : 'BACK TO THE ROOM: OUT OF THIS MATCH, IN FOR THE NEXT', W / 2, y, { small: true, color: K.faint, align: 'center' });
 }
