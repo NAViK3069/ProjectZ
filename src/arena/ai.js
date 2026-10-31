@@ -130,9 +130,28 @@ export class Nav {
     return this.nodeAt(x, y);
   }
 
+  // What the props cost to get past, place by place: the routes are built from the level alone, but a
+  // crate (or a stack of them, a shelf) on a floor has to be jumped or broken - the taller, the dearer.
+  // Worked out again once a second at most (they get knocked about, broken).
+  propCost(props, now) {
+    if (this.costAt !== undefined && now - this.costAt < 1 && now >= this.costAt) return this.cost;
+    this.costAt = now;
+    this.cost = new Map();
+    for (const p of props) {
+      if (p.dead || !p.block) continue;
+      const b = p.box;
+      for (let cx = Math.floor(b.l / T); cx <= Math.floor((b.r - 1) / T); cx++) {
+        const n = this.nodeBelow((cx + 0.5) * T, b.b);   // (the floor it stands on - under a stack, the same one for all of it)
+        if (n && !n.ladder) this.cost.set(n, (this.cost.get(n) ?? 0) + ((b.b - b.t) / T) * 2.5);
+      }
+    }
+    return this.cost;
+  }
+
   // bias: extra cost for stepping onto some nodes (a bot's own taste in routes)
   // avoid: edges to steer clear of (jumps this bot has failed lately)
-  path(from, to, bias = null, avoid = null) {
+  // extra: more cost for some nodes (props standing there)
+  path(from, to, bias = null, avoid = null, extra = null) {
     if (!from || !to) return null;
     if (from === to) return [];
     const open = [from], g = new Map([[from, 0]]), came = new Map(), h = (n) => Math.abs(n.cx - to.cx) + Math.abs(n.cy - to.cy) * 1.2;
@@ -155,7 +174,7 @@ export class Nav {
       closed.add(cur);
       for (const e of cur.edges) {
         if (closed.has(e.to)) continue;
-        const ng = g.get(cur) + e.cost + (bias?.get(e.to) ?? 0) + (avoid?.has(e) ? 60 : 0);
+        const ng = g.get(cur) + e.cost + (bias?.get(e.to) ?? 0) + (extra?.get(e.to) ?? 0) + (avoid?.has(e) ? 60 : 0);
         if (ng >= (g.get(e.to) ?? Infinity)) continue;
         g.set(e.to, ng);
         f.set(e.to, ng + h(e.to));
@@ -194,6 +213,7 @@ export class Bot {
       skip: new Map(), lootT: 0,   // pickups it couldn't get to (-> till when) and how long it's been after this one
       flips: 0, flipT: 1, flipX: 0, lastDir: 0, commit: 0, commitDir: 0,   // turning back and forth on the spot, and a way out of it
       flee: false,                 // cloaked to get away (not to stab)
+      dropT: 0,                    // (till when) it's just pressed to drop through a catwalk
     });
   }
 
@@ -419,6 +439,11 @@ export class Bot {
     return c;
   }
 
+  // The prop it's standing on (if it is).
+  propUnder() {
+    const f = this.f;
+    return this.game.props.find((p) => !p.dead && p.block && Math.abs(p.box.t - f.y) < 3 && f.x > p.box.l - 5 && f.x < p.box.r + 5) ?? null;
+  }
   // A prop (crate, cabinet, shelf...) standing in its way, at body height, just ahead.
   propAhead(dir) {
     const f = this.f;
@@ -437,7 +462,13 @@ export class Bot {
     const f = this.f;
     const p = this.smash && !this.smash.dead ? this.smash : (c.move && f.onGround ? this.propAhead(Math.sign(c.move)) : null);
     if (!p) { this.smash = null; return; }
-    const b = p.box, rise = f.y - b.t;
+    const b = p.box, rise = f.y - b.t, dir = Math.sign(c.move);
+    // only what's on the way: the next step of the route past it (not a ladder or a drop this side of it)
+    const step = this.path[0];
+    if (this.smash !== p && step) {
+      const tx = (step.node.cx + 0.5) * T;
+      if (step.edge.kind === 'climb' || step.edge.kind === 'drop' || (dir > 0 ? tx < b.l - 2 : tx > b.r + 2)) return;
+    }
     if (this.tries?.p !== p) this.tries = { p, n: 0 };
     if (this.smash === p || rise > 92 || this.tries.n >= 2) {
       this.smash = p;
@@ -473,7 +504,7 @@ export class Bot {
     this.flipX = f.x;
     if (!stuck) return;
     // standing on a prop: off its nearer edge; otherwise the other way to the one it keeps trying
-    const under = this.game.props.find((p) => !p.dead && p.block && Math.abs(p.box.t - f.y) < 3 && f.x > p.box.l - 4 && f.x < p.box.r + 4);
+    const under = this.propUnder();
     this.commitDir = under ? (f.x < under.x ? -1 : 1) : -this.lastDir || 1;
     this.commit = 0.6;
     this.repath = 0;
@@ -486,12 +517,14 @@ export class Bot {
     if (!key || key.kind === undefined || !G.pickups.includes(key)) { this.lootT = 0; return; }
     this.lootT += dt;
     const dx = key.x - f.x, dy = key.y - f.y;
-    // up on something (a crate, a shelf): jump up onto it, going its way
-    if (Math.abs(dx) < 48 && dy < -14) {
+    // lying on top of a prop (a crate, a shelf) just above: jump up onto it, going its way. (Up on a
+    // floor above is the route's business - it knows the ladders and the jumps; hopping under it gets nowhere.)
+    const on = dy < -14 && dy > -95 && Math.abs(dx) < 48 && G.props.find((p) => !p.dead && p.block && key.x > p.box.l - 3 && key.x < p.box.r + 3 && Math.abs(key.y - p.box.t) < 5);
+    if (on) {
       c.move = Math.sign(dx) || c.move;
       if (f.onGround && !c.jump && Math.abs(dx) < 40) { c.jump = true; this.holdT = 0.45; this.dj = dy < -50; }
       this.smash = null;
-    } else if (Math.abs(dx) < 22) {
+    } else if (Math.abs(dx) < 22 && Math.abs(dy) < 20) {
       // under a prop, or inside one's shape (one sat on top of it): break it open
       const over = G.props.find((p) => !p.dead && p.block && key.x > p.box.l - 4 && key.x < p.box.r + 4 && key.y > p.box.t + 4 && key.y < p.box.b + 6);
       if (over && this.lootT > 1) this.smash = over;
@@ -588,7 +621,8 @@ export class Bot {
       const x = (this.spot.cx + 0.5) * T;
       if (!c.roll) c.move = Math.abs(x - f.x) > 3 && this.burstT <= 0 ? Math.sign(x - f.x) : 0;
     }
-    if (f.onGround && Math.random() < 0.006 && this.safeAhead(c.move || f.facing)) { c.jump = true; this.holdT = 0.4; }
+    // shot at while moving to its next spot: now and then a jump to throw their aim (never a hop on the spot)
+    if (f.onGround && c.move && t.lastFireT < 0.2 && Math.random() < 0.03 && this.safeAhead(c.move)) { c.jump = true; this.holdT = 0.4; }
   }
 
   // Is there floor (not acid) under the next step that way?
@@ -652,12 +686,25 @@ export class Bot {
       this.repath = 0;   // at the end of it: on along the route
     }
     const here = f.onGround || f.onLadder ? nav.nodeAt(f.x, f.y, f.onLadder) : null;
+    // up on a prop (a stack of crates, a shelf): the routes don't know about those - it's nowhere
+    // as far as they go, and the next step can be right underneath. Off it, toward where it's going
+    // (the nearer edge, if that's straight down).
+    if (f.onGround && !f.onLadder && !here) {
+      const p = this.propUnder();
+      if (p) {
+        const to = this.path[0]?.node ?? goal, gx = to ? (to.cx + 0.5) * T : f.x;
+        c.move = gx < p.box.l ? -1 : gx > p.box.r ? 1 : f.x < p.x ? -1 : 1;
+        return;
+      }
+    }
     if (here && (this.repath <= 0 || !this.path.length || goal !== this.goal)) {
+      // (the same goal: a fresh route now and then, not every moment - changing its mind between
+      // two ways that cost about the same had it going back and forth)
+      this.repath = goal === this.goal ? rand(1.2, 2) : rand(0.45, 0.8);
       this.goal = goal;
       const now = this.game.time, avoid = new Set();
       for (const [e, until] of this.failed) if (until > now) avoid.add(e); else this.failed.delete(e);
-      this.path = nav.path(here, goal, this.bias, avoid) ?? [];
-      this.repath = rand(0.45, 0.8);
+      this.path = nav.path(here, goal, this.bias, avoid, nav.propCost(this.game.props, now)) ?? [];
     }
     // drop the steps already done
     while (here && this.path.length && this.path[0].node === here) this.path.shift();
@@ -703,7 +750,7 @@ export class Bot {
       }
       case 'drop':
         if (Math.abs(f.x - tx) > 4) c.move = Math.sign(tx - f.x);
-        else { c.down = true; c.jump = true; }   // S + jump drops through a catwalk
+        else if (f.onGround && !(this.dropT > this.game.time)) { c.drop = true; this.dropT = this.game.time + 0.5; }   // through the catwalk - once (held on, it would jump off it instead)
         break;
       case 'jump': {
         const high = e.dy <= -3;

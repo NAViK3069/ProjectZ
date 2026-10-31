@@ -443,7 +443,7 @@ export class Fighter {
       this.dropT = 0.22;
       this.jumpBuf = this.coyote = 0;   // (a jump still held over from the air mustn't fire now instead)
       c = { ...c, jump: false, crouch: false };
-    }
+    } else if (this.dropT > 0 && c.down) c = { ...c, jump: false };   // (S + jump still down a frame later, already through: not a jump off the edge)
     if (c.crouch && this.onGround && !this.onLadder && !this.roll) this.crouch = true;
     else if (this.crouch && this.rollCrouch <= 0 && this.room(HEIGHT)) this.crouch = false;   // stands up only where there's room
     this.rollCrouch -= dt;
