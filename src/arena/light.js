@@ -11,7 +11,7 @@
 // on top (bulbs, screens, a faint haze in each beam, the acid).
 
 import { makeCanvas } from '../engine/pixel.js';
-import { T, SOLID, PLAT, ACID } from './level.js';
+import { T, SOLID, PLAT, ACID, LOW } from './level.js';
 
 const AMBIENT = '#7a8494';   // bright enough to see the whole lab by, lamps or not
 const REACH = 220;             // px: how far a lamp's light carries before it's gone
@@ -59,12 +59,14 @@ export class Lights {
     [this.c, this.g] = makeCanvas(1, 1);
     this.flashes = [];   // short lights: { x, y, r, color, t, max }
     // each lamp shines down to the first thing under it
+    this.ambient = level.ambient ?? AMBIENT;
     this.lamps = level.lamps.map((l) => {
-      const x = (l.cx + 0.5) * T, y = l.cy * T + 9;
+      // hanging under a ceiling, or (outdoors) up on a pole standing on the floor below its cell
+      const x = (l.cx + 0.5) * T, y = l.pole ? (l.cy - 2) * T + 4 : l.cy * T + 9;
       let cy = l.cy + 1;
-      while (cy < level.h && ![SOLID, PLAT].includes(level.get(l.cx, cy))) cy++;
+      while (cy < level.h && ![SOLID, PLAT, LOW].includes(level.get(l.cx, cy))) cy++;
       const floor = cy * T;
-      return { x, y, floor, on: true, swing: Math.random() * 6, broke: 0, spark: 0, sprite: Lights.sprite(floor - y) };
+      return { x, y, floor, pole: l.pole, on: true, swing: Math.random() * 6, broke: 0, spark: 0, sprite: Lights.sprite(floor - y) };
     });
   }
 
@@ -112,7 +114,7 @@ export class Lights {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalCompositeOperation = 'source-over';
     g.globalAlpha = 1;
-    g.fillStyle = AMBIENT;
+    g.fillStyle = this.ambient;
     g.fillRect(0, 0, w, h);
     g.setTransform(1, 0, 0, 1, -ox, -oy);
     g.globalCompositeOperation = 'lighter';
@@ -145,6 +147,9 @@ export class Lights {
       if (d.kind === 'monitors') radial(d.x * T + 22, d.y * T + 6, 44, '80, 220, 230', 0.28);
       if (d.kind === 'reactor') radial(d.x * T + 48, d.y * T + 34, 84, '70, 200, 220', 0.3);
       if (d.kind === 'server') radial(d.x * T + 14, d.y * T + 44, 34, '60, 240, 120', 0.16);
+      if (d.kind === 'skillbay') radial(d.x * T + d.w * 8, d.y * T + 22, 40, '80, 220, 240', 0.32);
+      if (d.kind === 'medcab') radial(d.x * T + d.w * T - 16, d.y * T + 30, 36, '180, 225, 255', 0.3);
+      if (d.kind === 'gunlocker') radial(d.x * T + d.w * 8, d.y * T + 30, 50, '255, 230, 180', 0.12);
     }
     for (const f of this.flashes) radial(f.x, f.y, f.r, f.color, Math.min(1, f.t / f.max) * 1.1);
     for (const e of extra) radial(e.x, e.y, e.r, e.rgb, e.k);
@@ -169,7 +174,8 @@ export class Lights {
     for (const l of this.lamps) {
       const x = Math.round(l.x), y = Math.round(l.y), top = Math.floor(l.y / T) * T;
       ctx.fillStyle = '#0b100f';
-      ctx.fillRect(x, top, 1, y - 5 - top);
+      if (l.pole) { ctx.fillRect(x - 1, y - 4, 2, l.floor - y + 4); ctx.fillRect(x - 3, l.floor - 2, 6, 2); }   // a lamp post
+      else ctx.fillRect(x, top, 1, y - 5 - top);
       ctx.fillRect(x - 5, y - 6, 11, 4);
       ctx.fillStyle = '#3a4c46';
       ctx.fillRect(x - 4, y - 5, 9, 2);
@@ -180,7 +186,27 @@ export class Lights {
         ctx.fillRect(x - 3, y - 2, 7, 3);
       }
     }
-    // screens, coolant, the tanks' fluid, the acid
+    // the acid
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let cx = 0; cx < L.w; cx++) for (let cy = 0; cy < L.h; cy++) {
+      if (L.get(cx, cy) !== ACID) continue;
+      const x = cx * T, y = cy * T;
+      ctx.fillStyle = 'rgba(80, 230, 90, 0.55)';
+      ctx.fillRect(x, y + 2, T, T - 2);
+      ctx.fillStyle = '#c8ff8a';
+      const wv = Math.round(Math.sin(time * 4 + cx) * 1.5);
+      ctx.fillRect(x, y + 1 + wv, T, 1);
+      if (Math.sin(time * 3 + cx * 7) > 0.8) ctx.fillRect(x + ((cx * 5) % 12), y - 1 - ((time * 10 + cx) % 3 | 0), 2, 2);   // a bubble popping
+    }
+    ctx.restore();
+  }
+
+  // The glowing fittings on the back wall - screens, coolant, the tanks' fluid,
+  // the cabinets - after the lighting. (Drawn on a layer of their own, so
+  // whoever stands in front of them hides them: see main.js.)
+  glowDeco(ctx, time) {
+    const L = this.level;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const d of L.deco) {
@@ -204,20 +230,27 @@ export class Lights {
         ctx.fillStyle = 'rgba(160, 255, 200, 0.7)';
         for (let i = 0; i < 4; i++) ctx.fillRect(x + 6 + ((i * 7 + d.x) % 14), y + 60 - (((time * 18 + i * 13) % 48) | 0), 1, 1);   // bubbles rising
       }
+      if (d.kind === 'skillbay') {
+        // the skill bay's screen: a line shot out to a hook, a Q, a scan line running down it
+        const sx = x + 8, sy = y + 10, sw = d.w * T - 16;
+        ctx.fillStyle = 'rgba(40, 140, 170, 0.35)';
+        ctx.fillRect(sx, sy, sw, 26);
+        ctx.fillStyle = '#8ff0ff';
+        for (let i = 0; i < 22; i++) ctx.fillRect(sx + 12 + i, sy + 20 - Math.round(i * 0.5), 1, 1);
+        ctx.fillRect(sx + 33, sy + 8, 3, 3);
+        ctx.fillStyle = '#d8fbff';
+        for (const [i, j] of [[1, 0], [0, 1], [2, 1], [0, 2], [2, 2], [1, 3], [2, 4]]) ctx.fillRect(sx + 4 + i, sy + 3 + j, 1, 1);   // a Q
+        ctx.fillStyle = 'rgba(140, 240, 255, 0.25)';
+        ctx.fillRect(sx, sy + Math.floor((time * 14) % 26), sw, 1);
+      }
+      if (d.kind === 'medcab') {
+        ctx.fillStyle = 'rgba(120, 200, 240, 0.16)';
+        ctx.fillRect(x + d.w * T - 29, y + 8, 26, d.h * T - 14);
+      }
       if (d.kind === 'server') for (let j = 4; j < 84; j += 6) if (Math.sin(time * 5 + j) > 0) {
         ctx.fillStyle = '#3df07a';
         ctx.fillRect(x + 21, y + j + 1, 2, 1);
       }
-    }
-    for (let cx = 0; cx < L.w; cx++) for (let cy = 0; cy < L.h; cy++) {
-      if (L.get(cx, cy) !== ACID) continue;
-      const x = cx * T, y = cy * T;
-      ctx.fillStyle = 'rgba(80, 230, 90, 0.55)';
-      ctx.fillRect(x, y + 2, T, T - 2);
-      ctx.fillStyle = '#c8ff8a';
-      const wv = Math.round(Math.sin(time * 4 + cx) * 1.5);
-      ctx.fillRect(x, y + 1 + wv, T, 1);
-      if (Math.sin(time * 3 + cx * 7) > 0.8) ctx.fillRect(x + ((cx * 5) % 12), y - 1 - ((time * 10 + cx) % 3 | 0), 2, 2);   // a bubble popping
     }
     ctx.restore();
   }

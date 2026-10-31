@@ -94,7 +94,7 @@ export const CATALOG = [
 
   // --- snipers ---
   ['awm', 'AWM', 'sniper', { ...BOLT, damage: 165 }, { hand: 'long', grip: 'wrist', stock: 'thumb', stockLen: 8, furn: 'olive', rec: 8, recH: 3, hg: 'none', bar: 14, thick: 2, brake: true, mag: 'box', magN: 2, action: 'bolt', bipod: true, bipodBack: 12, post: false, topRail: true }],
-  ['m24', 'M24', 'sniper', { ...BOLT, damage: 140 }, { hand: 'long', grip: 'wrist', stock: 'thumb', stockLen: 9, furn: 'tan', rec: 8, recH: 3, hg: 'none', bar: 15, mag: 'none', action: 'bolt', post: false }],
+  ['m24', 'M24', 'sniper', { ...BOLT, noRack: false, reload: 'shells', shellTime: 0.42, damage: 140, shellColor: '#e8b84a', loadFrom: 'top' }, { hand: 'long', grip: 'wrist', stock: 'thumb', stockLen: 9, furn: 'tan', rec: 8, recH: 3, hg: 'none', bar: 15, mag: 'none', action: 'bolt', post: false }],
   ['dragunov', 'DRAGUNOV', 'sniper', { caliber: '7.62', fireInterval: 0.32, damage: 85, magSize: 10, pierce: 1, recoil: 3.5, shake: 2.5 }, { hand: 'long', noUnder: true, noRail: true, grip: 'wrist', stock: 'skel', stockLen: 9, furn: 'wood', rec: 10, hg: 'ak', hgLen: 7, bar: 9, mag: 'curve', magN: 4, handle: 'side', postAtMuzzle: true }],
   ['vss', 'VSS', 'sniper', { caliber: '7.62', auto: true, fireInterval: 0.085, damage: 42, magSize: 20, spread: 0.03, pierce: 0, recoil: 1.6, climb: 0.12, shake: 0.8, suppressed: true, speedMul: 1 }, { hand: 'long', noUnder: true, noRail: true, grip: 'wrist', stock: 'skel', stockLen: 8, furn: 'wood', rec: 9, hg: 'wood', hgLen: 4, bar: 10, supp: true, mag: 'box', magN: 4, handle: 'side' }],
   ['kar98k', 'KAR98K', 'sniper', { ...BOLT, noRack: false, reload: 'shells', shellTime: 0.42, damage: 150, shellColor: '#e8b84a', loadFrom: 'top' }, { hand: 'long', grip: 'wrist', classic: true, stock: 'wood', stockLen: 9, drop: 1, furn: 'wood', rec: 8, recH: 3, hg: 'wood', hgLen: 12, bar: 5, mag: 'none', action: 'bolt', postAtMuzzle: true }],
@@ -125,8 +125,8 @@ export const CATALOG = [
   ['mg3', 'MG3', 'lmg', { fireInterval: 0.052, damage: 34, spread: 0.09 }, { hand: 'long', stock: 'solid', stockLen: 8, rec: 11, recH: 5, hg: 'shroud', hgLen: 13, bar: 2, mag: 'beltbox', magAt: 5, bipod: true }],
   ['lsat', 'LSAT', 'lmg', { caliber: '5.56', fireInterval: 0.075, damage: 28, magSize: 150 }, { hand: 'long', stock: 'tube', stockLen: 7, body: 'tan', furn: 'tan', rec: 11, recH: 5, hg: 'rail', hgLen: 8, bar: 6, mag: 'beltbox', magAt: 5, fgrip: true, fgripAt: 3 , topRail: true}],
   ['m240', 'M240', 'lmg', { fireInterval: 0.085, damage: 40 }, { hand: 'long', stock: 'skel', stockLen: 8, rec: 13, recH: 5, hg: 'rail', hgLen: 8, bar: 8, mag: 'beltbox', magAt: 5, carry: true, carryLen: 5, bipod: true }],
-  ['rpd', 'RPD', 'lmg', { fireInterval: 0.09, damage: 36 }, { hand: 'long', stock: 'wood', stockLen: 8, drop: 1, furn: 'wood', rec: 10, hg: 'wood', hgLen: 6, bar: 12, mag: 'bigdrum', magAt: 4, bipod: true, postAtMuzzle: true, handle: 'side' }],
-  ['mg42', 'MG42', 'lmg', { fireInterval: 0.048, damage: 34, spread: 0.095, magSize: 75 }, { hand: 'long', stock: 'solid', stockLen: 8, furn: 'wood', rec: 10, recH: 5, hg: 'shroud', hgLen: 14, bar: 2, mag: 'bigdrum', magAt: 4, bipod: true }],
+  ['rpd', 'RPD', 'lmg', { fireInterval: 0.09, damage: 36 }, { hand: 'long', stock: 'wood', stockLen: 8, drop: 1, furn: 'wood', rec: 10, hg: 'wood', hgLen: 6, bar: 12, mag: 'bigdrum', magAt: 6, bipod: true, postAtMuzzle: true, handle: 'side' }],
+  ['mg42', 'MG42', 'lmg', { fireInterval: 0.048, damage: 34, spread: 0.095, magSize: 75 }, { hand: 'long', stock: 'solid', stockLen: 8, furn: 'wood', rec: 10, recH: 5, hg: 'shroud', hgLen: 14, bar: 2, mag: 'bigdrum', magAt: 7, bipod: true, handle: 'side' }],
   ['hk21', 'HK21', 'lmg', { fireInterval: 0.08, damage: 38 }, { hand: 'long', stock: 'solid', stockLen: 7, rec: 11, hg: 'slim', hgLen: 8, bar: 6, mag: 'beltbox', magAt: 5, bipod: true, irons: true, postAtMuzzle: true }],
 ];
 

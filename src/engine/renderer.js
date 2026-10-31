@@ -3,11 +3,14 @@
 // move in 1/scale steps so movement and the camera stay smooth.
 
 export class Renderer {
-  constructor(canvas, { viewHeight = 270, viewWidth = 360 } = {}) {
+  // fit: 'round' (nearest zoom) or 'floor' (never zoom in past showing viewWidth x viewHeight -
+  // a slightly bigger window, e.g. fullscreen, doesn't jump to a narrower view)
+  constructor(canvas, { viewHeight = 270, viewWidth = 360, fit = 'round' } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.viewHeight = viewHeight;
     this.viewWidth = viewWidth;
+    this.fit = fit;
     this.camera = { x: 0, y: 0 };
     this.shake = { x: 0, y: 0 };   // short camera kick (recoil etc), decays on its own
     this.left = 0;
@@ -23,7 +26,7 @@ export class Renderer {
     this.height = Math.round(innerHeight * this.dpr);
     this.canvas.width = this.width;
     this.canvas.height = this.height;
-    this.scale = Math.max(2, Math.round(Math.min(this.height / this.viewHeight, this.width / this.viewWidth)));
+    this.scale = Math.max(2, Math[this.fit === 'floor' ? 'floor' : 'round'](Math.min(this.height / this.viewHeight, this.width / this.viewWidth)));
     this.viewW = this.width / this.scale;
     this.viewH = this.height / this.scale;
     this.vignette = null;

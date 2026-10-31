@@ -171,7 +171,8 @@ export function paintMag(sk, type, x, y, n, [m, e, b]) {
     case 'drum':
     case 'bigdrum': {
       // a round drum, a little shine top left, the feed neck on top
-      const r = type === 'drum' ? 5 : 6.5, cx = x + (type === 'drum' ? 5 : 6), cy = y + r + 2;
+      // (the centre on a whole pixel: the drum's cells are set at cx + i, cy + j)
+      const r = type === 'drum' ? 5 : 6.5, cx = x + (type === 'drum' ? 5 : 6), cy = y + Math.ceil(r) + 2;
       sk.rect(cx - 2, y, 4, 3, m);
       for (let j = -Math.ceil(r); j <= Math.ceil(r); j++) for (let i = -Math.ceil(r); i <= Math.ceil(r); i++) {
         const d = Math.hypot(i + 0.5, j + 0.5);

@@ -21,6 +21,11 @@ export const MELEE = {
   knife: {
     name: 'KNIFE', style: 'stab', damage: 45, time: 0.3, reach: 20, arc: 0.9, knock: 40, lunge: 7, hands: 1,
   },
+  // the cloak skill's knife (not on any rack): held point down in a reverse grip, one stab
+  shade: {
+    name: 'SHADE KNIFE', style: 'stab', damage: 45, time: 0.32, reach: 20, arc: 0.9, knock: 40, lunge: 9, hands: 1,
+    reverse: true, cloak: true, skillOnly: true, restHeight: 12,
+  },
   tacknife: {
     name: 'TACTICAL KNIFE', style: 'stab', damage: 55, time: 0.3, reach: 22, arc: 0.9, knock: 50, lunge: 8, hands: 1,
   },
@@ -63,7 +68,7 @@ export const MELEE = {
 // How each weapon is held at rest - its stance (radians raised above level,
 // facing the way you face). It doesn't follow the mouse until you attack.
 const STANCE = {
-  fists: 0, knife: -0.55, tacknife: -0.55, machete: -0.45, crowbar: 0.25, bat: 0.5, axe: 0.5, hammer: 0.4,
+  fists: 0, knife: -0.55, tacknife: -0.55, shade: -1.72, machete: -0.45, crowbar: 0.25, bat: 0.5, axe: 0.5, hammer: 0.4,
   katana: 0.55, spear: 0.35, shovel: 0.4, fireaxe: 0.5, chainsaw: 0.1,
 };
 
@@ -73,7 +78,7 @@ export const FISTS = {
 };
 
 // The gun palette, plus a couple of colours only melee weapons use.
-const MELEE_PAL = { ...GUN_PAL, N: '#3a5064' };   // N: the katana's steel-blue grip wrap
+const MELEE_PAL = { ...GUN_PAL, N: '#3a5064', M: '#6a4ab0', m: '#3a2a66', H: '#9a7ae8' };   // N: the katana's steel-blue grip wrap; M m H: the shade knife's violet cord
 
 // ---------- the art ----------
 // Drawn on the fine gun grid (RES gun pixels to a world pixel), each weapon
@@ -119,6 +124,17 @@ const ART = {
     for (let i = 2; i < 9; i += 2) s.set(i, 3, 'f');        // grip ridges
     s.rect(10, 0, 2, 6, 'd').rect(10, 0, 2, 1, 'c');         // guard
     blade(s, 12, 13, 1, 4, 5);
+  },
+  // A blackened dagger: a ring pommel, a handle bound in violet cord, a short
+  // guard, a dark clip-point blade with a bright honed edge and a glint down the flat.
+  shade(s) {
+    s.rect(0, 2, 2, 5, 'd').rect(0, 2, 2, 1, 'c').set(0, 6, 'e').rect(1, 4, 1, 1, 'h');   // pommel
+    for (let x = 2; x < 12; x++) for (let y = 2; y <= 6; y++) s.set(x, y, y === 2 ? 'H' : y === 6 ? 'm' : (x + y) % 3 === 0 ? 'm' : 'M');   // the cord wrap
+    for (let x = 3; x < 12; x += 3) s.set(x, 4, 'h');
+    s.rect(12, 1, 2, 7, 'd').rect(12, 1, 2, 1, 'c').rect(12, 7, 2, 1, 'e');                 // guard
+    blade(s, 14, 14, 2, 6, 7, { spine: 'g', flat: 'e', edge: 'Z', clip: true });
+    for (let x = 15; x < 23; x++) if (x % 4 !== 2) s.set(x, 4, 'd');                     // a glint down the flat
+    for (let x = 15; x < 19; x += 2) s.set(x, 1, 'g');                                   // a notched spine
   },
   tacknife(s) {
     s.rect(0, 1, 11, 4, 'o').rect(0, 1, 11, 1, 'O').rect(0, 1, 1, 4, 'q');
@@ -227,7 +243,7 @@ const ART = {
 };
 const HOLD = {
   fists: [0, 0],
-  knife: [3, 3], tacknife: [3, 3], bat: [5, 5, 15], crowbar: [6, 4], axe: [4, 11, 22], hammer: [4, 6, 15],
+  knife: [3, 3], tacknife: [3, 3], shade: [7, 4], bat: [5, 5, 15], crowbar: [6, 4], axe: [4, 11, 22], hammer: [4, 6, 15],
   katana: [15, 5, 6], machete: [3, 4], spear: [10, 3, 22], shovel: [9, 4, 20], chainsaw: [7, 15, 14], fireaxe: [4, 6, 16],
 };
 
@@ -422,9 +438,15 @@ export class MeleeWeapon {
       else this.climb = lerp(lo, rest, ease((t - STRIKE) / (1 - STRIKE)));
       this.recoil = t >= WIND && t < STRIKE ? -2 : 0;
     } else {
-      // thrust / jab: draw back, drive straight out, ease back
+      // thrust / jab: draw back, drive straight out, ease back. A reverse grip
+      // stabs overhand instead: the point comes up, then drives down through the line.
       const lunge = this.move === 'jab' ? 7 : d.lunge ?? 10;
-      this.climb = d.fists ? 0 : lerp(this.climb, 0.05, Math.min(1, dt * 20));
+      if (d.reverse) {
+        const up = 1.15, down = -0.4;
+        if (t < WIND) this.climb = lerp(this.climb, up, Math.min(1, dt * 30));
+        else if (t < STRIKE) this.climb = lerp(up, down, ease((t - WIND) / (STRIKE - WIND)));
+        else this.climb = lerp(down, rest, ease((t - STRIKE) / (1 - STRIKE)));
+      } else this.climb = d.fists ? 0 : lerp(this.climb, 0.05, Math.min(1, dt * 20));
       if (t < WIND) this.recoil = lerp(0, 3, ease(t / WIND));
       else if (t < STRIKE) this.recoil = lerp(3, -lunge, ease((t - WIND) / (STRIKE - WIND)));
       else this.recoil = lerp(-lunge, 0, ease((t - STRIKE) / (1 - STRIKE)));

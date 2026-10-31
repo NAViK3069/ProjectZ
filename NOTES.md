@@ -6,6 +6,12 @@ The game is now **ARENA**: the side-view brawler in the research lab
 (Superfighters / Gun Mayhem style). It's the front page, `index.html`, and
 `start.bat` opens it.
 
+It opens on a main menu: STORY, SINGLE PLAYER, MULTIPLAYER, TRAINING and the
+GUN EDITOR. SINGLE PLAYER (you against bots, after the room setup) and
+TRAINING (every gun, melee weapon and skill from the cabinets or TAB, dummies
+to try them on) are built; STORY and MULTIPLAYER show a "coming soon" page
+describing what each will be (`MODES` in `src/arena/main.js`).
+
 ## The 2.5D top-down game is shelved, not deleted
 
 The original top-down zombie shooter (survive the lab in rounds, a training

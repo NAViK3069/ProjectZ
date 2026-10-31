@@ -9,14 +9,16 @@
 // keep its distance, dodge-roll now and then, lob a grenade, and never walk
 // into the acid.
 
-import { T, SOLID, PLAT, LADDER, ACID } from './level.js';
+import { T, SOLID, PLAT, LADDER, ACID, LOW } from './level.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick2 = (l) => l[(Math.random() * l.length) | 0];
 
 export class Nav {
   constructor(level) {
-    this.L = level;
+    // (a low ceiling counts as a wall: no room to stand under it)
+    this.L = Object.create(level);
+    this.L.get = (x, y) => { const v = level.get(x, y); return v === LOW ? SOLID : v; };
     this.nodes = new Map();   // id -> { id, cx, cy, ladder, edges: [{ to, kind, cost, dy }] }
     for (let cy = 0; cy < level.h; cy++) for (let cx = 0; cx < level.w; cx++) {
       if (this.stand(cx, cy) || this.ladder(cx, cy)) this.nodes.set(this.id(cx, cy), { id: this.id(cx, cy), cx, cy, ladder: this.ladder(cx, cy) && !this.stand(cx, cy), edges: [] });
@@ -209,8 +211,10 @@ export class Bot {
     for (const k of ['repath', 'nadeT', 'rollT', 'punchT', 'targetT', 'pauseT', 'lookT', 'burstT', 'spotT', 'biasT']) this[k] -= dt;
     if (this.biasT <= 0) this.rebias();
 
-    const enemies = G.fighters.filter((o) => o.alive && G.foes(f, o));
-    if (!enemies.length) return c;
+    // a cloaked fighter isn't seen at all - unless it's right up against the bot
+    const unseen = (o) => o.hidden && !o.glimpsed && Math.hypot(o.x - f.x, o.y - f.y) > 22;   // (a cloak glitching shows them for a moment)
+    const enemies = G.fighters.filter((o) => o.alive && G.foes(f, o) && !unseen(o));
+    if (!enemies.length && !this.target?.alive) return c;
     const s = f.shoulder;
     const sees = (o) => G.los(s.x, s.y, o.x, o.y - 12) || G.los(s.x, s.y, o.x, o.y - 22);
     for (const o of enemies) if (Math.abs(o.x - f.x) < 420 && sees(o)) this.known.set(o, { x: o.x, y: o.y, t: G.time });
@@ -228,11 +232,11 @@ export class Bot {
       this.target = best;
       this.targetT = rand(2, 4);
     }
-    const t = this.target, vis = !!t && sees(t);
+    const t = this.target, vis = !!t && !unseen(t) && sees(t);
     const aimY = t ? (t.roll ? t.y - 7 : t.y - 12) : 0;
     const dist = t ? Math.hypot(t.x - f.x, aimY - s.y) : Infinity;
     this.seen = vis ? this.seen + dt : 0;
-    const w = f.weapon, armed = !!w && (w.ammo > 0 || f.reserve > 0);
+    const w = f.bestGun(), armed = !!w;   // the gun, while it has ammo
     const hpK = f.hp / f.maxHp;
 
     // ---- what to do ----
@@ -245,7 +249,9 @@ export class Bot {
       return best && bd < range ? best : null;
     };
     const healthP = hpK < 0.45 ? pick((p) => p.kind === 'health', 520) : null;
-    const gunP = pick((p) => p.kind === 'gun' && gunTier(G.weapons[p.key]) > gunTier(armed ? w.def : null) + 0.4, armed ? 260 : 700);
+    // a gun better than what's in its slot (an empty slot: anything)
+    const better = (def) => { const g = f.gunIn(f.slotFor(def)); return gunTier(def) > gunTier(g && (g.ammo > 0 || g.reserve > 0) ? g.def : null) + 0.4; };
+    const gunP = pick((p) => p.kind === 'gun' && better(G.weapons[p.key]), armed ? 260 : 700);
     // bare fists: a melee weapon lying about is worth fetching
     const meleeP = f.melee.def.fists ? pick((p) => p.kind === 'melee', armed ? 220 : 420) : null;
     let goal = null, key = null, fight = false, sprint = false;
@@ -270,7 +276,7 @@ export class Bot {
     if (!goal && !fight) {
       // nothing to go on: wander the lab, pausing to look around
       if (this.mode !== 'search' || !this.wander || this.wanderReached()) {
-        const spots = nav.standable.filter((n) => Math.abs(n.cx * T - f.x) > 96 && !(n.cy >= 23 && n.cx >= 15 && n.cx <= 32));
+        const spots = nav.standable.filter((n) => Math.abs(n.cx * T - f.x) > 96);
         this.wander = pick2(spots);
         this.pauseT = rand(0.4, 1.2);
       }
@@ -308,11 +314,11 @@ export class Bot {
         else { this.fireToggle = !this.fireToggle; c.fire = this.fireToggle; }
       }
     }
-    if (w && w.ammo <= 0 && f.reserve > 0) c.reload = true;
-    if (w && !vis && w.ammo < w.magSize * 0.5 && f.reserve > 0) c.reload = true;
+    if (w && w.ammo <= 0 && w.reserve > 0) c.reload = true;
+    if (w && !vis && w.ammo < w.magSize * 0.5 && w.reserve > 0) c.reload = true;
 
-    // which slot: the gun if it has one with ammo, otherwise the melee weapon / fists
-    c.slot = armed ? 2 : 1;
+    // which slot: the best gun with ammo, otherwise the melee weapon / fists
+    c.slot = armed ? f.slotFor(w.def) : 1;
     // no gun: close in and hit them (combos with whatever's in slot 1)
     const reach = f.melee.def.reach + 2;
     if (t && !armed && vis) { goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? goal; key = t; sprint = dist < 200; fight = false; }
@@ -445,6 +451,18 @@ export class Bot {
     else if (this.climb) {
       const cl = this.climb;
       cl.t += dt;
+      // not getting anywhere (something in the way of the hole): off the ladder,
+      // and that way up is no good for a while
+      cl.stall = Math.abs(f.y - (cl.lastY ?? f.y)) < 0.2 ? (cl.stall ?? 0) + dt : 0;
+      cl.lastY = f.y;
+      if (cl.stall > 0.5) {
+        for (const s of this.path) if (s.edge.kind === 'climb') this.failed.set(s.edge, this.game.time + 6);
+        this.climb = null;
+        this.repath = 0;
+        c.jump = true;
+        c.move = Math.random() < 0.5 ? -1 : 1;
+        return;
+      }
       const there = cl.dir < 0 ? f.y <= cl.exitY + 0.5 : f.y >= cl.exitY - 0.5;
       if (!there && cl.t < 4) {
         c.up = cl.dir < 0;
@@ -507,7 +525,7 @@ export class Bot {
       }
       case 'drop':
         if (Math.abs(f.x - tx) > 4) c.move = Math.sign(tx - f.x);
-        else c.down = true;
+        else { c.down = true; c.jump = true; }   // S + jump drops through a catwalk
         break;
       case 'jump': {
         const high = e.dy <= -3;
