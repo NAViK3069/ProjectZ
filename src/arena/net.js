@@ -1,135 +1,225 @@
-// Playing over the internet, with no server of our own: everyone connects to
-// everyone else directly (WebRTC), finding each other through Trystero, which
-// uses public Nostr relays to pass the introductions. It costs nothing and
-// needs no account.
-//
-// A "server" here is a region: a few Nostr relays there, the ones the
-// introductions go through. Everyone who picks the same one meets in its
-// lobby, where whoever's hosting a room keeps telling everyone about it (its
-// name, mode, map, players) - that's the room list. Joining a room connects
-// you to its host's own room, where the host runs the game and the others
-// send their controls in and get the state of the game back. (So a server
-// near you finds rooms quicker; once in a game, it's the ping to the host
-// that counts.) The relays are public ones, picked for where they are -
-// checked by IP and by ping from Thailand.
+// Playing over the internet, through Photon (Photon Realtime, its cloud - the
+// free plan: 20 players online at once). A "server" is one of Photon's regions:
+// everyone who picks the same one meets in its lobby, where every room open
+// there is listed - its name, mode, map, players, as its host keeps them (the
+// room's own properties, shown in the lobby). Joining a room puts you in it
+// with its host; everything between the players goes through Photon's server
+// for that region, so anyone can reach anyone, whatever their network. The
+// host's browser still runs the game: the others send their controls in and get
+// the state of the game back (see online.js). The SDK is ours, a copy, in
+// src/vendor (it loads when you first go online).
 
-const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.26.0/+esm';
-const APP_ID = 'projectz-lab-brawl-v1';
-const AD_EVERY = 1.5, AD_LIFE = 6;   // a host tells the lobby about its room this often (s); a room not heard of for this long is gone
+const SDK = new URL('../vendor/photon-realtime.js', import.meta.url).href;
+const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-1';   // (players on different versions don't meet)
+const PROPS = ['n', 'm', 'mp', 's', 'mx', 'w', 'p', 'l', 'md', 'h'];   // a room's properties the lobby sees (name, mode, map, seated, max, watchers, playing, locked, made, host)
+const EV = { msg: 1, snap: 2, ctl: 3 };
 
 export const SERVERS = [
-  { key: 'th', name: 'THAILAND', relays: [['relay.notoshi.win', 'CHON BURI, THAILAND'], ['asia.azzamo.net', 'SINGAPORE']] },
-  { key: 'sg', name: 'SINGAPORE', relays: [['asia.azzamo.net', 'SINGAPORE'], ['relay.nostr.moe', 'SINGAPORE']] },
-  { key: 'jp', name: 'JAPAN', relays: [['yabu.me', 'TOKYO, JAPAN'], ['relay.nostr.wirednet.jp', 'OSAKA, JAPAN']] },
-  { key: 'eu', name: 'EUROPE', relays: [['nos.lol', 'FALKENSTEIN, GERMANY'], ['relay.degmods.com', 'FALKENSTEIN, GERMANY'], ['nostr.stakey.net', 'DRONTEN, NETHERLANDS']] },
+  { key: 'asia', name: 'SINGAPORE', where: 'SINGAPORE' },
+  { key: 'hk', name: 'HONG KONG', where: 'HONG KONG' },
+  { key: 'jp', name: 'JAPAN', where: 'TOKYO' },
+  { key: 'kr', name: 'KOREA', where: 'SEOUL' },
+  { key: 'in', name: 'INDIA', where: 'CHENNAI' },
+  { key: 'eu', name: 'EUROPE', where: 'AMSTERDAM' },
 ];
-const config = (server) => ({ appId: APP_ID, relayConfig: { urls: server.relays.map(([host]) => `wss://${host}`), warnOnRelayFailure: false } });
 
-// How far away a server is: a question to each of its relays and the time the
-// answer takes (the best of three), the nearest relay's. null: none answered.
-function probe(host) {
-  return new Promise((done) => {
-    let ws = null, n = 0, best = Infinity, t = 0;
-    const end = () => { clearTimeout(timer); try { ws?.close(); } catch {} done(best < Infinity ? Math.round(best) : null); };
-    const timer = setTimeout(end, 5000);
-    const ask = () => { t = performance.now(); ws.send(JSON.stringify(['REQ', `pz${n}`, { kinds: [29999], limit: 1, since: Math.floor(Date.now() / 1000) }])); };
-    try { ws = new WebSocket(`wss://${host}`); } catch { return end(); }
-    ws.onopen = ask;
-    ws.onmessage = (e) => {
-      let m;
-      try { m = JSON.parse(e.data); } catch { return; }
-      if (m[0] !== 'EOSE' && m[0] !== 'CLOSED') return;
-      best = Math.min(best, performance.now() - t);
-      try { ws.send(JSON.stringify(['CLOSE', `pz${n}`])); } catch {}
-      if (++n < 3) ask(); else end();
+// the SDK, loaded once (a plain script: it sets window.Photon)
+let sdk = null;
+function photon() {
+  return (sdk ??= new Promise((done, fail) => {
+    if (window.Photon) return done(window.Photon);
+    const s = document.createElement('script');
+    s.src = SDK;
+    s.onload = () => (window.Photon ? done(window.Photon) : fail(new Error('Photon did not load')));
+    s.onerror = () => { sdk = null; fail(new Error('Photon did not load')); };
+    document.head.appendChild(s);
+  }));
+}
+
+// Who we are to everyone else (for this visit).
+const UID = `p${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+export const myId = () => UID;
+
+// ---------- the connection: one, for the lobby and for a room ----------
+let conn = null;
+class Conn {
+  constructor(P, server) {
+    this.P = P;
+    const LBC = P.LoadBalancing.LoadBalancingClient;
+    this.S = LBC.State;
+    this.lbc = new LBC(P.ConnectionProtocol.Wss, APP_ID, APP_VERSION);
+    this.lbc.setUserId(UID);
+    this.lbc.setLogLevel(P.LogLevel.ERROR);
+    this.server = server;
+    this.room = null;        // the GameRoom we're in
+    this.stats = null;       // how many are on (the region's, from Photon now and then)
+    this.waits = [];         // [state wanted, resolve, reject]
+    this.lbc.onStateChange = (st) => {
+      for (const w of [...this.waits]) if (w[0].includes(st)) { this.waits.splice(this.waits.indexOf(w), 1); w[1](); }
+      if (st === this.S.Error || st === this.S.Disconnected) {
+        for (const w of this.waits.splice(0)) w[2](new Error('disconnected'));
+        if (this.room) this.room._gone();
+      }
     };
-    ws.onerror = end;
+    this.lbc.onError = (code, msg) => console.warn('Photon:', code, msg);
+    this.lbc.onAppStats = (err, msg, stats) => { if (!err) this.stats = stats; };
+    // a create / join refused: whoever's waiting for it hears why
+    this.lbc.onOperationResponse = (err, msg, code) => {
+      if (err && (code === 226 || code === 227)) for (const w of this.waits.splice(0)) w[2](Object.assign(new Error(msg || 'refused'), { code: err }));
+    };
+    this.lbc.onEvent = (code, content, actorNr) => {
+      if (!this.room) return;
+      const from = this.uidOf(actorNr);
+      let data = content;
+      if (typeof content === 'string') { try { data = JSON.parse(content); } catch { return; } }
+      this.room._event(code, data, from);
+    };
+    this.lbc.onActorJoin = (actor) => { if (this.room && actor.userId !== UID) this.room._join(actor.userId); };
+    this.lbc.onActorLeave = (actor) => { if (this.room && actor.userId !== UID) this.room._leave(actor.userId); };
+  }
+  until(states, ms = 15000) {
+    if (states.includes(this.lbc.state())) return Promise.resolve();
+    return new Promise((done, fail) => {
+      const w = [states, done, fail];
+      this.waits.push(w);
+      setTimeout(() => { const i = this.waits.indexOf(w); if (i >= 0) { this.waits.splice(i, 1); fail(new Error('timed out')); } }, ms);
+    });
+  }
+  inLobby() {
+    return this.until([this.S.JoinedLobby]);
+  }
+  get alive() {
+    const st = this.lbc.state();
+    return st !== this.S.Error && st !== this.S.Disconnected;
+  }
+  uidOf(actorNr) {
+    return this.lbc.myRoomActors()[actorNr]?.userId ?? null;
+  }
+  actorOf(uid) {
+    return Object.values(this.lbc.myRoomActors()).find((a) => a.userId === uid)?.actorNr ?? null;
+  }
+  raise(code, data, target) {
+    if (!this.lbc.isJoinedToRoom()) return;
+    const opt = {};
+    if (target) { const nr = this.actorOf(target); if (nr === null) return; opt.targetActors = [nr]; }
+    this.lbc.raiseEvent(code, JSON.stringify(data), opt);
+  }
+}
+async function connect(server) {
+  const P = await photon();
+  if (conn && conn.server === server && conn.alive) return conn;   // (the one we have - on its way back to the lobby from a room, say)
+  conn?.lbc.disconnect();
+  conn = new Conn(P, server);
+  conn.lbc.connectToRegionMaster(server.key);
+  await conn.inLobby();
+  return conn;
+}
+
+// How far away a region is: how long a connection to it takes to open (about three
+// and a half trips there and back, measured against Photon's own) - the region's
+// addresses from Photon's name server, asked once.
+let regions = null;
+async function regionAddresses() {
+  if (regions) return regions;
+  const P = await photon(), LBC = P.LoadBalancing.LoadBalancingClient;
+  regions = new Promise((done) => {
+    const c = new LBC(P.ConnectionProtocol.Wss, APP_ID, APP_VERSION);
+    c.setLogLevel(P.LogLevel.ERROR);
+    const end = (r) => { done(r); setTimeout(() => c.disconnect(), 50); };
+    c.onStateChange = (st) => { if (st === LBC.State.ConnectedToNameServer) c.getRegions(); };
+    c.onGetRegionsResult = (err, msg, list) => end(err ? {} : list);
+    setTimeout(() => end({}), 8000);
+    c.connectToNameServer();
+  });
+  regions = await regions;
+  if (!Object.keys(regions).length) { const r = regions; regions = null; return r; }   // (none: ask again next time)
+  return regions;
+}
+function opens(address) {
+  return new Promise((done) => {
+    const t = performance.now();
+    let ws = null;
+    const end = (v) => { clearTimeout(timer); try { ws?.close(); } catch {} done(v); };
+    const timer = setTimeout(() => end(null), 5000);
+    try { ws = new WebSocket(address, 'GpBinaryV18'); } catch { return end(null); }
+    ws.onopen = () => end(performance.now() - t);
+    ws.onerror = () => end(null);
   });
 }
 export async function pingServer(server) {
-  const times = await Promise.all(server.relays.map(([host]) => probe(host)));
-  let out = null;
-  times.forEach((ms, i) => { if (ms !== null && (!out || ms < out.ms)) out = { ms, where: server.relays[i][1] }; });
-  return out;
+  const address = (await regionAddresses())[server.key];
+  if (!address) return null;
+  const a = await opens(address), b = a === null ? null : await opens(address);
+  if (a === null) return null;
+  return { ms: Math.max(1, Math.round(Math.min(a, b ?? a) / 3.5)), where: server.where };
 }
 
-let lib = null;
-async function trystero() {
-  lib ??= await import(TRYSTERO);
-  return lib;
-}
-export const myId = () => lib?.selfId ?? null;
-
-// The lobby of a server: who's in it, and the rooms being hosted in it.
+// ---------- the lobby: the rooms open in this region ----------
 export class Lobby {
-  static async join(server, name) {
-    const T = await trystero();
-    return new Lobby(T, server, name);
+  static async join(server) {
+    return new Lobby(await connect(server), server);
   }
-  constructor(T, server, name) {
+  constructor(c, server) {
+    this.c = c;
     this.server = server;
-    this.name = name;
-    this.rooms = new Map();   // host's id -> { ...ad, seen }
-    this.peers = new Set();
-    this.ad = null;           // our own room, while we host one
-    this.adT = 0;
-    this.room = T.joinRoom(config(server), `lobby-${server.key}`);
-    this.adAction = this.room.makeAction('ad');
-    this.adAction.onMessage = (ad, { peerId }) => {
-      if (ad && !ad.gone) this.rooms.set(peerId, { ...ad, host: peerId, seen: performance.now() });
-      else this.rooms.delete(peerId);
-    };
-    this.room.onPeerJoin = (id) => {
-      this.peers.add(id);
-      if (this.ad) this.adAction.send(this.ad, { target: id });
-    };
-    this.room.onPeerLeave = (id) => {
-      this.peers.delete(id);
-      this.rooms.delete(id);
-    };
+    this.ad = null;
+    this.sent = {};   // (the host) what the room's lobby properties were last set to, and in which room
+    this.sentIn = null;
   }
-  // the rooms heard of lately, oldest first (so their numbers stay put)
+  // still connected (lost: back to the servers - see online.js)
+  get alive() {
+    return this.c.alive && conn === this.c;
+  }
+  // the rooms listed (oldest first, so their numbers stay put)
   get list() {
-    const now = performance.now();
-    for (const [id, r] of this.rooms) if (now - r.seen > AD_LIFE * 1000) this.rooms.delete(id);
-    return [...this.rooms.values()].sort((a, b) => a.made - b.made);
+    return this.c.lbc.availableRooms()
+      .filter((r) => !r.removed && r.playerCount > 0 && r.getCustomProperty('h'))
+      .map((r) => {
+        const p = (k) => r.getCustomProperty(k);
+        return { name: p('n') ?? r.name, mode: p('m'), map: p('mp'), n: p('s') ?? r.playerCount, max: p('mx') ?? 8, w: p('w') ?? 0, playing: !!p('p'), lock: !!p('l'), made: p('md') ?? 0, host: p('h'), rid: r.name };
+      })
+      .sort((a, b) => a.made - b.made);
   }
   get online() {
-    return this.peers.size + 1;
+    return this.c.stats?.peerCount ?? 1;
   }
-  // hosting: what to tell everyone about our room (null: we're not hosting any more)
+  // (the host) how the room stands, for the lobby: only what's changed goes up
   advertise(ad) {
-    const was = this.ad;
     this.ad = ad;
-    if (!ad && was) this.adAction.send({ gone: true });
-    else if (ad && (!was || JSON.stringify(ad) !== JSON.stringify(was))) this.adAction.send(ad);
+    const room = this.c.lbc.isJoinedToRoom() ? this.c.lbc.myRoom() : null;
+    if (!ad || !room) return;
+    if (this.sentIn !== room.name) { this.sent = {}; this.sentIn = room.name; }
+    const want = { n: ad.name, m: ad.mode, mp: ad.map, s: ad.n, mx: ad.max, w: ad.w, p: ad.playing ? 1 : 0, l: ad.lock ? 1 : 0, md: ad.made, h: UID };
+    const out = {};
+    for (const k of PROPS) if (this.sent[k] !== want[k]) { out[k] = want[k]; this.sent[k] = want[k]; }
+    if (Object.keys(out).length) room.setCustomProperties(out);
   }
-  update(dt) {
-    if (this.ad && (this.adT -= dt) <= 0) {
-      this.adT = AD_EVERY;
-      this.adAction.send(this.ad);
-    }
-  }
+  update() {}
   leave() {
-    if (this.ad) this.adAction.send({ gone: true });
-    this.room.leave();
+    this.c.lbc.disconnect();
+    if (conn === this.c) conn = null;
   }
 }
 
-// A game room: the host's own, which everyone in the game joins. Messages
-// (`msg`: hello, the room as it stands, ready, start ...), the state of the
-// game (`snap`, host to everyone) and controls (`ctl`, everyone to the host).
+// ---------- a game room ----------
+// The host makes it (named rid, made up by whoever made it first - it keeps the
+// name if someone else is made host); everyone else joins it by that name.
 export class GameRoom {
-  // rid: the room's own name - its first host's, and it keeps it if someone else is made host
   static async open(server, hostId, rid = `game-${hostId}`) {
-    const T = await trystero();
-    return new GameRoom(T, server, hostId, rid);
+    const c = await connect(server);
+    await c.inLobby();
+    const done = c.until([c.S.Joined]);
+    if (hostId === UID) {
+      c.lbc.createRoom(rid, { maxPlayers: 16, publishUserId: true, emptyRoomLiveTime: 0, suspendedPlayerLiveTime: 0, propsListedInLobby: PROPS, customGameProperties: { h: UID, md: Date.now() } });
+    } else c.lbc.joinRoom(rid);
+    await done;
+    return new GameRoom(c, hostId, rid);
   }
-  constructor(T, server, hostId, rid) {
+  constructor(c, hostId, rid) {
+    this.c = c;
     this.hostId = hostId;
-    this.me = T.selfId;
+    this.me = UID;
     this.rid = rid;
-    this.room = T.joinRoom(config(server), rid);
     this.peers = new Set();
     this.ping = 0;
     this.onMsg = () => {};
@@ -137,28 +227,45 @@ export class GameRoom {
     this.onCtl = () => {};
     this.onJoin = () => {};
     this.onLeave = () => {};
-    for (const [key, name] of [['msg', 'onMsg'], ['snap', 'onSnap'], ['ctl', 'onCtl']]) {
-      const a = this.room.makeAction(key);
-      this[key] = a;
-      a.onMessage = (data, { peerId }) => this[name](data, peerId);
-    }
-    this.room.onPeerJoin = (id) => { this.peers.add(id); this.onJoin(id); };
-    this.room.onPeerLeave = (id) => { this.peers.delete(id); this.onLeave(id); };
-    this.pingT = 0;
+    c.room = this;
+    const send = (code) => ({ send: (data, opt) => c.raise(code, data, opt?.target) });
+    this.snap = send(EV.snap);
+    this.ctl = send(EV.ctl);
+    // everyone already in it: met, as if they'd just come (once the handlers are on)
+    setTimeout(() => {
+      if (c.room !== this) return;
+      for (const a of Object.values(c.lbc.myRoomActors())) if (a.userId && a.userId !== UID) this._join(a.userId);
+    }, 0);
   }
   get isHost() {
     return this.hostId === this.me;
   }
   send(data, target) {
-    this.msg.send(data, target ? { target } : undefined);
+    this.c.raise(EV.msg, data, target);
   }
-  update(dt) {
-    // how long a message takes to the host and back, now and then
-    if (this.isHost || !this.peers.has(this.hostId) || (this.pingT -= dt) > 0) return;
-    this.pingT = 2;
-    this.room.ping(this.hostId).then((ms) => { this.ping = Math.round(ms); }).catch(() => {});
+  update() {
+    this.ping = Math.round(this.c.lbc.getRtt?.() ?? 0);   // (to Photon's server and back)
   }
   leave() {
-    this.room.leave();
+    if (this.c.room === this) this.c.room = null;
+    if (this.c.lbc.isJoinedToRoom()) this.c.lbc.leaveRoom();   // (back to the lobby)
+  }
+  _event(code, data, from) {
+    if (code === EV.msg) this.onMsg(data, from);
+    else if (code === EV.snap) this.onSnap(data, from);
+    else if (code === EV.ctl) this.onCtl(data, from);
+  }
+  _join(uid) {
+    if (!uid || this.peers.has(uid)) return;
+    this.peers.add(uid);
+    this.onJoin(uid);
+  }
+  _leave(uid) {
+    if (!this.peers.delete(uid)) return;
+    this.onLeave(uid);
+  }
+  // the connection lost: everyone gone, as far as we're concerned
+  _gone() {
+    for (const uid of [...this.peers]) this._leave(uid);
   }
 }

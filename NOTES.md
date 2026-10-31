@@ -52,14 +52,17 @@ whether it's READY, in use, or how long the wait is. Bots use theirs
 (`useSkill` in `src/arena/ai.js`), and with nobody in sight (you're cloaked,
 say) they search where they last saw you, pick things up, roam and hop.
 
-There's no game server: players connect to each other directly (WebRTC),
-introduced through Trystero over public Nostr relays (`src/arena/net.js`; the
-library comes from jsDelivr, pinned). A "server" is a region: a couple of
-relays there (THAILAND - Chon Buri; SINGAPORE; JAPAN; EUROPE), picked by
-their IP's location and their ping from Thailand. The server screen pings
-each one live and recommends the nearest. Public relays come and go - if one
-stops answering, swap it in `SERVERS` (check it with a two-tab test: both
-should see each other in its lobby).
+Everything online goes through Photon (Photon Realtime, its cloud;
+`src/arena/net.js`). The app is "ProjectZ" in the Photon dashboard (App ID in
+`net.js`; it's not a secret - every Photon web game has its App ID in the
+page). The free plan allows 20 players online at once across the whole game.
+A "server" is a Photon region (SINGAPORE, HONG KONG, JAPAN, KOREA, INDIA,
+EUROPE); the server screen estimates each one's ping and recommends the
+nearest. The lobby is Photon's list of rooms in that region; a room's lobby
+details (name, mode, map, players, locked, host) are the room's properties,
+kept up by its host. The SDK is a copy in `src/vendor/photon-realtime.js`
+(the npm package "photon-realtime" 4.4.0, its Node-only tail cut off), loaded
+the first time you go online. Players on a different `APP_VERSION` don't meet.
 
 The host's browser runs the game; the others send their controls and draw
 the state the host sends 20 times a second - only what changed - plus the
@@ -67,8 +70,9 @@ effects that went off (`src/arena/online.js`). A hidden tab gets no frames,
 so online a worker keeps time instead (`backupClock` in `src/arena/main.js`)
 and the game runs on at full speed with the host's tab in the background or
 minimised; and however slowly frames come, the game makes up the time in
-1/30 s steps (`runFor`). The host leaving ends the room. Some networks (strict NATs, some mobile data) can't
-connect directly; that would need a TURN relay, which isn't set up.
+1/30 s steps (`runFor`). The host leaving ends the room (HOST hands it over
+first). Our own shots come in from the host already on their way; each is
+drawn coming out of the gun and catching up in 0.12 s (`N.shots`).
 
 ## The 2.5D top-down game is shelved, not deleted
 

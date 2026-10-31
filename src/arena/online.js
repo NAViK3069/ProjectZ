@@ -52,7 +52,7 @@ const N = {
   watching: false, match: null, deadT: 0,
   pass: '', creating: null, joinAsk: null, joinPass: '',
   confirm: null, banned: new Map(), out: false, offset: undefined,
-  ghost: null, knock: null,   // (the others) our own fighter's movement, run here at once (see predict); a hit's knock to give it   // confirm: a button waiting for its second click; banned: (the host) kicked -> till when; out: sat out of the match, in the room   // pass: (the host) the room's password, '' for none; creating: the CREATE ROOM box ({ name, pass }); joinAsk: a locked room we're asked the password for   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
+  ghost: null, knock: null, shots: new Map(),   // (the others) our own fighter's movement, run here at once (see predict); a hit's knock to give it   // confirm: a button waiting for its second click; banned: (the host) kicked -> till when; out: sat out of the match, in the room   // pass: (the host) the room's password, '' for none; creating: the CREATE ROOM box ({ name, pass }); joinAsk: a locked room we're asked the password for   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
   ctl: new Map(), sendT: 0, snaps: [], gotSnap: false, menu: false, saved: null, ctlT: 0, lastCtl: '', pend: {},
   fighters: new Map(), props: new Map(), nextNid: 100, propIds: 0, fistsDef: null,
   sent: new Map(),   // (the host) what each fighter and prop was last sent as, field by field - only what's changed goes again
@@ -244,8 +244,19 @@ function applySnapshot(s) {
   // everything else
   for (const [k, name] of LISTS) g[name] = rev(s.l[k]) ?? [];
   for (const o of g.thrown) if (!o.img) o.img = o.kind === 'gun' ? A.iconOf(o.key) : MELEE[o.key]?.img;
-  // (shots and throws put back as far as the fighters are drawn behind, so they come out of the gun)
-  for (const list of [g.bullets, g.grenades, g.thrown, g.arrows]) for (const o of list) if (o && typeof o.vx === 'number') { o.x -= o.vx * delay(); o.y -= o.vy * delay(); }
+  // (others' shots and throws put back as far as the fighters are drawn behind, so they come out of the
+  // gun; our own not - our own fighter is drawn where it is now, and ours come out of ours)
+  const mine = (o) => !N.watching && (o.owner?.peer === myId() || o.owner?.owner?.peer === myId());
+  for (const list of [g.bullets, g.grenades, g.thrown, g.arrows]) for (const o of list) if (o && typeof o.vx === 'number' && !mine(o)) { o.x -= o.vx * delay(); o.y -= o.vy * delay(); }
+  // our own shots come in from the host already well on their way (a trip there and back after the click):
+  // the first time each is seen, how far out it is - it's drawn coming out of our gun and catching up
+  // to where it really is in a moment (see clientFrame). Where it really is, is what hits.
+  const self = N.watching ? null : g.fighters.find((f) => f.peer === myId()), now = performance.now() / 1000;
+  for (const b of g.bullets) {
+    if (!b || b.id === undefined || !self || b.owner !== self) continue;
+    if (!N.shots.has(b.id)) N.shots.set(b.id, { t0: null, ahead: 0, seen: now });   // (how far out: measured when it's first drawn - see clientFrame)
+  }
+  for (const [id, sh] of N.shots) if (now - sh.seen > 2) N.shots.delete(id);
   [...s.la].forEach((c, i) => { const l = g.lights.lamps[i]; if (l) l.on = c === '1'; });
   g.time = s.t;
   A.state = s.st;
@@ -346,7 +357,20 @@ export function clientFrame(dt) {
     f.x = x;
     f.y = y;
   }
-  for (const list of [g.bullets, g.grenades, g.thrown, g.arrows]) for (const o of list) if (o && typeof o.vx === 'number') { o.x += o.vx * dt; o.y += o.vy * dt; }
+  for (const list of [g.bullets, g.grenades, g.thrown, g.arrows]) for (const o of list) if (o && typeof o.vx === 'number') {
+    o._tx = (o._tx ?? o.x) + o.vx * dt;
+    o._ty = (o._ty ?? o.y) + o.vy * dt;
+    // our own shot, just fired: drawn back toward the gun, the gap closing over 0.12 s
+    const sh = o.id !== undefined && N.shots.get(o.id), v = Math.hypot(o.vx, o.vy) || 1;
+    if (sh && sh.t0 === null) {
+      const self = g.fighters.find((f) => f.peer === myId());
+      sh.t0 = performance.now() / 1000;
+      sh.ahead = self ? Math.max(0, Math.min(180, ((o._tx - self.x) * o.vx + (o._ty - (self.y - 14)) * o.vy) / v - 6)) : 0;
+    }
+    const k = sh ? Math.max(0, 1 - (performance.now() / 1000 - sh.t0) / 0.12) : 0;
+    o.x = o._tx - (o.vx / v) * (sh ? sh.ahead * k : 0);
+    o.y = o._ty - (o.vy / v) * (sh ? sh.ahead * k : 0);
+  }
   for (const list of [g.fists, g.galaxies, g.punches, g.blasts, g.numbers]) for (const o of list) if (o && typeof o.t === 'number') o.t += dt;
   g.fx.update(dt);
   g.lights.update(dt);
@@ -534,7 +558,7 @@ async function createRoom(name = '', pass = '') {
   N.busy = 'MAKING THE ROOM...';
   N.creating = null;
   try {
-    N.room = await GameRoom.open(N.server, myId());
+    N.room = await GameRoom.open(N.server, myId(), `game-${myId()}-${Date.now().toString(36)}`);   // (its own name: a room handed over to someone else lives on under the old one)
     N.mode = 'host';
     N.roomName = name.trim() || `${N.name}'S ROOM`;
     N.pass = pass;
@@ -767,6 +791,8 @@ export function netUpdate(dt) {
     N.pingT = 15;
     for (const sv of SERVERS) pingServer(sv).then((r) => { N.pings[sv.key] = r; });
   }
+  // the connection to the server lost: back to the list of servers
+  if (N.lobby && !N.lobby.alive && !N.busy) { leaveServer(); say('LOST THE CONNECTION TO THE SERVER - PICK ONE AGAIN'); return; }
   N.lobby?.update(dt);
   N.room?.update(dt);
   if (N.msgT > 0) N.msgT -= dt;
@@ -982,29 +1008,31 @@ function drawServers(k, u, W, H) {
   k.button('name', px + pw - 76 * u, cy, 68 * u, 16 * u, editing ? 'SAVE' : 'CHANGE');
   y += 50 * u;
   // the servers: where each is, how far (the ping, as bars), the nearest one recommended
-  const rowH = 26 * u, ph = 26 * u + SERVERS.length * (rowH + 4 * u), rec = recommended();
+  const rowH = 21 * u, gapR = 3 * u, ph = 26 * u + SERVERS.length * (rowH + gapR), rec = recommended();
   cy = k.panel(px, y, pw, ph, { title: 'SERVERS', note: 'FREE - PICK THE ONE YOUR FRIENDS PICK' });
   SERVERS.forEach((sv, i) => {
-    const id = `srv:${i}`, ry = cy + i * (rowH + 4 * u), rx = px + 8 * u, rw = pw - 16 * u;
+    const id = `srv:${i}`, ry = cy + i * (rowH + gapR), rx = px + 8 * u, rw = pw - 16 * u;
     const hot = k.hover === id || N.sel === i, p = N.pings[sv.key];
     k.rect(rx - u, ry - u, rw + 2 * u, rowH + 2 * u, K.ink);
     k.rect(rx, ry, rw, rowH, hot ? K.teal : K.edge);
     k.rect(rx + u, ry + u, rw - 2 * u, rowH - 2 * u, hot ? '#1f3a36' : '#18211e');
     k.rect(rx + u, ry + u, rw - 2 * u, u, 'rgba(255, 255, 255, 0.08)');
-    if (hot) k.text('>', rx + 5 * u, ry + 6 * u, { size: 2, color: K.teal });
+    if (hot) k.text('>', rx + 5 * u, ry + 4 * u, { size: 2, color: K.teal });
+    // the name, where it is beside it (a badge on the nearest), how far at the right
     const nw = k.text(sv.name, rx + 16 * u, ry + 4 * u, { size: 2, color: hot ? '#ffffff' : K.text });
-    const where = p ? `VIA ${p.where}` : sv.relays.map(([, w]) => w).filter((w, j, a) => a.indexOf(w) === j).join('  /  ');
-    k.text(where, rx + 16 * u, ry + 19 * u, { small: true, color: K.muted });
+    let bx = rx + 16 * u + nw + 8 * u;
     if (i === rec) {
-      const t = 'RECOMMENDED', bw = k.width(t, { small: true }) + 8 * u, bx = rx + 16 * u + nw + 6 * u;
+      const t = 'RECOMMENDED', bw = k.width(t, { small: true }) + 8 * u;
       k.rect(bx, ry + 5 * u, bw, 10 * u, K.gold);
       k.text(t, bx + 4 * u, ry + 7 * u, { small: true, color: K.ink, shadow: null });
+      bx += bw + 6 * u;
     }
-    drawPing(k, u, rx + rw - 6 * u, ry + 18 * u, p);
+    if (sv.where !== sv.name) k.text(sv.where, bx, ry + 8 * u, { small: true, color: K.muted });
+    drawPing(k, u, rx + rw - 6 * u, ry + 16 * u, p);
     k.hit(id, rx, ry, rw, rowH);
   });
   y += ph + 6 * u;
-  k.text('THE SERVER IS WHERE PLAYERS FIND EACH OTHER. IN A GAME YOU CONNECT STRAIGHT TO THE HOST.', W / 2, y, { small: true, color: K.faint, align: 'center' });
+  k.text('EVERYTHING IN A GAME GOES THROUGH THE SERVER - PICK THE NEAREST (THE LOWEST PING), THE SAME AS YOUR FRIENDS', W / 2, y, { small: true, color: K.faint, align: 'center' });
   y += 10 * u;
   k.button('back', px, y, 80 * u, 18 * u, 'BACK', { kind: 'danger' });
   k.hints('CLICK A SERVER  CONNECT      ENTER  THE RECOMMENDED ONE      N  CHANGE NAME      ESC  BACK');

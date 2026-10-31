@@ -209,7 +209,7 @@ const game = {
       this.fx.sparks(x, y, 3, -Math.cos(a), -Math.sin(a));   // the gun's poked into a wall
       return;
     }
-    this.bullets.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, done: new Set(), dead: false });
+    this.bullets.push({ id: (this.shotIds = (this.shotIds ?? 0) + 1), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, done: new Set(), dead: false });   // (id: online, a shot's known from one state to the next)
   },
   // the main game's muzzle: a flash of light, a puff of smoke off the barrel, the camera kicked back
   muzzle(x, y, a, w, f) {

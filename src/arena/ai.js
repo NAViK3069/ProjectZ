@@ -268,6 +268,7 @@ export class Bot {
     const aimY = t ? (t.roll ? t.y - 7 : t.y - 12) : 0;
     const dist = t ? Math.hypot(t.x - f.x, aimY - s.y) : Infinity;
     this.seen = vis ? this.seen + dt : 0;
+    this.unseen = vis ? 0 : (this.unseen ?? 9) + dt;
     const w = f.cloak ? null : f.bestGun(), armed = !!w;   // the gun, while it has ammo (cloaked: the knife, for a stab)
     const hpK = f.hp / f.maxHp;
 
@@ -294,9 +295,11 @@ export class Bot {
     else if (meleeP && !(vis && armed)) { goal = nav.nodeBelow(meleeP.x, meleeP.y); key = meleeP; this.mode = 'loot'; }
     else if (vis && armed && (losing || (w.reloading && dist < 200))) {
       // back off out of sight to patch up / reload
-      if (!this.spot || this.spotT <= 0 || this.mode !== 'retreat') { this.spot = this.coverFrom(t, true); this.spotT = 1.5; }
+      if (!this.spot || this.spotT <= 0 || this.mode !== 'retreat') { this.spot = this.coverFrom(t, true); this.spotT = 2.5; }
       goal = this.spot; key = 'retreat'; sprint = true; this.mode = 'retreat';
-    } else if (armed && vis && dist < (w.def.cls === 'shotgun' ? 150 : w.def.cls === 'sniper' ? 420 : 300)) fight = true;
+    } else if (armed && t && (vis || (this.mode === 'fight' && this.unseen < 0.5)) && dist < (w.def.cls === 'shotgun' ? 150 : w.def.cls === 'sniper' ? 420 : 300) * (this.mode === 'fight' ? 1.25 : 1)) fight = true;
+    // (in a fight it stays in it a little further out, and through a moment out of sight - at the edge
+    // of its range, or with cover flickering between them, it went in and out of it every moment)
     else if (t) {
       // go where it was last seen / heard (the long way round sometimes)
       const k = this.known.get(t);
@@ -419,7 +422,8 @@ export class Bot {
       const rolled = c.move;
       this.follow(dt, c, goal);
       if (c.roll) c.move = rolled;
-      c.sprint = sprint && f.stamina > 30;
+      c.sprint = (sprint || this.runJump) && f.stamina > 30;   // (running at a long jump, too)
+      this.runJump = false;
     }
     if (this.mode === 'search' && f.onGround && c.move && this.hopT <= 0 && !this.path[0]?.edge.kind.match(/drop|climb/)) {
       this.hopT = rand(1.5, 4);
@@ -439,6 +443,14 @@ export class Bot {
     return c;
   }
 
+  // Which way to press to get to x: none once it's near enough - or near enough that, letting go now,
+  // it slides to a stop there. (Pressing right up to it, it went past, turned back, went past...)
+  toward(x, near = 4) {
+    const f = this.f, d = x - f.x, coast = f.onGround ? (f.vx * f.vx) / 2500 : 0;   // (the floor stops it at 1250 px/s²)
+    if (Math.abs(d) <= near) return 0;
+    if (Math.sign(f.vx) === Math.sign(d) && Math.abs(d) <= coast + 2) return 0;
+    return Math.sign(d);
+  }
   // The prop it's standing on (if it is).
   propUnder() {
     const f = this.f;
@@ -611,7 +623,7 @@ export class Bot {
   // there is some), hop now and then.
   duel(dt, c, t) {
     const f = this.f;
-    if (!this.spot || this.spotT <= 0 || this.mode !== 'fight') {
+    if (!this.spot || this.spotT <= 0) {   // (the spot it had, kept till its time's up - not a new one every time it comes back to the fight)
       this.spot = this.coverFrom(t);
       this.spotT = rand(1.2, 2.6);
     }
@@ -619,7 +631,7 @@ export class Bot {
     this.path = [];
     if (this.spot) {
       const x = (this.spot.cx + 0.5) * T;
-      if (!c.roll) c.move = Math.abs(x - f.x) > 3 && this.burstT <= 0 ? Math.sign(x - f.x) : 0;
+      if (!c.roll) c.move = this.burstT <= 0 ? this.toward(x, 4) : 0;
     }
     // shot at while moving to its next spot: now and then a jump to throw their aim (never a hop on the spot)
     if (f.onGround && c.move && t.lastFireT < 0.2 && Math.random() < 0.03 && this.safeAhead(c.move)) { c.jump = true; this.holdT = 0.4; }
@@ -634,9 +646,17 @@ export class Bot {
   // In the air over the acid (knocked off, or a jump gone wrong): steer for the nearest floor, jump again.
   airControl(c) {
     const f = this.f, nav = this.game.nav;
-    if (f.onGround || f.onLadder) return;
+    if (f.onGround || f.onLadder) { this.airSide = null; return; }
     const cy = Math.max(0, Math.floor((f.y - 1) / T));
-    const doomed = (x) => nav.land(Math.floor(x / T), cy) === null && !nav.stand(Math.floor(x / T), cy);
+    // nowhere to land down there (the vat, the open air) - a wall ahead isn't that: it just stops it where it is
+    const doomed = (x) => {
+      let cx = Math.floor(x / T);
+      if (!nav.free(cx, cy)) cx = Math.floor(f.x / T);
+      return nav.land(cx, cy) === null && !nav.stand(cx, cy);
+    };
+    // already making for a floor to save itself: on that way till it lands (taking turns with the jump's
+    // own aim, it went back and forth)
+    if (this.airSide) { c.move = this.airSide; if (f.airJumps > 0 && f.vy > -40) { c.jump = true; c.jumpHeld = true; } return; }
     // on a planned jump (over the vat, say): keep going for where it's meant to land
     // while it's still up at that height - turning back is what made it hop on the spot
     const j = this.jumping, jx = j && (j.edge.to.cx + 0.5) * T, jy = j && (j.edge.to.cy + 1) * T;
@@ -646,10 +666,11 @@ export class Bot {
     }
     if (!doomed(f.x + f.vx * 0.25)) return;
     // falling short: make for the nearest floor, the landing side first
-    let best = null;
+    let best = this.airSide ?? null;   // (a side picked, kept till it lands - picked afresh each moment, it went back and forth)
     const sides = j ? [Math.sign(jx - f.x) || 1, -(Math.sign(jx - f.x) || 1)] : [-1, 1];
     for (let d = 1; d < 12 && best === null; d++) for (const s of sides) if (best === null && !doomed(f.x + s * d * T)) best = s;
     if (best === null) return;
+    this.airSide = best;
     c.move = best;
     if (f.airJumps > 0 && f.vy > -40) { c.jump = true; c.jumpHeld = true; }
   }
@@ -704,7 +725,15 @@ export class Bot {
       this.goal = goal;
       const now = this.game.time, avoid = new Set();
       for (const [e, until] of this.failed) if (until > now) avoid.add(e); else this.failed.delete(e);
-      this.path = nav.path(here, goal, this.bias, avoid, nav.propCost(this.game.props, now)) ?? [];
+      // turning round costs a bit more than going on: two ways of about the same length (round the vat
+      // one way or the other) and a goal that keeps moving had it turning back and forth
+      let extra = nav.propCost(this.game.props, now);
+      const going = Math.abs(f.vx) > 30 ? Math.sign(f.vx) : 0;
+      if (going && f.onGround) {
+        extra = new Map(extra);
+        for (const e of here.edges) if (Math.sign(e.to.cx - here.cx) === -going) extra.set(e.to, (extra.get(e.to) ?? 0) + 6);
+      }
+      this.path = nav.path(here, goal, this.bias, avoid, extra) ?? [];
     }
     // drop the steps already done
     while (here && this.path.length && this.path[0].node === here) this.path.shift();
@@ -725,7 +754,7 @@ export class Bot {
       // nothing left to do but it's hanging on a ladder: get down onto the floor
       if (f.onLadder) { c.down = true; return; }
       // there (or no way): face the goal and close the last bit
-      if (goal) c.move = Math.abs((goal.cx + 0.5) * T - f.x) > 3 ? Math.sign((goal.cx + 0.5) * T - f.x) : 0;
+      if (goal) c.move = this.toward((goal.cx + 0.5) * T, 4);
       return;
     }
     const e = step.edge, n = step.node, tx = (n.cx + 0.5) * T, ty = (n.cy + 1) * T;
@@ -753,11 +782,13 @@ export class Bot {
         else if (f.onGround && !(this.dropT > this.game.time)) { c.drop = true; this.dropT = this.game.time + 0.5; }   // through the catwalk - once (held on, it would jump off it instead)
         break;
       case 'jump': {
-        const high = e.dy <= -3;
+        const high = e.dy <= -3, long = Math.abs(e.dx) >= 3, dirJ = Math.sign(tx - sx);
         if (f.onGround || f.onLadder) {
-          // line up on the take-off spot, then go (a running start for long ones)
-          const runUp = Math.abs(e.dx) >= 3 ? -Math.sign(e.dx) * 2 : 0;
-          if (Math.abs(f.x - (sx + runUp)) > 5 && this.jumpedFrom !== step.from) c.move = Math.sign(sx + runUp - f.x);
+          // on to the front of the take-off spot and go - or go now if it's already there or past it.
+          // (It never turns back to line up: overshooting and turning back, over and over, was the A-D-A-D.)
+          // Running at a long one; a second jump in the air carries it over (below).
+          const ahead = dirJ ? (f.x - (sx + dirJ * 4)) * dirJ : -Math.abs(f.x - sx) + 5;
+          if (ahead < -2 && this.jumpedFrom !== step.from) { c.move = dirJ || this.toward(sx, 5); if (long) this.runJump = true; }
           else {
             c.jump = true;
             c.jumpHeld = true;
@@ -769,8 +800,9 @@ export class Bot {
           c.jumpHeld = f.y > ty - 4;
           // only steer over once it's high enough to clear the lip
           const above = f.y < ty + 2;
-          c.move = above || e.dy >= 0 ? Math.sign(tx - f.x) : Math.abs(tx - f.x) > 20 ? Math.sign(tx - f.x) * 0.6 : 0;
-          if (high && f.vy > -60 && f.airJumps > 0 && f.y > ty) { c.jump = true; c.jumpHeld = true; }
+          // (near enough the landing spot: hands off - steering hard for its middle, it went past and back)
+          c.move = Math.abs(tx - f.x) <= 6 ? 0 : above || e.dy >= 0 ? Math.sign(tx - f.x) : Math.abs(tx - f.x) > 20 ? Math.sign(tx - f.x) * 0.6 : 0;
+          if ((high && f.y > ty) || (long && Math.abs(tx - f.x) > 24)) if (f.vy > -60 && f.airJumps > 0) { c.jump = true; c.jumpHeld = true; }
         }
         break;
       }
