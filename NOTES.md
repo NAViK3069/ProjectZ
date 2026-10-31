@@ -39,6 +39,12 @@ The others draw everyone a moment behind the host's latest state, eased
 between states (`clientFrame`), so movement stays smooth however unevenly
 states arrive; the moment grows with the gaps between them.
 
+A player's own fighter isn't waited for: a stand-in of it runs the movement
+on their own screen at once (`predict` in `src/arena/online.js`) and where
+it is goes to the host with their controls, which the host takes (unless
+it's far off, or something the host runs is moving them - a dash, the
+grapple, a lunge, a respawn). Shots, hits, health and skills stay the host's.
+
 Skills: YOUR SKILL and BOT SKILLS (RANDOM, one of them, or NONE) are picked
 from a list (the setup screen, and the room for online); SKILLS (Q) OFF turns
 them all off. In a match, the box at the bottom right shows your skill and

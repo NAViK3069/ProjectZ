@@ -21,7 +21,7 @@ import { MeleeWeapon, MELEE } from '../combat/melee.js';
 import { K } from '../ui/kit.js';
 
 let A = null;   // what this needs of the game (main.js)
-const SNAP_EVERY = 1 / 20, CTL_EVERY = 1 / 20, CTL_STALE = 0.35;   // states out; controls in at least this often; no word from a player this long, they're let go
+const SNAP_EVERY = 1 / 20, CTL_EVERY = 1 / 30, CTL_STALE = 0.35;   // states out; controls in at least this often; no word from a player this long, they're let go
 // A room's 8 slots, in two columns of 4 (in TEAMS: the left BLUE, the right RED). Each is open
 // (anyone joining takes the first), closed (not there), a bot, or a player.
 const SLOTS = 8;
@@ -51,7 +51,8 @@ const N = {
   msg: '', msgT: 0, busy: '', sel: -1, pings: {}, pingT: 0,
   watching: false, match: null, deadT: 0,
   pass: '', creating: null, joinAsk: null, joinPass: '',
-  confirm: null, banned: new Map(), out: false, offset: undefined,   // confirm: a button waiting for its second click; banned: (the host) kicked -> till when; out: sat out of the match, in the room   // pass: (the host) the room's password, '' for none; creating: the CREATE ROOM box ({ name, pass }); joinAsk: a locked room we're asked the password for   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
+  confirm: null, banned: new Map(), out: false, offset: undefined,
+  ghost: null, knock: null,   // (the others) our own fighter's movement, run here at once (see predict); a hit's knock to give it   // confirm: a button waiting for its second click; banned: (the host) kicked -> till when; out: sat out of the match, in the room   // pass: (the host) the room's password, '' for none; creating: the CREATE ROOM box ({ name, pass }); joinAsk: a locked room we're asked the password for   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
   ctl: new Map(), sendT: 0, snaps: [], gotSnap: false, menu: false, saved: null, ctlT: 0, lastCtl: '', pend: {},
   fighters: new Map(), props: new Map(), nextNid: 100, propIds: 0, fistsDef: null,
   sent: new Map(),   // (the host) what each fighter and prop was last sent as, field by field - only what's changed goes again
@@ -217,6 +218,7 @@ function applySnapshot(s) {
     const f = N.fighters.get(e.n), ox = f.x, oy = f.y, had = f._seen;
     assign(f, e.s);
     // where it is now by the host, kept with the time - drawn from these (see clientFrame), not jumped to
+    if (f.peer === myId() && e.s.hurtT !== undefined && f.hurtT < 0.15 && (e.s.vx !== undefined || e.s.vy !== undefined)) N.knock = { vx: f.vx, vy: f.vy };
     if (e.s.x !== undefined || f._sx === undefined) f._sx = f.x;
     if (e.s.y !== undefined || f._sy === undefined) f._sy = f.y;
     (f._h ??= []).push({ t: s.rt, x: f._sx, y: f._sy });
@@ -278,8 +280,21 @@ export function updateRemotes(dt, live) {
     if (c.pickup) f.pickupPressed = true;
     f.update(dt, c);
     f.pickupPressed = false;
+    // where they say they are (they move themselves at once, on their own screen - see predict):
+    // taken, carried on a touch for its age - unless it's far off (just respawned, say) or something
+    // else is moving them (a dash, the grapple line, a stab's lunge: those the host runs)
+    const e = N.ctl.get(f.peer), p = e?.pos, age = e ? (performance.now() - e.posAt) / 1000 : 9;
+    if (live && p && age < 0.3 && f.alive && !hostMoved(f)) {
+      const x = p[0] + p[2] * Math.min(age, 0.1);
+      if (Math.hypot(x - f.x, p[1] - f.y) < 100) {
+        f.x = x; f.y = p[1]; f.vx = p[2]; f.vy = p[3];
+        f.onGround = !!(p[4] & 1); f.onLadder = !!(p[4] & 2); f.crouch = !!(p[4] & 4); f.facing = p[5];
+      }
+    }
   }
 }
+// Something other than its own feet moving a fighter (run by the host, not predicted)
+const hostMoved = (f) => !!(f.blaze || f.hook || f.lunge || f.mura || f.gal || f.summon || (f.bow && !f.bow.fired) || f.cloak?.rollStab);
 // (the host) the state of the game out to everyone, twenty times a second
 export function hostFrame(dt) {
   if (N.mode !== 'host' || !N.playing || !N.room) return;
@@ -301,9 +316,13 @@ export function clientFrame(dt) {
   // side of then - so they move smoothly however unevenly the states arrive; our own (not watching)
   // straight toward the latest, quickly - it feels less behind our hands
   const then = performance.now() / 1000 + (N.offset ?? 0) - delay();
+  const live = A.state === 'fight' || A.state === 'end';
+  const c = live && !N.menu && !N.watching ? A.playerControl() : A.IDLE;
+  const mine = N.watching ? null : g.fighters.find((f) => f.peer === myId());
+  const predicted = mine && live && predict(mine, c, dt);
   for (const f of g.fighters) {
     const h = f._h;
-    if (!h?.length) continue;
+    if (!h?.length || f === predicted) continue;
     if (f.peer === myId() && !N.watching) {
       const k = Math.min(1, dt * 30), far = Math.hypot(f._sx - f.x, f._sy - f.y) > 60;
       f.x = far ? f._sx : f.x + (f._sx - f.x) * k;
@@ -338,14 +357,15 @@ export function clientFrame(dt) {
     if (N.deadT > 1.5) { N.deadT = 0; watchNext(1); }
     return;
   }
-  // our controls to the host: a press kept till it's sent; sent the moment anything changes, and 20 times a second anyway
-  const live = A.state === 'fight' || A.state === 'end';
-  const c = live && !N.menu ? A.playerControl() : A.IDLE;
+  // our controls to the host: a press kept till it's sent; sent the moment anything changes, and 30 times a second anyway
+  // (with where we are, while we're moving ourselves)
   const out = { ...c, target: c.target ? { x: Math.round(c.target.x), y: Math.round(c.target.y) } : null, aim: c.aim === null || c.aim === undefined ? null : Math.round(c.aim * 100) / 100 };
+  const gh = predicted ? N.ghost : null;
+  out.p = gh ? [Math.round(gh.x * 10) / 10, Math.round(gh.y * 10) / 10, Math.round(gh.vx), Math.round(gh.vy), (gh.onGround ? 1 : 0) | (gh.onLadder ? 2 : 0) | (gh.crouch ? 4 : 0), gh.facing] : null;
   for (const k of PRESSED) if (out[k]) N.pend[k] = true;
   if (out.slot) N.pend.slot = out.slot;
   if (out.cycle) N.pend.cycle = out.cycle;
-  const held = JSON.stringify({ ...out, ...Object.fromEntries(PRESSED.map((k) => [k, false])), slot: 0, cycle: 0 });
+  const held = JSON.stringify({ ...out, ...Object.fromEntries(PRESSED.map((k) => [k, false])), slot: 0, cycle: 0, p: null });
   N.ctlT -= dt;
   if (N.room && (held !== N.lastCtl || Object.keys(N.pend).length || N.ctlT <= 0)) {
     N.room.ctl.send({ ...out, ...N.pend }, { target: N.room.hostId });
@@ -353,6 +373,50 @@ export function clientFrame(dt) {
     N.pend = {};
     N.ctlT = CTL_EVERY;
   }
+}
+
+// Our own fighter, moved here at once - not after our controls have been to the host and back (the
+// host's own moves are instant on its screen; this makes ours the same). A stand-in of it runs just
+// the movement - walking, running, jumping, ladders, dropping through, crouching, rolling - in the
+// level as we have it, and our fighter is drawn where it is; where it is goes to the host with our
+// controls, and the host takes it. Everything else - shots, hits, health, what's in hand, the skills -
+// is still the host's. Back in step with the host: on a hit's knock, and whenever the host moves us
+// itself (a respawn; a dash, the grapple line, a stab's lunge - those it runs) or we're far apart.
+const MOVE_KEYS = ['move', 'up', 'down', 'jump', 'jumpHeld', 'sprint', 'roll', 'crouch', 'drop', 'aim', 'target'];
+function makeGhost(f) {
+  const game = Object.create(A.game);   // the level and the props, as we have them - but no effects of its own
+  game.fx = new Proxy({}, { get: () => () => {} });
+  game.lights = new Proxy({}, { get: () => () => {} });
+  game.kick = () => {};
+  const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
+  gh.skill = null;
+  gh.updateCombat = () => {};   // (moves only)
+  Object.defineProperty(gh, 'held', { get: () => f.held });     // what's in hand slows it as it does ours
+  Object.defineProperty(gh, 'hidden', { get: () => f.hidden });   // and the cloak
+  return gh;
+}
+function syncGhost(gh, f) {
+  Object.assign(gh, {
+    x: f._sx ?? f.x, y: f._sy ?? f.y, vx: f.vx, vy: f.vy, onGround: f.onGround, onLadder: f.onLadder, crouch: f.crouch, facing: f.facing,
+    roll: null, airJumps: f.airJumps ?? 1, coyote: 0, jumpBuf: 0, dropT: 0, alive: true, hp: gh.maxHp,
+  });
+}
+function predict(f, c, dt) {
+  if (!f.alive || hostMoved(f) || f.beamT !== undefined && f.beamT < 0.3) { N.ghost?.synced && (N.ghost.synced = false); return null; }
+  const gh = (N.ghost ??= makeGhost(f));
+  if (!gh.synced || Math.hypot((f._sx ?? f.x) - gh.x, (f._sy ?? f.y) - gh.y) > 100) { syncGhost(gh, f); gh.synced = true; }
+  if (N.knock) { gh.vx = N.knock.vx; gh.vy = N.knock.vy; if (gh.vy < 0) gh.onGround = false; N.knock = null; }
+  gh.stamina = f.stamina;
+  gh.winded = f.winded;
+  gh.boostT = f.boostT;
+  gh.slot = f.slot;
+  const mc = { ...A.IDLE };
+  for (const k of MOVE_KEYS) mc[k] = c[k];
+  gh.update(dt, mc);
+  // drawn where the stand-in is, as it is
+  for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'roll', 'pose', 'sq', 'sqV', 'settle', 'state', 'animT', 'frame', 'climbT', 'sprinting', 'tilt']) f[k] = gh[k];
+  if (c.aim !== null && c.aim !== undefined) f.aim = c.aim;
+  return f;
 }
 
 // ---------- rooms ----------
@@ -566,7 +630,9 @@ function hookRoom() {
     for (const k of PRESSED) delete held[k];
     delete held.slot;
     delete held.cycle;
+    delete held.p;
     e.held = held;
+    if (c.p) { e.pos = c.p; e.posAt = performance.now(); } else e.pos = null;
   };
   r.onSnap = (s, from) => { if (N.mode === 'client' && from === r.hostId && !N.out) N.snaps.push(s); };
 }
@@ -631,6 +697,8 @@ function clientMsg(m) {
     N.playing = true;
     N.watching = !m.roster.some((r) => r.peer === myId());
     N.deadT = 0;
+    N.ghost = null;
+    N.knock = null;
     A.startNetMatch(m.roster, m.map, myId(), false);
     for (const f of A.game.fighters) N.fighters.set(f.nid, f);
     N.fistsDef ??= A.game.fighters[0]?.melee?.def;
@@ -1051,7 +1119,7 @@ function drawRoom(k, u, W, H) {
   }
   // the slots: two columns of four (BLUE and RED, in TEAMS)
   const colW = Math.floor((pw - 16 * u - gap) / 2), slotH = 18 * u, playing = N.slots.filter((x) => x.k === 'p').length, watch = watchers();
-  const sh = 26 * u + (teams ? 16 * u : 0) + 4 * slotH + (watch.length ? 10 * u : 0);
+  const sh = 26 * u + 16 * u + 4 * slotH + (watch.length ? 10 * u : 0);   // (the row over the slots is there in both modes: changing mode doesn't shift everything)
   let cy = k.panel(px, y, pw, sh, { title: teams ? 'TEAMS' : 'PLAYERS', note: `${playing} / ${roomSize()} PLAYERS${host ? '   -   CLICK A SLOT BUTTON TO OPEN, CLOSE OR ADD A BOT' : ''}` });
   if (teams) {
     // each side's banner: its name, how many, a button to go over to it
@@ -1066,6 +1134,15 @@ function drawRoom(k, u, W, H) {
       if (mySide === t) k.text('YOUR SIDE', cx + colW - 5 * u, cy + 4 * u, { small: true, color: c, align: 'right' });
       else if (N.slots.some((x, j) => teamOf(j) === t && x.k === 'open')) k.button(`team:${t}`, cx + colW - 52 * u, cy + 2 * u, 50 * u, 9 * u, 'JOIN', { size: 1 });
     });
+    cy += 16 * u;
+  } else {
+    // FREE FOR ALL: the same row, one banner across both columns
+    const bw = pw - 16 * u, playing = N.slots.filter((x) => x.k === 'p' || x.k === 'bot').length;
+    k.rect(px + 8 * u, cy, bw, 13 * u, 'rgba(255, 210, 90, 0.14)');
+    k.rect(px + 8 * u, cy, bw, u, K.gold);
+    const lw = k.text('FREE FOR ALL', px + 13 * u, cy + 3 * u, { color: K.gold });
+    k.text(`${playing}/8`, px + 13 * u + lw + 6 * u, cy + 4 * u, { small: true, color: K.muted });
+    k.text('EVERYONE FOR THEMSELVES', px + 8 * u + bw - 5 * u, cy + 4 * u, { small: true, color: K.muted, align: 'right' });
     cy += 16 * u;
   }
   for (let i = 0; i < SLOTS; i++) {
