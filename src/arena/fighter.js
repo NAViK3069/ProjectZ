@@ -211,6 +211,7 @@ export class Fighter {
     this.hands = (opts.sat ?? 1) !== 1 ? tintedHands(opts.hue ?? 0, opts.sat) : HANDS;
     this.wins = 0;
     this.kills = 0;
+    this.deaths = 0;
     this.reset(0, 0);
   }
 

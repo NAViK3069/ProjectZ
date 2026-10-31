@@ -3,22 +3,55 @@
 // uses public Nostr relays to pass the introductions. It costs nothing and
 // needs no account.
 //
-// A "server" here is a channel: everyone who picks the same one meets in its
+// A "server" here is a region: a few Nostr relays there, the ones the
+// introductions go through. Everyone who picks the same one meets in its
 // lobby, where whoever's hosting a room keeps telling everyone about it (its
 // name, mode, map, players) - that's the room list. Joining a room connects
 // you to its host's own room, where the host runs the game and the others
-// send their controls in and get the state of the game back.
+// send their controls in and get the state of the game back. (So a server
+// near you finds rooms quicker; once in a game, it's the ping to the host
+// that counts.) The relays are public ones, picked for where they are -
+// checked by IP and by ping from Thailand.
 
 const TRYSTERO = 'https://cdn.jsdelivr.net/npm/trystero@0.26.0/+esm';
-const APP = { appId: 'projectz-lab-brawl-v1' };
+const APP_ID = 'projectz-lab-brawl-v1';
 const AD_EVERY = 1.5, AD_LIFE = 6;   // a host tells the lobby about its room this often (s); a room not heard of for this long is gone
 
 export const SERVERS = [
-  { key: 'asia1', name: 'ASIA 1', desc: 'THAILAND AND ROUND ABOUT' },
-  { key: 'asia2', name: 'ASIA 2', desc: 'THE OVERFLOW' },
-  { key: 'world', name: 'WORLD', desc: 'ANYONE, ANYWHERE' },
-  { key: 'test', name: 'TEST', desc: 'TRYING THINGS OUT' },
+  { key: 'th', name: 'THAILAND', relays: [['relay.notoshi.win', 'CHON BURI, THAILAND'], ['asia.azzamo.net', 'SINGAPORE']] },
+  { key: 'sg', name: 'SINGAPORE', relays: [['asia.azzamo.net', 'SINGAPORE'], ['relay.nostr.moe', 'SINGAPORE']] },
+  { key: 'jp', name: 'JAPAN', relays: [['yabu.me', 'TOKYO, JAPAN'], ['relay.nostr.wirednet.jp', 'OSAKA, JAPAN']] },
+  { key: 'eu', name: 'EUROPE', relays: [['nos.lol', 'FALKENSTEIN, GERMANY'], ['relay.degmods.com', 'FALKENSTEIN, GERMANY'], ['nostr.stakey.net', 'DRONTEN, NETHERLANDS']] },
 ];
+const config = (server) => ({ appId: APP_ID, relayConfig: { urls: server.relays.map(([host]) => `wss://${host}`), warnOnRelayFailure: false } });
+
+// How far away a server is: a question to each of its relays and the time the
+// answer takes (the best of three), the nearest relay's. null: none answered.
+function probe(host) {
+  return new Promise((done) => {
+    let ws = null, n = 0, best = Infinity, t = 0;
+    const end = () => { clearTimeout(timer); try { ws?.close(); } catch {} done(best < Infinity ? Math.round(best) : null); };
+    const timer = setTimeout(end, 5000);
+    const ask = () => { t = performance.now(); ws.send(JSON.stringify(['REQ', `pz${n}`, { kinds: [29999], limit: 1, since: Math.floor(Date.now() / 1000) }])); };
+    try { ws = new WebSocket(`wss://${host}`); } catch { return end(); }
+    ws.onopen = ask;
+    ws.onmessage = (e) => {
+      let m;
+      try { m = JSON.parse(e.data); } catch { return; }
+      if (m[0] !== 'EOSE' && m[0] !== 'CLOSED') return;
+      best = Math.min(best, performance.now() - t);
+      try { ws.send(JSON.stringify(['CLOSE', `pz${n}`])); } catch {}
+      if (++n < 3) ask(); else end();
+    };
+    ws.onerror = end;
+  });
+}
+export async function pingServer(server) {
+  const times = await Promise.all(server.relays.map(([host]) => probe(host)));
+  let out = null;
+  times.forEach((ms, i) => { if (ms !== null && (!out || ms < out.ms)) out = { ms, where: server.relays[i][1] }; });
+  return out;
+}
 
 let lib = null;
 async function trystero() {
@@ -40,7 +73,7 @@ export class Lobby {
     this.peers = new Set();
     this.ad = null;           // our own room, while we host one
     this.adT = 0;
-    this.room = T.joinRoom(APP, `lobby-${server.key}`);
+    this.room = T.joinRoom(config(server), `lobby-${server.key}`);
     this.adAction = this.room.makeAction('ad');
     this.adAction.onMessage = (ad, { peerId }) => {
       if (ad && !ad.gone) this.rooms.set(peerId, { ...ad, host: peerId, seen: performance.now() });
@@ -87,14 +120,14 @@ export class Lobby {
 // (`msg`: hello, the room as it stands, ready, start ...), the state of the
 // game (`snap`, host to everyone) and controls (`ctl`, everyone to the host).
 export class GameRoom {
-  static async open(hostId) {
+  static async open(server, hostId) {
     const T = await trystero();
-    return new GameRoom(T, hostId);
+    return new GameRoom(T, server, hostId);
   }
-  constructor(T, hostId) {
+  constructor(T, server, hostId) {
     this.hostId = hostId;
     this.isHost = hostId === T.selfId;
-    this.room = T.joinRoom(APP, `game-${hostId}`);
+    this.room = T.joinRoom(config(server), `game-${hostId}`);
     this.peers = new Set();
     this.ping = 0;
     this.onMsg = () => {};

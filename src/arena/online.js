@@ -11,13 +11,14 @@
 // what they're sent, easing their fighters between one state and the next and
 // carrying bullets on along their way, so it all moves smoothly.
 
-import { SERVERS, Lobby, GameRoom, myId } from './net.js';
+import { SERVERS, Lobby, GameRoom, myId, pingServer } from './net.js';
 import { Fighter } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Prop } from './props.js';
 import { Weapon } from '../combat/weapons.js';
 import { MeleeWeapon, MELEE } from '../combat/melee.js';
+import { K } from '../ui/kit.js';
 
 let A = null;   // what this needs of the game (main.js)
 const SNAP_EVERY = 1 / 20, CTL_EVERY = 1 / 20, CTL_STALE = 0.35;   // states out; controls in at least this often; no word from a player this long, they're let go
@@ -32,6 +33,8 @@ const LOOKS = [
 const BOT_NAMES = ['VEX', 'KORA', 'DUKE', 'ROOK', 'NYX', 'ZED', 'IVO', 'MOX'];
 const NEXT_KIND = { open: 'closed', closed: 'bot', bot: 'open' };   // (the host clicking a slot that's not a player's: open - closed - a bot - open)
 const teamOf = (i) => (i < SLOTS / 2 ? 0 : 1);
+const TEAM_LOOKS = [{ color: '#6ad8ff', hue: 210, sat: 1.2 }, { color: '#ff6a5a', hue: 8, sat: 1.7 }];   // in TEAMS everyone wears their side's colour: BLUE, RED (the art's own hair is red)
+const MAX_WATCH = 8;   // how many can watch a room besides those in its slots
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
   ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS GOLEM'], [null, 'NO SKILL'],
@@ -42,7 +45,8 @@ const N = {
   name: '', skill: 'grapple', edit: null, draft: '',
   server: null, lobby: null, room: null, mode: null,   // mode: 'host' | 'client' while in a room
   roomName: '', made: 0, members: [], slots: [], playing: false,
-  hits: [], hover: null, msg: '', msgT: 0, busy: '', sel: 0,
+  msg: '', msgT: 0, busy: '', sel: -1, pings: {}, pingT: 0,
+  watching: false, match: null, deadT: 0,   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
   ctl: new Map(), sendT: 0, snaps: [], gotSnap: false, menu: false, saved: null, ctlT: 0, lastCtl: '', pend: {},
   fighters: new Map(), props: new Map(), nextNid: 100, propIds: 0, fistsDef: null,
   sent: new Map(),   // (the host) what each fighter and prop was last sent as, field by field - only what's changed goes again
@@ -58,6 +62,7 @@ export const online = {
   get isHost() { return N.mode === 'host'; },
   get isClient() { return N.mode === 'client'; },
   get menuOpen() { return N.menu; },
+  get watching() { return N.watching; },
   get snapSize() { return N.lastSize; },   // (for checking: how big a state of the game sent lately was, in bytes)
   isScreen: (state) => state === 'net-servers' || state === 'net-lobby' || state === 'net-room',
 };
@@ -68,7 +73,6 @@ export function initOnline(api) {
 }
 // from the main menu
 export function openOnline() {
-  N.hover = null;
   A.state = 'net-servers';
 }
 
@@ -102,7 +106,7 @@ function playEffects(list) {
 // ---------- the state of the game, as plain data ----------
 // Fighters, props and weapons go by reference ({$f: id}, {$p: id}, a weapon by
 // its key and its state); canvases, caches and the like are left out.
-const SKIP = new Set(['game', 'images', 'parts', 'hands', 'selfCanvas', 'pix', 'art', 'def', 'ammoSource', 'events', '_icon', 'level', 'nav', 'img']);
+const SKIP = new Set(['game', 'images', 'parts', 'hands', 'selfCanvas', 'rollCanvas', 'rollGhost', 'pix', 'art', 'def', 'ammoSource', 'events', '_icon', 'level', 'nav', 'img']);
 const nidOf = (f) => (f.nid ??= ++N.nextNid);
 function ser(v, d = 0) {
   if (v === null || v === undefined) return null;
@@ -209,6 +213,7 @@ function applySnapshot(s) {
   g.fighters = keep;
   const me = keep.find((f) => f.peer === myId());
   if (me) A.player = me;
+  else if (!keep.includes(A.player)) A.player = keep.find((f) => !f.isDecoy) ?? keep[0] ?? A.player;
   // the props
   const props = [];
   for (const e of s.p) {
@@ -286,6 +291,12 @@ export function clientFrame(dt) {
   g.fx.update(dt);
   g.lights.update(dt);
   if (A.banner) A.banner.t -= dt;
+  if (N.watching) {
+    const f = A.player;
+    N.deadT = f && !f.alive && !(f.respawnT > 0) ? N.deadT + dt : 0;
+    if (N.deadT > 1.5) { N.deadT = 0; watchNext(1); }
+    return;
+  }
   // our controls to the host: a press kept till it's sent; sent the moment anything changes, and 20 times a second anyway
   const live = A.state === 'fight' || A.state === 'end';
   const c = live && !N.menu ? A.playerControl() : A.IDLE;
@@ -307,8 +318,12 @@ export function clientFrame(dt) {
 
 // how many can play in the room: its slots that aren't closed or bots
 const roomSize = () => N.slots.filter((x) => x.k === 'open' || x.k === 'p').length;
+// who's in a slot (to play), who's only watching
+const seatOf = (id) => N.slots.findIndex((x) => x.k === 'p' && x.id === id);
+const seated = () => N.members.filter((m) => seatOf(m.id) >= 0);
+const watchers = () => N.members.filter((m) => seatOf(m.id) < 0);
 function lobbyAd() {
-  return { name: N.roomName, mode: A.settings.mode, map: A.settings.map, n: N.members.length, max: roomSize(), playing: N.playing, made: N.made };
+  return { name: N.roomName, mode: A.settings.mode, map: A.settings.map, n: seated().length, max: roomSize(), w: watchers().length, playing: N.playing, made: N.made };
 }
 function roomState() {
   return { t: 'room', name: N.roomName, members: N.members, slots: N.slots, settings: { ...A.settings }, playing: N.playing };
@@ -361,9 +376,9 @@ function leaveServer() {
 async function createRoom() {
   N.busy = 'MAKING THE ROOM...';
   try {
-    N.room = await GameRoom.open(myId());
+    N.room = await GameRoom.open(N.server, myId());
     N.mode = 'host';
-    N.roomName = `${N.name} ROOM`;   // (the font has no apostrophe)
+    N.roomName = `${N.name}'S ROOM`;
     N.made = Date.now();
     N.playing = false;
     N.members = [{ id: myId(), name: N.name, skill: N.skill, ready: true }];
@@ -378,12 +393,11 @@ async function createRoom() {
   }
   N.busy = '';
 }
+// (a game that's started, or a room that's full: in to watch - a slot comes with the next game, if one's open)
 async function joinRoom(ad) {
-  if (ad.playing) return say('THAT GAME HAS STARTED - WAIT FOR IT TO FINISH');
-  if (ad.n >= ad.max) return say('THAT ROOM IS FULL');
-  N.busy = `JOINING ${ad.name}...`;
+  N.busy = `${ad.playing || ad.n >= ad.max ? 'GOING IN TO WATCH' : 'JOINING'} ${ad.name}...`;
   try {
-    N.room = await GameRoom.open(ad.host);
+    N.room = await GameRoom.open(N.server, ad.host);
     N.mode = 'client';
     N.welcomed = false;
     N.members = [];
@@ -408,6 +422,8 @@ function leaveRoom(quiet = false) {
   N.mode = null;
   N.members = [];
   N.playing = false;
+  N.watching = false;
+  N.match = null;
   N.menu = false;
   N.busy = '';
   N.snaps = [];
@@ -456,15 +472,21 @@ function hookRoom() {
 }
 function hostMsg(m, from) {
   if (m.t === 'hello') {
-    if (N.playing) return N.room.send({ t: 'no', why: 'THAT GAME HAS STARTED' }, from);
+    // into an open slot - or, with the game going or no slot open, in to watch
+    const name = String(m.name).slice(0, 12);
     if (!N.members.some((x) => x.id === from)) {
-      const free = N.slots.findIndex((x) => x.k === 'open');
-      if (free < 0) return N.room.send({ t: 'no', why: 'THAT ROOM IS FULL' }, from);
-      moveTo(from, free);
-      N.members.push({ id: from, name: String(m.name).slice(0, 12), skill: m.skill ?? null, ready: false });
+      const free = N.playing ? -1 : N.slots.findIndex((x) => x.k === 'open');
+      if (free < 0 && watchers().length >= MAX_WATCH) return N.room.send({ t: 'no', why: 'THAT ROOM IS FULL' }, from);
+      if (free >= 0) moveTo(from, free);
+      N.members.push({ id: from, name, skill: m.skill ?? null, ready: false });
     }
     N.room.send({ t: 'welcome' }, from);
-    say(`${String(m.name).slice(0, 12)} JOINED`, 2);
+    if (N.playing && N.match) {
+      // the game as it is: the next state goes out whole (to everyone - it's the same for all)
+      N.room.send({ t: 'start', ...N.match }, from);
+      N.sent = new Map();
+    }
+    say(`${name} ${N.playing ? 'IS WATCHING' : seatOf(from) >= 0 ? 'JOINED' : 'IS WATCHING (ROOM FULL)'}`, 2);
     shareRoom();
   } else if (m.t === 'me') {
     const x = N.members.find((y) => y.id === from);
@@ -475,6 +497,13 @@ function hostMsg(m, from) {
   } else if (m.t === 'slot') {
     if (moveTo(from, m.i)) shareRoom();
   }
+}
+// (watching) on to the next one still in it (dir -1: the one before)
+function watchNext(dir) {
+  const all = A.game.fighters.filter((f) => !f.isDecoy), live = all.filter((f) => f.alive || f.respawnT > 0), pool = live.length ? live : all;
+  if (!pool.length) return;
+  const at = pool.indexOf(A.player);
+  A.player = pool[(at + dir + pool.length) % pool.length];
 }
 function clientMsg(m) {
   if (m.t === 'welcome') { N.welcomed = true; A.state = 'net-room'; N.busy = ''; }
@@ -493,11 +522,14 @@ function clientMsg(m) {
     N.snaps = [];
     N.gotSnap = false;
     N.playing = true;
+    N.watching = !m.roster.some((r) => r.peer === myId());
+    N.deadT = 0;
     A.startNetMatch(m.roster, m.map, myId(), false);
     for (const f of A.game.fighters) N.fighters.set(f.nid, f);
     N.fistsDef ??= A.game.fighters[0]?.melee?.def;
   } else if (m.t === 'back') {
     N.playing = false;
+    N.watching = false;
     N.menu = false;
     A.state = 'net-room';
     A.banner = null;
@@ -513,11 +545,11 @@ function startGame() {
   const s = A.settings, roster = [];
   let bots = 0;
   N.slots.forEach((x, i) => {
-    const team = s.mode === 'teams' ? teamOf(i) : i;
+    const team = s.mode === 'teams' ? teamOf(i) : i, look = s.mode === 'teams' ? TEAM_LOOKS[team] : LOOKS[i];
     if (x.k === 'p') {
       const m = N.members.find((y) => y.id === x.id);
-      if (m) roster.push({ name: m.name, ...LOOKS[i], skill: m.skill, peer: m.id, team });
-    } else if (x.k === 'bot') roster.push({ name: BOT_NAMES[bots++], ...LOOKS[i], bot: true, team });
+      if (m) roster.push({ name: m.name, ...look, skill: m.skill, peer: m.id, team });
+    } else if (x.k === 'bot') roster.push({ name: BOT_NAMES[bots++], ...look, bot: true, team });
   });
   if (roster.length < 2) return say('NEED SOMEONE TO FIGHT - A PLAYER OR A BOT', 2.5);
   if (s.mode === 'teams' && new Set(roster.map((r) => r.team)).size < 2) return say('TEAMS NEEDS SOMEONE ON EACH SIDE', 2.5);
@@ -527,15 +559,19 @@ function startGame() {
   N.sent = new Map();
   noted = [];
   A.startNetMatch(roster, map, myId(), true);
-  N.room.send({ t: 'start', roster, map, settings: { ...s } });
+  N.match = { roster, map, settings: { ...s } };
+  N.room.send({ t: 'start', ...N.match });
   shareRoom();
 }
 // (the host) the match over: everyone back to the room
 function backToRoom() {
   N.playing = false;
+  N.match = null;
   N.menu = false;
   noted = null;
   for (const m of N.members) if (m.id !== myId()) m.ready = false;
+  // those who came in to watch: into the open slots, first come first in
+  for (const m of watchers()) { const free = N.slots.findIndex((x) => x.k === 'open'); if (free >= 0) moveTo(m.id, free); }
   A.state = 'net-room';
   A.banner = null;
   N.room.send({ t: 'back' });
@@ -545,27 +581,32 @@ function backToRoom() {
 // ---------- upkeep, and input on the screens ----------
 
 export function netUpdate(dt) {
+  if (A.state === 'net-servers' && (N.pingT -= dt) <= 0) {
+    N.pingT = 15;
+    for (const sv of SERVERS) pingServer(sv).then((r) => { N.pings[sv.key] = r; });
+  }
   N.lobby?.update(dt);
   N.room?.update(dt);
   if (N.msgT > 0) N.msgT -= dt;
   if (N.mode === 'host' && N.lobby) N.lobby.advertise(lobbyAd());
 }
 
-// typing a name in: letters, digits, a few marks; ENTER done, ESC back out
+// typing a name in: letters, digits, a few marks; ENTER done, ESC back out (a click elsewhere: done)
 function typing() {
   const I = A.input;
   for (const code of I.pressed) {
     if (code === 'Enter') { finishEdit(true); return; }
     if (code === 'Escape') { finishEdit(false); return; }
     if (code === 'Backspace') N.draft = N.draft.slice(0, -1);
-    else if (N.draft.length < 12) {
+    else if (N.draft.length < (N.edit === 'name' ? 12 : 20)) {
       if (code.startsWith('Key')) N.draft += code.slice(3);
       else if (code.startsWith('Digit')) N.draft += code.slice(5);
       else if (code === 'Space') N.draft += ' ';
       else if (code === 'Minus') N.draft += '-';
+      else if (code === 'Quote') N.draft += "'";
     }
   }
-  if (I.wasPressed('Mouse0') && N.hover !== N.edit) finishEdit(true);
+  if (A.kit.click && A.kit.click !== N.edit) finishEdit(true);
 }
 function startEdit(what) {
   N.edit = what;
@@ -581,20 +622,15 @@ function finishEdit(keep) {
 }
 
 export function netScreenInput() {
-  const I = A.input, state = A.state;
-  // what the mouse is over (from the last frame's layout)
-  if (I.mouse.active) {
-    const mx = I.mouse.x * A.renderer.dpr, my = I.mouse.y * A.renderer.dpr;
-    N.hover = N.hits.find((h) => mx >= h.x0 && mx < h.x1 && my >= h.y0 && my < h.y1)?.id ?? null;
-  }
+  const I = A.input, state = A.state, click = A.kit.click;
   if (N.edit) return typing();
   if (N.busy) { if (I.wasPressed('Escape')) { leaveRoom(true); N.busy = ''; } return; }
-  const click = I.wasPressed('Mouse0') ? N.hover : null;
   if (state === 'net-servers') {
-    if (I.wasPressed('KeyW', 'ArrowUp')) N.sel = (N.sel + SERVERS.length - 1) % SERVERS.length;
-    if (I.wasPressed('KeyS', 'ArrowDown')) N.sel = (N.sel + 1) % SERVERS.length;
+    const rec = recommended(), from = N.sel >= 0 ? N.sel : Math.max(0, rec);
+    if (I.wasPressed('KeyW', 'ArrowUp')) N.sel = N.sel < 0 ? from : (N.sel + SERVERS.length - 1) % SERVERS.length;
+    if (I.wasPressed('KeyS', 'ArrowDown')) N.sel = N.sel < 0 ? from : (N.sel + 1) % SERVERS.length;
     if (click?.startsWith('srv:')) N.sel = +click.slice(4);
-    if (click?.startsWith('srv:') || I.wasPressed('Enter')) enterServer(SERVERS[N.sel]);
+    if (click?.startsWith('srv:') || I.wasPressed('Enter')) enterServer(SERVERS[N.sel >= 0 ? N.sel : from]);
     else if (click === 'name' || I.wasPressed('KeyN')) startEdit('name');
     else if (click === 'back' || I.wasPressed('Escape')) A.state = 'menu';
   } else if (state === 'net-lobby') {
@@ -609,6 +645,11 @@ export function netScreenInput() {
   } else if (state === 'net-room') {
     const host = N.mode === 'host', me = N.members.find((m) => m.id === myId());
     if (click?.startsWith('tog:') && host) cycleSlot(+click.slice(4));
+    else if (click?.startsWith('team:')) {
+      // a side picked: the first open slot in its column
+      const t = +click.slice(5), i = N.slots.findIndex((x, j) => x.k === 'open' && teamOf(j) === t);
+      if (i >= 0) { if (host) { if (moveTo(myId(), i)) shareRoom(); } else N.room.send({ t: 'slot', i }); }
+    }
     else if (click?.startsWith('slot:')) {
       // an open slot: move into it (switch team, in TEAMS)
       const i = +click.slice(5);
@@ -620,8 +661,8 @@ export function netScreenInput() {
       const [, i, dir] = click.split(':');
       A.changeNetSetting(+i, +dir);
       shareRoom();
-    } else if (click === 'skill-' || click === 'skill+' || I.wasPressed('KeyQ')) {
-      const at = SKILLS.findIndex(([k]) => k === N.skill), dir = click === 'skill-' ? -1 : 1;
+    } else if (click?.startsWith('skill:') || I.wasPressed('KeyQ')) {
+      const at = SKILLS.findIndex(([k]) => k === N.skill), dir = click === 'skill:-1' ? -1 : 1;
       N.skill = SKILLS[(at + dir + SKILLS.length) % SKILLS.length][0];
       saveMe();
       if (me) me.skill = N.skill;
@@ -631,7 +672,7 @@ export function netScreenInput() {
     else if (click === 'ready' || (I.wasPressed('Enter') && !host)) {
       if (!host && me) { me.ready = !me.ready; N.room.send({ t: 'me', skill: N.skill, ready: me.ready }); }
     } else if ((click === 'start' || I.wasPressed('Enter')) && host) {
-      if (N.members.every((m) => m.ready)) startGame();
+      if (seated().every((m) => m.ready)) startGame();
       else say('WAITING FOR EVERYONE TO BE READY', 2);
     } else if (click === 'leave' || I.wasPressed('Escape')) leaveRoom();
   }
@@ -639,204 +680,245 @@ export function netScreenInput() {
 
 // In a game: ESC brings up (and puts away) the menu - the game goes on behind it.
 export function netGameInput() {
-  const I = A.input;
-  if (A.state === 'match' && N.mode === 'host' && A.stateT > 2 && I.wasPressed('Enter', 'Mouse0')) return backToRoom();
-  if (I.wasPressed('Escape')) N.menu = !N.menu;
-  if (N.menu && (I.wasPressed('KeyL') || (I.wasPressed('Mouse0') && N.hover === 'leave-game'))) leaveRoom();
-  if (I.mouse.active) {
-    const mx = I.mouse.x * A.renderer.dpr, my = I.mouse.y * A.renderer.dpr;
-    N.hover = N.hits.find((h) => mx >= h.x0 && mx < h.x1 && my >= h.y0 && my < h.y1)?.id ?? null;
+  const I = A.input, click = A.kit.click;
+  if (A.state === 'match' && N.mode === 'host' && A.stateT > 2 && (click === 'back-room' || I.wasPressed('Enter'))) return backToRoom();
+  if (I.wasPressed('Escape') || click === 'net-resume') N.menu = !N.menu;
+  else if (N.menu && (I.wasPressed('KeyL') || click === 'net-leave')) leaveRoom();
+  else if (N.watching && !N.menu && A.state !== 'match') {
+    const dir = I.wasPressed('KeyD', 'ArrowRight', 'Mouse0') ? 1 : I.wasPressed('KeyA', 'ArrowLeft', 'Mouse2') ? -1 : 0;
+    if (dir) watchNext(dir);
   }
 }
 
 // ---------- drawing the screens ----------
-
-const C = { gold: '#ffd25a', teal: '#8ff0ff', text: '#e8e2d0', dim: '#7a8a80', faint: '#4a5a52', red: '#ff8a6a', green: '#8aff9a', row: 'rgba(201, 168, 58, 0.16)' };
-function hit(id, x0, y0, w, h) { N.hits.push({ id, x0, y0, x1: x0 + w, y1: y0 + h }); }
-function button(ctx, u, x, y, w, h, label, id, { on = false, dim = false } = {}) {
-  const hot = N.hover === id;
-  A.panel(ctx, x, y, w, h, u, on || hot ? C.gold : '#3a4c46');
-  if (hot) { ctx.fillStyle = C.row; ctx.fillRect(x, y, w, h); }
-  const tw = A.textWidth(label) * u;
-  A.drawText(ctx, label, Math.round(x + w / 2 - tw / 2), Math.round(y + h / 2 - 3 * u), u, dim ? C.faint : hot || on ? '#ffffff' : C.text);
-  hit(id, x, y, w, h);
-}
-function header(ctx, u, W, title, sub) {
-  A.centerText(ctx, title, 12 * u, 3, C.gold, u);
-  if (sub) A.centerText(ctx, sub, 34 * u, 1, C.teal, u);
-}
-function footer(ctx, u, W, H, hint) {
-  if (N.msgT > 0) A.centerText(ctx, N.msg, H - 24 * u, 1, C.red, u);
-  if (N.busy) A.centerText(ctx, N.busy + (Math.floor(performance.now() / 300) % 2 ? '' : ' '), H - 24 * u, 1, C.teal, u);
-  A.centerText(ctx, hint, H - 11 * u, 1, '#5a6a60', u);
-}
-const T = (ctx, u, s, x, y, col = C.text, size = 1) => A.drawText(ctx, String(s), Math.round(x), Math.round(y), u * size, col);
+// (in the look of the menus: ui/kit.js)
 
 export function drawNetScreen(ctx, u, W, H) {
-  N.hits = [];
-  ctx.fillStyle = 'rgba(4, 7, 6, 0.72)';
-  ctx.fillRect(0, 0, W, H);
-  if (A.state === 'net-servers') drawServers(ctx, u, W, H);
-  else if (A.state === 'net-lobby') drawLobby(ctx, u, W, H);
-  else drawRoom(ctx, u, W, H);
+  const k = A.kit;
+  k.shade(0.68);
+  if (A.state === 'net-servers') drawServers(k, u, W, H);
+  else if (A.state === 'net-lobby') drawLobby(k, u, W, H);
+  else drawRoom(k, u, W, H);
+  if (N.busy) k.toast(N.busy + (Math.floor(performance.now() / 300) % 2 ? '' : ' .'), K.teal);
+  else if (N.msgT > 0) k.toast(N.msg);
 }
 
-function nameBox(ctx, u, x, y, w) {
-  const editing = N.edit === 'name', label = editing ? N.draft + (Math.floor(performance.now() / 400) % 2 ? '_' : ' ') : N.name;
-  T(ctx, u, 'YOUR NAME', x, y - 9 * u, C.dim);
-  A.panel(ctx, x, y, w, 13 * u, u, editing || N.hover === 'name' ? C.gold : '#3a4c46');
-  T(ctx, u, label, x + 5 * u, y + 4 * u, editing ? '#ffffff' : C.text);
-  if (!editing) T(ctx, u, 'CHANGE', x + w - (A.textWidth('CHANGE') + 5) * u, y + 4 * u, C.faint);
-  hit('name', x, y, w, 13 * u);
+// a box to type in (the name, the room's name): the text, a caret while it's being typed in
+function field(k, u, id, x, y, w, h, value, editing) {
+  const hot = editing || k.hover === id;
+  k.rect(x - u, y - u, w + 2 * u, h + 2 * u, K.ink);
+  k.rect(x, y, w, h, editing ? K.gold : hot ? K.teal : K.edge);
+  k.rect(x + u, y + u, w - 2 * u, h - 2 * u, '#0b100e');
+  const caret = editing && Math.floor(performance.now() / 400) % 2 ? '_' : '';
+  k.text((editing ? N.draft : value) + caret, x + 6 * u, y + (h - 7 * u) / 2, { color: editing ? '#ffffff' : K.text });
+  k.hit(id, x, y, w, h);
 }
 
-function drawServers(ctx, u, W, H) {
-  header(ctx, u, W, 'MULTIPLAYER', 'CHOOSE A SERVER');
-  const w = Math.min(W - 24 * u, 260 * u), x = Math.round(W / 2 - w / 2);
-  nameBox(ctx, u, x, 58 * u, w);
-  const top = 84 * u, rowH = 29 * u;
-  SERVERS.forEach((s, i) => {
-    const id = `srv:${i}`, on = N.sel === i || N.hover === id, y = top + i * rowH;
-    A.panel(ctx, x, y, w, rowH - 4 * u, u, on ? C.gold : '#2a3632');
-    if (on) { ctx.fillStyle = C.row; ctx.fillRect(x, y, w, rowH - 4 * u); }
-    T(ctx, u, s.name, x + 8 * u, y + 4 * u, on ? '#ffffff' : C.text, 2);
-    T(ctx, u, s.desc, x + 8 * u, y + 17 * u, on ? '#c8cfc9' : C.faint);
-    // a signal-strength look, for the feel of it
-    for (let b = 0; b < 4; b++) {
-      ctx.fillStyle = b < 4 - (i % 2) ? '#3fd0a0' : '#1f2a26';
-      ctx.fillRect(x + w - (30 - b * 5) * u, y + (17 - b * 3) * u, 3 * u, (3 + b * 3) * u);
+// the server with the lowest ping (-1: none heard from yet)
+function recommended() {
+  let best = -1;
+  SERVERS.forEach((sv, i) => { const p = N.pings[sv.key]; if (p && (best < 0 || p.ms < N.pings[SERVERS[best].key].ms)) best = i; });
+  return best;
+}
+// signal bars for a ping: four for a near one down to one for a far one
+const pingBars = (ms) => (ms < 60 ? 4 : ms < 110 ? 3 : ms < 180 ? 2 : 1);
+const pingColor = (ms) => (ms < 110 ? K.green : ms < 180 ? K.gold : K.red);
+function drawPing(k, u, x, y, p) {
+  // (x, y: the bars' bottom right) - bars, then the ms to their left
+  const n = p ? pingBars(p.ms) : 0, c = p ? pingColor(p.ms) : K.faint;
+  for (let i = 0; i < 4; i++) {
+    const h = (3 + i * 2) * u, bx = x - (4 - i) * 4 * u;
+    k.rect(bx - u, y - h - u, 4 * u, h + 2 * u, K.ink);
+    k.rect(bx, y - h, 2 * u, h, i < n ? c : '#26302c');
+  }
+  const t = p === undefined ? 'CHECKING' + '.'.repeat(Math.floor(performance.now() / 300) % 4) : p === null ? 'NO ANSWER' : `${p.ms} MS`;
+  k.text(t, x - 20 * u, y - 7 * u, { color: p ? c : K.muted, align: 'right' });
+}
+
+function drawServers(k, u, W, H) {
+  const pw = Math.min(W - 16 * u, 320 * u), px = Math.round(W / 2 - pw / 2);
+  let y = 10 * u;
+  k.text('MULTIPLAYER', W / 2, y, { size: 3, color: K.gold, align: 'center' });
+  y += 28 * u;
+  // you
+  let cy = k.panel(px, y, pw, 42 * u, { title: 'YOU' });
+  const editing = N.edit === 'name';
+  k.text('NAME', px + 8 * u, cy + 6 * u, { small: true, color: K.muted });
+  field(k, u, 'name', px + 30 * u, cy, pw - 112 * u, 16 * u, N.name, editing);
+  k.button('name', px + pw - 76 * u, cy, 68 * u, 16 * u, editing ? 'SAVE' : 'CHANGE');
+  y += 50 * u;
+  // the servers: where each is, how far (the ping, as bars), the nearest one recommended
+  const rowH = 26 * u, ph = 26 * u + SERVERS.length * (rowH + 4 * u), rec = recommended();
+  cy = k.panel(px, y, pw, ph, { title: 'SERVERS', note: 'FREE - PICK THE ONE YOUR FRIENDS PICK' });
+  SERVERS.forEach((sv, i) => {
+    const id = `srv:${i}`, ry = cy + i * (rowH + 4 * u), rx = px + 8 * u, rw = pw - 16 * u;
+    const hot = k.hover === id || N.sel === i, p = N.pings[sv.key];
+    k.rect(rx - u, ry - u, rw + 2 * u, rowH + 2 * u, K.ink);
+    k.rect(rx, ry, rw, rowH, hot ? K.teal : K.edge);
+    k.rect(rx + u, ry + u, rw - 2 * u, rowH - 2 * u, hot ? '#1f3a36' : '#18211e');
+    k.rect(rx + u, ry + u, rw - 2 * u, u, 'rgba(255, 255, 255, 0.08)');
+    if (hot) k.text('>', rx + 5 * u, ry + 6 * u, { size: 2, color: K.teal });
+    const nw = k.text(sv.name, rx + 16 * u, ry + 4 * u, { size: 2, color: hot ? '#ffffff' : K.text });
+    const where = p ? `VIA ${p.where}` : sv.relays.map(([, w]) => w).filter((w, j, a) => a.indexOf(w) === j).join('  /  ');
+    k.text(where, rx + 16 * u, ry + 19 * u, { small: true, color: K.muted });
+    if (i === rec) {
+      const t = 'RECOMMENDED', bw = k.width(t, { small: true }) + 8 * u, bx = rx + 16 * u + nw + 6 * u;
+      k.rect(bx, ry + 5 * u, bw, 10 * u, K.gold);
+      k.text(t, bx + 4 * u, ry + 7 * u, { small: true, color: K.ink, shadow: null });
     }
-    hit(id, x, y, w, rowH - 4 * u);
+    drawPing(k, u, rx + rw - 6 * u, ry + 18 * u, p);
+    k.hit(id, rx, ry, rw, rowH);
   });
-  const by = top + SERVERS.length * rowH + 4 * u;
-  button(ctx, u, x, by, 80 * u, 14 * u, 'BACK', 'back');
-  T(ctx, u, 'FREE - PLAYERS CONNECT TO EACH OTHER DIRECTLY', x + 88 * u, by + 4 * u, C.faint);
-  footer(ctx, u, W, H, 'CLICK A SERVER / ENTER - CONNECT     N - CHANGE NAME     ESC - BACK');
+  y += ph + 6 * u;
+  k.text('THE SERVER IS WHERE PLAYERS FIND EACH OTHER. IN A GAME YOU CONNECT STRAIGHT TO THE HOST.', W / 2, y, { small: true, color: K.faint, align: 'center' });
+  y += 10 * u;
+  k.button('back', px, y, 80 * u, 18 * u, 'BACK');
+  k.hints('CLICK A SERVER  CONNECT      ENTER  THE RECOMMENDED ONE      N  CHANGE NAME      ESC  BACK');
 }
 
 const MODE_NAME = { ffa: 'FFA', teams: 'TEAMS' };
-function drawLobby(ctx, u, W, H) {
-  const L = N.lobby;
-  header(ctx, u, W, `${N.server?.name ?? ''} - LOBBY`, `${L?.online ?? 1} ONLINE      YOU: ${N.name}`);
-  const w = Math.min(W - 24 * u, 380 * u), x = Math.round(W / 2 - w / 2), top = 50 * u;
-  const cols = [['NO', 0], ['ROOM NAME', 22], ['MODE', 0.5], ['MAP', 0.62], ['PLAYERS', 0.78], ['STATE', 0.89]];
-  const cx = (c) => (c[1] < 1 ? x + w * c[1] : x + c[1] * u) + 4 * u;
-  A.panel(ctx, x, top, w, 12 * u, u, C.gold);
-  for (const c of cols) T(ctx, u, c[0], cx(c), top + 3 * u, C.gold);
-  const list = L?.list ?? [], rowH = 13 * u, rows = Math.max(6, Math.floor((H - top - 70 * u) / rowH));
+function drawLobby(k, u, W, H) {
+  const L = N.lobby, list = L?.list ?? [];
+  const pw = Math.min(W - 16 * u, 440 * u), px = Math.round(W / 2 - pw / 2);
+  let y = 10 * u;
+  k.text(`${N.server?.name ?? ''} LOBBY`, W / 2, y, { size: 3, color: K.gold, align: 'center' });
+  y += 26 * u;
+  const p = N.server && N.pings[N.server.key];
+  k.text(`${L?.online ?? 1} ONLINE      YOU: ${N.name}${p ? `      PING ${p.ms} MS VIA ${p.where}` : ''}`, W / 2, y, { small: true, color: K.teal, align: 'center' });
+  y += 10 * u;
+  const rowH = 13 * u, rows = Math.max(4, Math.min(10, Math.floor((H - y - 26 * u - 14 * u - 46 * u) / rowH)));
+  const ph = 26 * u + 12 * u + rows * rowH;
+  const cy = k.panel(px, y, pw, ph, { title: 'ROOMS', note: list.length ? `${list.length} ROOM${list.length > 1 ? 'S' : ''}` : 'NONE YET' });
+  const col = { no: px + 8 * u, name: px + 30 * u, mode: px + pw * 0.52, map: px + pw * 0.63, n: px + pw * 0.79, st: px + pw * 0.88 };
+  for (const [key, label] of [['no', 'NO'], ['name', 'ROOM NAME'], ['mode', 'MODE'], ['map', 'MAP'], ['n', 'PLAYERS'], ['st', 'STATE']]) k.text(label, col[key], cy, { small: true, color: K.faint });
+  const ry0 = cy + 10 * u;
   for (let i = 0; i < rows; i++) {
-    const r = list[i], y = top + 14 * u + i * rowH, id = r ? `room:${r.host}` : null;
-    ctx.fillStyle = i % 2 ? 'rgba(20, 28, 24, 0.85)' : 'rgba(14, 20, 17, 0.85)';
-    ctx.fillRect(x, y, w, rowH - u);
+    const r = list[i], ry = ry0 + i * rowH, id = r ? `room:${r.host}` : null;
+    k.rect(px + 4 * u, ry, pw - 8 * u, rowH - u, id && k.hover === id ? K.row : i % 2 ? K.rowAlt : 'rgba(0, 0, 0, 0.15)');
     if (!r) continue;
-    if (N.hover === id) { ctx.fillStyle = C.row; ctx.fillRect(x, y, w, rowH - u); }
-    const full = r.n >= r.max, col = r.playing || full ? C.dim : C.text;
-    T(ctx, u, String(i + 1).padStart(3, '0'), cx(cols[0]), y + 3 * u, C.dim);
-    T(ctx, u, String(r.name).slice(0, 22), cx(cols[1]), y + 3 * u, N.hover === id ? '#ffffff' : col);
-    T(ctx, u, MODE_NAME[r.mode] ?? r.mode, cx(cols[2]), y + 3 * u, col);
-    T(ctx, u, String(r.map).toUpperCase().slice(0, 8), cx(cols[3]), y + 3 * u, col);
-    T(ctx, u, `${r.n}/${r.max}`, cx(cols[4]), y + 3 * u, full ? C.red : C.green);
-    T(ctx, u, r.playing ? 'PLAYING' : full ? 'FULL' : 'WAITING', cx(cols[5]), y + 3 * u, r.playing ? C.red : full ? C.dim : C.teal);
-    hit(id, x, y, w, rowH - u);
+    const full = r.n >= r.max, shut = r.playing || full, ty = ry + 3 * u;
+    k.text(String(i + 1).padStart(3, '0'), col.no, ty, { color: K.faint });
+    k.text(String(r.name).slice(0, 20), col.name, ty, { color: k.hover === id ? '#ffffff' : shut ? K.muted : K.text });
+    k.text(MODE_NAME[r.mode] ?? r.mode, col.mode, ty, { color: K.muted });
+    k.text(String(r.map).toUpperCase().slice(0, 7), col.map, ty, { color: K.muted });
+    k.text(`${r.n}/${r.max}${r.w ? ` +${r.w}` : ''}`, col.n, ty, { color: full ? K.red : K.green });
+    const st = shut && k.hover === id ? 'WATCH' : r.playing ? 'PLAYING' : full ? 'FULL' : 'OPEN';
+    k.text(st, col.st, ty, { color: st === 'WATCH' ? K.gold : r.playing ? K.red : full ? K.muted : K.teal });
+    k.hit(id, px + 4 * u, ry, pw - 8 * u, rowH - u);
   }
-  if (!list.length) A.centerText(ctx, 'NO ROOMS YET - MAKE ONE AND TELL YOUR FRIENDS WHICH SERVER', top + 14 * u + rowH * 2 + 3 * u, 1, C.dim, u);
-  const by = top + 16 * u + rows * rowH, bw = 92 * u, gap = 8 * u, bx = Math.round(W / 2 - (bw * 3 + gap * 2) / 2);
-  button(ctx, u, bx, by, bw, 15 * u, 'CREATE ROOM', 'create', { on: true });
-  button(ctx, u, bx + bw + gap, by, bw, 15 * u, 'QUICK JOIN', 'quick');
-  button(ctx, u, bx + (bw + gap) * 2, by, bw, 15 * u, 'CHANGE SERVER', 'servers');
-  footer(ctx, u, W, H, 'CLICK A ROOM - JOIN     C - CREATE     ENTER - QUICK JOIN     ESC - SERVERS');
+  if (!list.length) k.text('NO ROOMS ON THIS SERVER YET - MAKE ONE, AND TELL YOUR FRIENDS WHICH SERVER', W / 2, ry0 + rowH * 1.5, { small: true, color: K.muted, align: 'center' });
+  y += ph + 8 * u;
+  const bw = Math.floor((pw - 16 * u) / 3);
+  k.button('create', px, y, bw, 18 * u, 'CREATE ROOM', { kind: 'primary' });
+  k.button('quick', px + bw + 8 * u, y, bw, 18 * u, 'QUICK JOIN');
+  k.button('servers', px + (bw + 8 * u) * 2, y, bw, 18 * u, 'CHANGE SERVER');
+  k.hints('CLICK A ROOM  JOIN (PLAYING OR FULL: WATCH)      C  CREATE      ENTER  QUICK JOIN      ESC  SERVERS');
 }
 
-function drawRoom(ctx, u, W, H) {
+function drawRoom(k, u, W, H) {
   const host = N.mode === 'host', me = N.members.find((m) => m.id === myId());
   const settings = host ? A.settings : (N.hostSettings ?? A.settings), teams = settings.mode === 'teams';
-  const editing = N.edit === 'room';
-  header(ctx, u, W, editing ? N.draft + (Math.floor(performance.now() / 400) % 2 ? '_' : ' ') : N.roomName,
-    `${N.server?.name ?? ''} - ${host ? 'YOUR ROOM' : 'WAITING FOR THE HOST TO START'}${!host && N.room?.ping ? `      PING ${N.room.ping} MS` : ''}`);
-  if (host) hit('roomname', W / 2 - 120 * u, 10 * u, 240 * u, 22 * u);
-  const total = Math.min(W - 20 * u, 420 * u), x0 = Math.round(W / 2 - total / 2), gap = 8 * u, colW = Math.round((total - gap) / 2);
-  let y = 46 * u;
+  const pw = Math.min(W - 16 * u, 440 * u), px = Math.round(W / 2 - pw / 2), gap = 6 * u;
+  // the room's name (the host can rename it), where, how it stands
+  let y = 6 * u;
+  if (N.edit === 'room') field(k, u, 'room', W / 2 - 110 * u, y, 220 * u, 18 * u, N.roomName, true);
+  else {
+    k.text(N.roomName, W / 2, y + 2 * u, { size: 2, color: K.gold, align: 'center' });
+    if (host) k.hit('roomname', W / 2 - 120 * u, y, 240 * u, 18 * u);
+  }
+  y += 22 * u;
+  const status = host ? (k.hover === 'roomname' ? 'CLICK THE NAME TO RENAME THE ROOM' : 'YOUR ROOM - EVERYONE READY, THEN START') : 'WAITING FOR THE HOST TO START';
+  k.text(`${N.server?.name ?? ''}   -   ${status}${!host && N.room?.ping ? `   -   PING ${N.room.ping} MS` : ''}`, W / 2, y, { small: true, color: K.teal, align: 'center' });
+  y += 10 * u;
   // the slots: two columns of four (BLUE and RED, in TEAMS)
-  const playing = N.slots.filter((x) => x.k === 'p').length;
-  const heads = teams ? [['BLUE TEAM', '#6ad8ff'], ['RED TEAM', '#ff6a5a']] : [[`PLAYERS ${playing}/${roomSize()}`, C.gold], ['', C.gold]];
-  heads.forEach(([label, col], c) => {
-    const cx = x0 + c * (colW + gap);
-    A.panel(ctx, cx, y, colW, 11 * u, u, col);
-    if (label) T(ctx, u, label, cx + 4 * u, y + 3 * u, col);
-  });
-  y += 13 * u;
-  const slotH = 19 * u;
+  const colW = Math.floor((pw - 16 * u - gap) / 2), slotH = 18 * u, playing = N.slots.filter((x) => x.k === 'p').length, watch = watchers();
+  const sh = 26 * u + (teams ? 16 * u : 0) + 4 * slotH + (watch.length ? 10 * u : 0);
+  let cy = k.panel(px, y, pw, sh, { title: teams ? 'TEAMS' : 'PLAYERS', note: `${playing} / ${roomSize()} PLAYERS${host ? '   -   CLICK A SLOT BUTTON TO OPEN, CLOSE OR ADD A BOT' : ''}` });
+  if (teams) {
+    // each side's banner: its name, how many, a button to go over to it
+    const mySide = seatOf(myId()) >= 0 ? teamOf(seatOf(myId())) : -1;
+    [['BLUE TEAM', K.blue, 'rgba(106, 216, 255, '], ['RED TEAM', K.red, 'rgba(255, 106, 90, ']].forEach(([label, c, tint], t) => {
+      const cx = px + 8 * u + t * (colW + gap), n = N.slots.filter((x, j) => teamOf(j) === t && (x.k === 'p' || x.k === 'bot')).length;
+      k.rect(cx, cy, colW, 13 * u, tint + '0.22)');
+      k.rect(cx, cy, colW, u, c);
+      k.rect(cx - u, cy + 14 * u, colW + 2 * u, 4 * slotH, tint + '0.06)');   // (the column behind its slots, faintly in its colour)
+      const lw = k.text(label, cx + 5 * u, cy + 3 * u, { color: c });
+      k.text(`${n}/4`, cx + 5 * u + lw + 6 * u, cy + 4 * u, { small: true, color: K.muted });
+      if (mySide === t) k.text('YOUR SIDE', cx + colW - 5 * u, cy + 4 * u, { small: true, color: c, align: 'right' });
+      else if (N.slots.some((x, j) => teamOf(j) === t && x.k === 'open')) k.button(`team:${t}`, cx + colW - 52 * u, cy + 2 * u, 50 * u, 9 * u, 'JOIN', { size: 1 });
+    });
+    cy += 16 * u;
+  }
   for (let i = 0; i < SLOTS; i++) {
-    const c = Math.floor(i / 4), r = i % 4, sx = x0 + c * (colW + gap), sy = y + r * slotH, x = N.slots[i] ?? { k: 'closed' };
-    const id = `slot:${i}`, mine = x.k === 'p' && x.id === myId(), hot = N.hover === id && x.k === 'open';
-    A.panel(ctx, sx, sy, colW, slotH - 3 * u, u, mine ? C.gold : hot ? C.teal : x.k === 'closed' ? '#1a201d' : '#2a3632');
-    if (x.k === 'closed') { ctx.fillStyle = 'rgba(0, 0, 0, 0.45)'; ctx.fillRect(sx, sy, colW, slotH - 3 * u); }
-    if (hot) { ctx.fillStyle = 'rgba(143, 240, 255, 0.1)'; ctx.fillRect(sx, sy, colW, slotH - 3 * u); }
-    T(ctx, u, i + 1, sx + 4 * u, sy + 5 * u, C.faint);
-    if (x.k === 'p' || x.k === 'bot') { ctx.fillStyle = LOOKS[i].color; ctx.fillRect(sx + 12 * u, sy + 3 * u, 2 * u, 10 * u); }
-    const tagX = (t) => sx + colW - (A.textWidth(t) + 4) * u;
+    const c = Math.floor(i / 4), r = i % 4, sx = px + 8 * u + c * (colW + gap), sy = cy + r * slotH, x = N.slots[i] ?? { k: 'closed' };
+    const id = `slot:${i}`, mine = x.k === 'p' && x.id === myId(), hot = x.k === 'open' && k.hover === id, h = slotH - 3 * u;
+    k.rect(sx, sy, colW, h, mine ? 'rgba(255, 210, 90, 0.16)' : hot ? 'rgba(126, 240, 224, 0.12)' : x.k === 'closed' ? 'rgba(0, 0, 0, 0.35)' : 'rgba(255, 255, 255, 0.04)');
+    const side = teams ? (teamOf(i) ? K.red : K.blue) : null;
+    k.rect(sx, sy, 2 * u, h, x.k === 'p' || x.k === 'bot' ? side ?? (mine ? K.gold : LOOKS[i].color) : hot ? K.teal : side ? side + '55' : K.edge);
+    if (mine) k.rect(sx + colW - u, sy, u, h, K.gold);
+    k.text(i + 1, sx + 6 * u, sy + 4 * u, { small: true, color: K.faint });
     if (x.k === 'p') {
-      const m = N.members.find((y2) => y2.id === x.id);
-      const isHost = N.members[0]?.id === x.id;
-      T(ctx, u, m?.name ?? '...', sx + 17 * u, sy + 2 * u, '#ffffff');
-      T(ctx, u, SKILLS.find(([k]) => k === m?.skill)?.[1] ?? 'NO SKILL', sx + 17 * u, sy + 9 * u, C.teal);
+      const m = N.members.find((o) => o.id === x.id), isHost = N.members[0]?.id === x.id;
+      k.text(m?.name ?? '...', sx + 14 * u, sy + 2 * u, { color: '#ffffff' });
+      k.text(SKILLS.find(([s]) => s === m?.skill)?.[1] ?? 'NO SKILL', sx + 14 * u, sy + 10 * u, { small: true, color: K.teal });
       const tag = isHost ? 'HOST' : m?.ready ? 'READY' : 'NOT READY';
-      T(ctx, u, tag, tagX(tag), sy + 5 * u, isHost ? C.gold : m?.ready ? C.green : C.red);
+      k.text(tag, sx + colW - 5 * u, sy + 4 * u, { color: isHost ? K.gold : m?.ready ? K.green : K.red, align: 'right' });
     } else {
-      const label = x.k === 'bot' ? `BOT ${BOT_NAMES[N.slots.slice(0, i).filter((y2) => y2.k === 'bot').length]}` : x.k === 'open' ? (hot ? 'MOVE HERE' : 'OPEN') : 'CLOSED';
-      T(ctx, u, label, sx + 17 * u, sy + 5 * u, x.k === 'bot' ? '#c8cfc9' : x.k === 'open' ? (hot ? C.teal : C.dim) : C.faint);
+      const bots = N.slots.slice(0, i).filter((o) => o.k === 'bot').length;
+      const label = x.k === 'bot' ? `BOT  ${BOT_NAMES[bots]}` : x.k === 'open' ? (hot ? 'CLICK TO MOVE HERE' : 'OPEN') : 'CLOSED';
+      k.text(label, sx + 14 * u, sy + 4 * u, { color: x.k === 'bot' ? K.text : x.k === 'open' ? (hot ? K.teal : K.muted) : K.faint });
       if (host) {
-        // the host's switch: what it is now - click for the next (open, closed, a bot)
-        const t = x.k === 'open' ? 'CLOSE' : x.k === 'closed' ? 'ADD BOT' : 'OPEN', bw = (A.textWidth(t) + 8) * u, bx = sx + colW - bw - 2 * u;
-        button(ctx, u, bx, sy + 2 * u, bw, slotH - 7 * u, t, `tog:${i}`);
+        const t = x.k === 'open' ? 'CLOSE' : x.k === 'closed' ? 'ADD BOT' : 'OPEN', bw = k.width(t) + 10 * u;
+        k.button(`tog:${i}`, sx + colW - bw - 2 * u, sy + 2 * u, bw, h - 4 * u, t);
       }
     }
-    hit(id, sx, sy, colW, slotH - 3 * u);
+    k.hit(id, sx, sy, colW, h);
   }
-  y += 4 * slotH + 4 * u;
+  if (watch.length) k.text(`WATCHING (${watch.length}): ${watch.map((m) => m.name).join(', ')}  -  THEY GET A SLOT WHEN ONE IS OPEN`, px + 10 * u, cy + 4 * slotH + 2 * u, { small: true, color: K.muted });
+  y += sh + gap;
   // the room's settings, in two columns (the host changes them)
-  A.panel(ctx, x0, y, total, 11 * u, u, C.gold);
-  T(ctx, u, host ? 'ROOM SETTINGS - CLICK LEFT / RIGHT HALF TO CHANGE' : 'ROOM SETTINGS', x0 + 4 * u, y + 3 * u, C.gold);
-  y += 14 * u;
   const opts = A.OPTIONS.map((o, i) => [o, i]).filter(([o]) => o[0] !== 'bots'), rows = Math.ceil(opts.length / 2), rowH = 10 * u;
-  opts.forEach(([[k, label, vals], oi], n) => {
-    const c = Math.floor(n / rows), r = n % rows, ox = x0 + c * (colW + gap), oy = y + r * rowH;
-    const shown = vals.find(([v]) => v === settings[k])?.[1] ?? '?';
-    if (host && (N.hover === `opt:${oi}:-1` || N.hover === `opt:${oi}:1`)) { ctx.fillStyle = C.row; ctx.fillRect(ox, oy - 2 * u, colW, rowH); }
-    T(ctx, u, label, ox + 3 * u, oy, C.dim);
-    const val = host ? `< ${shown} >` : shown;
-    T(ctx, u, val, ox + colW - (A.textWidth(val) + 3) * u, oy, '#ffffff');
-    if (host) { hit(`opt:${oi}:-1`, ox, oy - 2 * u, colW / 2, rowH); hit(`opt:${oi}:1`, ox + colW / 2, oy - 2 * u, colW / 2, rowH); }
+  const oh = 26 * u + rows * rowH;
+  cy = k.panel(px, y, pw, oh, { title: 'ROOM SETTINGS', note: host ? 'CLICK A SIDE TO CHANGE' : 'THE HOST SETS THESE' });
+  opts.forEach(([[key, label, vals], oi], n) => {
+    const c = Math.floor(n / rows), r = n % rows;
+    const shown = vals.find(([v]) => v === settings[key])?.[1] ?? '?';
+    k.stepper(`opt:${oi}`, px + 8 * u + c * (colW + gap), cy + r * rowH, colW, rowH - u, label, shown, { enabled: host });
   });
-  y += rows * rowH + 14 * u;
+  y += oh + gap;
   // your skill; ready / start; leave
-  const sk = SKILLS.find(([k]) => k === N.skill)?.[1] ?? 'NO SKILL';
-  T(ctx, u, 'YOUR SKILL (Q)', x0, y - 9 * u, C.dim);
-  button(ctx, u, x0, y, 14 * u, 15 * u, '<', 'skill-');
-  A.panel(ctx, x0 + 16 * u, y, colW - 32 * u, 15 * u, u, '#3a4c46');
-  T(ctx, u, sk, x0 + 16 * u + (colW - 32 * u) / 2 - (A.textWidth(sk) * u) / 2, y + 5 * u, C.teal);
-  button(ctx, u, x0 + colW - 14 * u, y, 14 * u, 15 * u, '>', 'skill+');
-  const rx = x0 + colW + gap, allReady = N.members.every((m) => m.ready), bw = Math.round(colW * 0.62);
-  if (host) button(ctx, u, rx, y, bw, 15 * u, allReady ? 'START' : 'START (NOT ALL READY)', 'start', { on: allReady, dim: !allReady });
-  else button(ctx, u, rx, y, bw, 15 * u, me?.ready ? 'READY!' : 'READY', 'ready', { on: !!me?.ready });
-  button(ctx, u, rx + bw + 6 * u, y, colW - bw - 6 * u, 15 * u, 'LEAVE', 'leave');
-  footer(ctx, u, W, H, host ? 'CLICK AN OPEN SLOT - MOVE THERE     ITS BUTTON - CLOSE / ADD A BOT / OPEN     ENTER - START     ESC - LEAVE'
-    : 'CLICK AN OPEN SLOT - MOVE THERE     ENTER - READY     Q - SKILL     ESC - LEAVE');
+  const sk = SKILLS.find(([s]) => s === N.skill)?.[1] ?? 'NO SKILL';
+  k.rect(px, y, colW + 8 * u, 18 * u, 'rgba(14, 20, 18, 0.95)');
+  k.stepper('skill', px, y, colW + 8 * u, 18 * u, 'YOUR SKILL (Q)', sk);
+  const rx = px + colW + 8 * u + gap, rw = pw - (colW + 8 * u + gap), allReady = seated().every((m) => m.ready), bw = Math.round(rw * 0.64);
+  if (host) k.button('start', rx, y, bw, 18 * u, allReady ? 'START' : 'NOT ALL READY', { kind: 'primary', disabled: !allReady });
+  else if (seatOf(myId()) < 0) k.button('ready', rx, y, bw, 18 * u, 'WATCHING', { disabled: true });
+  else k.button('ready', rx, y, bw, 18 * u, me?.ready ? 'READY!' : 'READY', { kind: me?.ready ? 'normal' : 'primary', selected: !!me?.ready });
+  k.button('leave', rx + bw + 6 * u, y, rw - bw - 6 * u, 18 * u, 'LEAVE', { kind: 'danger' });
+  k.hints(host ? 'CLICK AN OPEN SLOT  MOVE THERE      ENTER  START      Q  SKILL      ESC  LEAVE' : 'CLICK AN OPEN SLOT  MOVE THERE      ENTER  READY      Q  SKILL      ESC  LEAVE');
 }
 
-// In a game, over the HUD: the ping, the menu (ESC), and what's happening (someone left ...).
+// In a game, over the HUD: the ping, what's happening, and the menu (ESC).
 export function drawNetOverlay(ctx, u, W, H) {
-  N.hits = [];
-  if (N.mode === 'client' && N.room?.ping) T(ctx, u, `PING ${N.room.ping}`, 6 * u, H - 10 * u, '#5a6a60');
-  if (N.mode === 'client' && !N.gotSnap) A.centerText(ctx, 'WAITING FOR THE HOST...', H * 0.5, 1, C.teal, u);
-  if (A.state === 'match') A.centerText(ctx, N.mode === 'host' ? (A.stateT > 2 ? 'ENTER / CLICK - BACK TO THE ROOM' : '') : 'THE HOST WILL TAKE EVERYONE BACK TO THE ROOM', H - 30 * u, 1, C.gold, u);
-  if (N.msgT > 0) A.centerText(ctx, N.msg, H - 44 * u, 1, C.red, u);
+  const k = A.kit;
+  if (N.mode === 'client' && N.room?.ping) k.text(`PING ${N.room.ping} MS`, 6 * u, H - 10 * u, { small: true, color: N.room.ping > 120 ? K.red : K.faint });
+  if (N.mode === 'client' && !N.gotSnap) k.text('WAITING FOR THE HOST...', W / 2, H * 0.5, { color: K.teal, align: 'center' });
+  if (N.watching && N.gotSnap && A.state !== 'match' && A.player) {
+    const f = A.player, name = `WATCHING  ${f.name}`, w = k.width(name, { size: 2 }) + 24 * u, bx = W / 2 - w / 2, by = H - 40 * u;
+    k.rect(bx - u, by - u, w + 2 * u, 28 * u, K.ink);
+    k.rect(bx, by, w, 26 * u, 'rgba(14, 20, 18, 0.9)');
+    k.rect(bx, by, w, u, A.tagColor(f));
+    k.text(name, W / 2, by + 4 * u, { size: 2, color: A.tagColor(f), align: 'center' });
+    k.text('A / D  OR  CLICK  -  SWITCH PLAYER', W / 2, by + 19 * u, { small: true, color: K.muted, align: 'center' });
+  }
+  if (N.msgT > 0) k.toast(N.msg);
   if (!N.menu) return;
-  ctx.fillStyle = 'rgba(4, 6, 6, 0.7)';
-  ctx.fillRect(0, 0, W, H);
-  A.centerText(ctx, N.roomName, H * 0.34, 3, C.gold, u);
-  A.centerText(ctx, 'THE GAME GOES ON WHILE THIS IS OPEN', H * 0.34 + 24 * u, 1, C.dim, u);
-  const bw = 120 * u;
-  button(ctx, u, W / 2 - bw / 2, H * 0.34 + 40 * u, bw, 15 * u, N.mode === 'host' ? 'LEAVE (ENDS THE ROOM)' : 'LEAVE THE ROOM', 'leave-game');
-  A.centerText(ctx, 'ESC - BACK TO THE GAME     L - LEAVE', H * 0.34 + 64 * u, 1, '#5a6a60', u);
+  k.shade(0.65);
+  const pw = 210 * u, ph = 26 * u + 16 * u + 2 * 23 * u, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
+  let y = k.panel(px, py, pw, ph, { title: N.roomName.slice(0, 20) });
+  k.text('THE GAME GOES ON WHILE THIS IS OPEN', W / 2, y, { small: true, color: K.muted, align: 'center' });
+  y += 14 * u;
+  k.button('net-resume', px + 8 * u, y, pw - 16 * u, 18 * u, 'BACK TO THE GAME', { kind: 'primary' });
+  y += 23 * u;
+  k.button('net-leave', px + 8 * u, y, pw - 16 * u, 18 * u, N.mode === 'host' ? 'LEAVE (ENDS THE ROOM)' : 'LEAVE THE ROOM', { kind: 'danger' });
 }

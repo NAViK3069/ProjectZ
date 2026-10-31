@@ -20,12 +20,22 @@ touching it). Push to `main` and it's live a minute later.
 
 MULTIPLAYER: choose a server, then make a room or join one from the list, set
 it up, everyone READY, the host STARTs. A room has 8 slots in two columns (in
-TEAMS, the left BLUE and the right RED); the host opens or closes each one or
-puts a bot in it - the only bots are the ones in slots - and players click an
-open slot to move to it. There's no game server: players
-connect to each other directly (WebRTC), introduced through Trystero over
-public Nostr relays (`src/arena/net.js`; the library comes from jsDelivr,
-pinned). A "server" is just a channel everyone on it meets in.
+TEAMS, the left BLUE and the right RED - JOIN on a side's banner moves you
+over; each side wears its colour and starts on its own half of the map); the
+host opens or closes each one or puts a bot in it - the only bots are the
+ones in slots - and players click an open slot to move to it. A room that's
+playing (or full) can still be joined, to watch (A / D or a click switches
+who); at the end of the match the watchers get the open slots. Hold TAB in a
+match for the scores.
+
+There's no game server: players connect to each other directly (WebRTC),
+introduced through Trystero over public Nostr relays (`src/arena/net.js`; the
+library comes from jsDelivr, pinned). A "server" is a region: a couple of
+relays there (THAILAND - Chon Buri; SINGAPORE; JAPAN; EUROPE), picked by
+their IP's location and their ping from Thailand. The server screen pings
+each one live and recommends the nearest. Public relays come and go - if one
+stops answering, swap it in `SERVERS` (check it with a two-tab test: both
+should see each other in its lobby).
 
 The host's browser runs the game; the others send their controls and draw
 the state the host sends 20 times a second - only what changed - plus the
@@ -59,7 +69,7 @@ These belong to the top-down game only:
 - `src/entities/player.js`, `zombie.js`, `zombieart.js`, `dummy.js`
 - `src/fx/lighting.js`
 - `src/game/` (rounds, hazards, inventory, items, loot)
-- `src/ui/` except `font.js` (HUD, menus, inventory screen, armory)
+- `src/ui/` except `font.js` and `kit.js` (HUD, menus, inventory screen, armory)
 - `src/combat/bullets.js`, `explosives.js`, `throwables.js`, `spec.js`
 
 ### Shared with the Arena (careful when changing them)
@@ -75,7 +85,9 @@ The Arena reuses these, so a change here changes both games:
 - `src/fx/particles.js` (only the top-down game draws with it, but it
   reads the shared gun art)
 
-The Arena's own code is all in `src/arena/`.
+The Arena's own code is all in `src/arena/`, plus `src/ui/kit.js` - the look of
+every Arena menu (panels, buttons, the setting rows, the bigger 5x7 font from
+`font.js`), so a new screen matches the others by using it.
 
 ### Links between the pages
 

@@ -11,6 +11,7 @@ import { WEAPONS, WEAPON_CLASSES } from '../combat/weapons.js';
 import { gunIcon, artW, artH, HANDS } from '../combat/gunart.js';
 import { MELEE } from '../combat/melee.js';
 import { drawText, textWidth } from '../ui/font.js';
+import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K here is a sprite colour)
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
@@ -29,6 +30,7 @@ const pick = (l) => l[(Math.random() * l.length) | 0];
 
 
 const canvas = document.getElementById('game');
+const kit = new Kit();   // the menus' look and clicks (ui/kit.js)
 const renderer = new Renderer(canvas, { viewHeight: 290, viewWidth: 500, fit: 'floor' });
 // the HUD's pixel size: the world's on an ordinary screen, a step smaller on a big one
 const hudScale = () => Math.max(2, Math.round(renderer.scale * 0.85));
@@ -65,11 +67,12 @@ const images = await loadImages({
 
 const OPTIONS = [
   ['map', 'MAP', [...MAP_KEYS.map((k) => [k, MAPS[k].name]), ['random', 'RANDOM']]],
-  ['mode', 'MODE', [['ffa', 'FREE FOR ALL'], ['teams', 'TEAMS 2 V 2']]],
+  ['mode', 'MODE', [['ffa', 'FREE FOR ALL'], ['teams', 'TEAMS']]],
   ['bots', 'BOTS', [[1, '1'], [2, '2'], [3, '3']]],
   ['skill', 'BOT SKILL', [[0.7, 'EASY'], [1, 'NORMAL'], [1.35, 'HARD']]],
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
-  ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [0, 'NO LIMIT']]],
+  ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
+  ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -78,7 +81,7 @@ const OPTIONS = [
   ['drops', 'ITEM DROPS', [[0, 'OFF'], [0.5, 'FEW'], [1, 'NORMAL'], [2, 'MANY']]],
   ['pool', 'WEAPONS THAT DROP', [['all', 'GUNS + MELEE'], ['guns', 'GUNS ONLY'], ['melee', 'MELEE ONLY']]],
 ];
-const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all' };
+const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all' };
 const settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('arena.settings') ?? '{}')); } catch {}
 const saveSettings = () => { try { localStorage.setItem('arena.settings', JSON.stringify(settings)); } catch {} };
@@ -269,6 +272,7 @@ const game = {
     if (f.melee && !f.melee.def.fists) this.pickups.push({ kind: 'melee', key: f.melee.def.key, x: f.x, y: f.y - 12, vx: rand(-60, 60), vy: -150, beam: 0, life: 20, bob: 0, ready: false });
     if (killer && killer !== f) killer.kills++;
     if (state === 'fight' || state === 'intro') {
+      f.deaths = (f.deaths ?? 0) + 1;
       f.lives = Math.max(0, (f.lives ?? 1) - 1);
       if (f.lives > 0 && !overtime) f.respawnT = RESPAWN_TIME;
     }
@@ -363,17 +367,20 @@ const ROSTER = [
   { name: 'DUKE', color: '#c8ff5a', hue: 290, sat: 1.1, bot: true },
 ];
 let bots = [];
-const TEAMS = [{ name: 'BLUE', color: '#6ad8ff' }, { name: 'RED', color: '#ff6a5a' }];
+// the two sides, and what they wear (their shirts recoloured blue or red, so a side's plain to see)
+const TEAMS = [{ name: 'BLUE', color: '#6ad8ff', look: { hue: 210, sat: 1.2 } }, { name: 'RED', color: '#ff6a5a', look: { hue: 8, sat: 1.7 } }];
 
 function makeFighters() {
-  const n = settings.mode === 'teams' ? 3 : settings.bots;
+  const teams = settings.mode === 'teams', n = teams ? 3 : settings.bots;
   game.fighters = ROSTER.slice(0, n + 1).map((r, i) => {
-    const f = new Fighter(game, images, r);
     // teams: you and VEX against KORA and DUKE; otherwise everyone for themselves
-    f.team = settings.mode === 'teams' ? (i < 2 ? 0 : 1) : i;
+    const team = teams ? (i < 2 ? 0 : 1) : i;
+    const f = new Fighter(game, images, teams ? { ...r, ...TEAMS[team].look } : r);
+    f.team = team;
     return f;
   });
   player = game.fighters[0];
+  if (!settings.skills) for (const f of game.fighters) f.skill = null;
   bots = game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.85 + i * 0.12) * settings.skill));
 }
 const teamMode = () => settings.mode === 'teams' && state !== 'training';   // (training's just you and the dummies, whatever the room says)
@@ -409,18 +416,35 @@ function startRound() {
   game.lights = new Lights(level);
   game.props = placeProps(level.props, level);
   clearDecoys();
-  const spots = [...level.spawns].sort(() => Math.random() - 0.5);
-  game.fighters.forEach((f, i) => {
-    const s = spots[i % spots.length];
-    spawnAt(f, s.x + (i >= spots.length ? 12 : 0), s.y);
-    f.lives = settings.lives;
-    f.respawnT = 0;
-  });
+  // everyone to a spot of their own, shuffled - in TEAMS, each side on its own half of the map
+  const sides = new Map();
+  for (const f of game.fighters) {
+    const key = teamMode() ? f.team : 'all';
+    if (!sides.has(key)) sides.set(key, []);
+    sides.get(key).push(f);
+  }
+  for (const [key, list] of sides) {
+    const spots = spawnSpots(key).sort(() => Math.random() - 0.5);
+    list.forEach((f, i) => {
+      const s = spots[i % spots.length];
+      spawnAt(f, s.x + Math.floor(i / spots.length) * 12, s.y);
+      f.lives = settings.lives;
+      f.respawnT = 0;
+    });
+  }
   for (const b of bots) b.reset();
   if (settings.drops > 0) for (let i = 0; i < 3; i++) game.spawnPickup();
   for (const p of game.pickups) p.beam = 0;
   pickupT = 4 / Math.max(0.5, settings.drops);
   banner = { text: `ROUND ${round}`, sub: game.fighters.map((f) => `${f.name} ${f.wins}`).join('   '), t: 1.4, color: '#e8e2d0' };
+}
+
+// Where a side starts and comes back: in TEAMS, BLUE (0) the map's left half and RED (1) its right; otherwise anywhere.
+function spawnSpots(team) {
+  const all = [...level.spawns];
+  if (!teamMode() || (team !== 0 && team !== 1)) return all;
+  const half = all.filter((s) => (s.x < PW / 2) === (team === 0));
+  return half.length ? half : all;
 }
 
 // A fighter in at (x, y) with the room's loadout.
@@ -444,7 +468,7 @@ function updateRespawns(dt) {
     f.respawnT = 0;
     const foes = game.fighters.filter((o) => o.alive && !o.isDecoy && game.foes(f, o));
     const far = (s) => Math.min(9999, ...foes.map((o) => Math.hypot(o.x - s.x, o.y - s.y)));
-    const s = [...level.spawns].sort((a, b) => far(b) - far(a))[0];
+    const s = spawnSpots(f.team).sort((a, b) => far(b) - far(a))[0];
     spawnAt(f, s.x, s.y);
     f.shield = SPAWN_SHIELD;
     f.beamT = 0;
@@ -489,7 +513,7 @@ function startMatch() {
   loadMap(settings.map === 'random' ? pick(MAP_KEYS) : settings.map);
   makeFighters();
   round = 0;
-  for (const f of game.fighters) { f.wins = 0; f.kills = 0; }
+  for (const f of game.fighters) { f.wins = 0; f.kills = 0; f.deaths = 0; }
   champion = null;
   startRound();
   hintEl.classList.remove('fade');
@@ -1548,8 +1572,8 @@ function drawWorld() {
   for (const f of game.fighters) {
     if (!f.alive || (f.hidden && f !== player)) continue;
     const x = Math.round(f.x), y = Math.round(f.y - (f.bow ? 48 : 36));   // (lifted clear of the archery bow while it's up)
-    const name = f === player ? 'YOU' : f.name, w = textWidth(name);
-    if (f !== player || state === 'intro') drawText(ctx, name, x - Math.floor(w / 2), y - 8, 1, tagColor(f));
+    const you = f === player && !online.watching, name = you ? 'YOU' : f.name, w = textWidth(name);
+    if (!you || state === 'intro') drawText(ctx, name, x - Math.floor(w / 2), y - 8, 1, tagColor(f));
     // stamina only shows while it's in use (and a moment after it's full
     // again), fading in and out
     if (f.stamina < MAX_STAMINA) f.staminaSeen = game.time;
@@ -1662,11 +1686,14 @@ function centerText(ctx, text, y, size, color, u) {
 function drawHud() {
   const ctx = renderer.ctx, u = hudScale(), W = renderer.width, H = renderer.height;
   renderer.beginScreen();
+  kit.begin(ctx, u, W, H);
   renderer.drawVignette();
+  // the keys overlay never sits over a menu
+  hintEl.classList.toggle('hide', onMenu() || paused || state === 'match' || online.menuOpen || online.watching);
   if (state === 'menu') return drawMainMenu(ctx, u, W, H);
   if (state === 'soon') return drawSoon(ctx, u, W, H);
   if (state === 'title') return drawTitle(ctx, u, W, H);
-  if (online.isScreen(state)) { hintEl.classList.add('fade'); return drawNetScreen(ctx, u, W, H); }
+  if (online.isScreen(state)) return drawNetScreen(ctx, u, W, H);
 
   // everyone's card in a row along the top (Superfighters style)
   drawHurt(ctx, W, H, player);
@@ -1684,7 +1711,16 @@ function drawHud() {
   if (state === 'fight' || state === 'end' || state === 'intro') {
     const left = Math.max(0, settings.time - roundT), clock = !settings.time ? '' : overtime ? '  OVERTIME' : `  ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
     const t = `ROUND ${Math.max(1, round)}${clock}`;
-    drawText(ctx, t, Math.round(W / 2 - (textWidth(t) * u) / 2), cardsBottom + 4 * u, u, overtime ? '#ff6a5a' : '#9aa49c');
+    let ty = cardsBottom + 4 * u;
+    if (teamMode()) {
+      // BLUE 1 - 0 RED, each side in its colour
+      const [b, r] = [0, 1].map((t) => Math.max(0, ...game.fighters.filter((f) => f.team === t && !f.isDecoy).map((f) => f.wins)));
+      const parts = [[`BLUE ${b}`, TEAMS[0].color], ['  -  ', '#9aa49c'], [`${r} RED`, TEAMS[1].color]];
+      let x = W / 2 - kit.width(parts.map((p) => p[0]).join('')) / 2;
+      for (const [txt, c] of parts) x += kit.text(txt, x, ty, { color: c });
+      ty += 11 * u;
+    }
+    drawText(ctx, t, Math.round(W / 2 - (textWidth(t) * u) / 2), ty, u, overtime ? '#ff6a5a' : '#9aa49c');
   }
 
   // kill feed, top right under the cards
@@ -1703,12 +1739,13 @@ function drawHud() {
   }
 
   drawBanner(ctx, u, H);
-  if (state === 'intro' && stateT > 0.5) centerText(ctx, String(Math.max(1, 3 - Math.floor((stateT - 0.5) / 0.37))), H * 0.36 + 40 * u, 3, '#ffd25a', u);
-  if (!player.alive && state === 'fight') {
-    if (player.respawnT > 0) centerText(ctx, `BACK IN ${player.respawnT.toFixed(1)}`, H - 46 * u, 1, '#8ff0ff', u);
-    else centerText(ctx, `SPECTATING ${spectating?.name ?? ''}`, H - 46 * u, 1, '#9aa49c', u);
+  if (state === 'intro' && stateT > 0.5) kit.text(String(Math.max(1, 3 - Math.floor((stateT - 0.5) / 0.37))), W / 2, H * 0.34 + 44 * u, { size: 4, color: KC.gold, align: 'center' });
+  if (!player.alive && state === 'fight' && !online.watching) {
+    if (player.respawnT > 0) kit.text(`BACK IN ${player.respawnT.toFixed(1)}`, W / 2, H - 48 * u, { size: 2, color: KC.teal, align: 'center' });
+    else kit.text(`SPECTATING ${spectating?.name ?? ''}`, W / 2, H - 46 * u, { color: KC.muted, align: 'center' });
   }
 
+  if (input.down('Tab') && (state === 'intro' || state === 'fight' || state === 'end') && !paused) drawScores(ctx, u, W, H);
   if (state === 'match') drawMatch(ctx, u, W, H);
   if (paused) drawPause(ctx, u, W, H);
   drawCrosshair(ctx, u);
@@ -1717,17 +1754,34 @@ function drawHud() {
 
 function drawBanner(ctx, u, H) {
   if (!banner) return;
+  const W = renderer.width;
   ctx.globalAlpha = Math.min(1, banner.t * 3);
-  centerText(ctx, banner.text, H * 0.36, 4, banner.color, u);
-  if (banner.sub) centerText(ctx, banner.sub, H * 0.36 + 28 * u, 1, '#c8cfc9', u);
+  kit.text(banner.text, W / 2, H * 0.34, { size: kit.width(banner.text, { size: 4 }) < W - 20 * u ? 4 : 3, color: banner.color, align: 'center' });
+  // (the scores under it: in the big font if they fit, the small one if not)
+  if (banner.sub) kit.text(banner.sub, W / 2, H * 0.34 + 34 * u, { small: kit.width(banner.sub) > W - 20 * u, color: '#dfe4d6', align: 'center' });
   ctx.globalAlpha = 1;
 }
 
+// The pause menu: buttons (or their keys).
+const pauseItems = () => (state === 'training'
+  ? [['resume', 'RESUME', 'ESC'], ['reset', 'RESET THE RANGE', 'R'], ['menu', 'MAIN MENU', 'Q']]
+  : [['resume', 'RESUME', 'ESC'], ['restart', 'RESTART THE MATCH', 'R'], ['setup', 'ROOM SETUP', 'S'], ['menu', 'MAIN MENU', 'Q']]);
 function drawPause(ctx, u, W, H) {
-  ctx.fillStyle = 'rgba(4, 6, 6, 0.7)';
-  ctx.fillRect(0, 0, W, H);
-  centerText(ctx, 'PAUSED', H * 0.38, 4, '#e8e2d0', u);
-  centerText(ctx, state === 'training' ? 'ESC - RESUME      R - RESET THE RANGE      Q - MAIN MENU' : 'ESC - RESUME      R - RESTART MATCH      S - ROOM SETUP      Q - MAIN MENU', H * 0.38 + 30 * u, 1, '#9aa49c', u);
+  kit.shade(0.7);
+  const items = pauseItems(), pw = 200 * u, bh = 18 * u, ph = 26 * u + items.length * (bh + 5 * u), px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
+  let y = kit.panel(px, py, pw, ph, { title: 'PAUSED' });
+  for (const [id, label, key] of items) {
+    kit.button(`pause:${id}`, px + 8 * u, y, pw - 16 * u, bh, label, { kind: id === 'resume' ? 'primary' : 'normal' });
+    kit.text(key, px + pw - 14 * u, y + 7 * u, { small: true, color: KC.faint, align: 'right' });
+    y += bh + 5 * u;
+  }
+}
+function pauseInput() {
+  const c = kit.click?.startsWith('pause:') ? kit.click.slice(6) : null;
+  if (c === 'resume') paused = false;
+  else if (input.wasPressed('KeyQ') || c === 'menu') { paused = false; state = 'menu'; banner = null; }
+  else if (input.wasPressed('KeyR') || c === 'restart' || c === 'reset') { paused = false; if (state === 'training') startTraining(); else startMatch(); }
+  else if ((input.wasPressed('KeyS') && state !== 'training') || c === 'setup') { paused = false; state = 'title'; banner = null; }
 }
 
 // The main game's HUD colours.
@@ -1749,16 +1803,18 @@ function drawCards(ctx, u, W) {
   const list = game.fighters.filter((f) => !f.dummy && !f.isDecoy);
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x * u), Math.round(y * u), Math.round(w * u), Math.round(h * u)); };
   const text = (t, x, y, c, size = 1) => drawText(ctx, String(t), Math.round(x * u), Math.round(y * u), u * size, c);
-  const Wd = W / u, gap = 8, n = list.length, CH = 44;
-  const CW = Math.max(70, Math.min(116, Math.floor((Wd - 12 - gap * (n - 1)) / n)));
+  const Wd = W / u, n = list.length;
   const mine = (f) => f === player || (teamMode() && state !== 'training' && f.team === player.team);
   const ours = list.filter(mine), theirs = list.filter((f) => !mine(f));
+  if ((Wd - 12 - 8 * (n - 1)) / n < 70) return drawMiniCards(ctx, u, Wd, ours, theirs);
+  const gap = 8, CH = 44, CW = Math.max(70, Math.min(116, Math.floor((Wd - 12 - gap * (n - 1)) / n)));
   const place = new Map();
   ours.forEach((f, i) => place.set(f, 6 + i * (CW + gap)));
   theirs.forEach((f, i) => place.set(f, Wd - 6 - CW - i * (CW + gap)));
   const y = 4;
+  sideBars(px, ours, theirs, place, CW, Wd);
   for (const f of list) {
-    const x = place.get(f), me = f === player;
+    const x = place.get(f), me = f === player && !online.watching;
     if (me) px(x, y, 22 + 4, 1, '#c9a83a');   // yours: a gold mark over the portrait
     // portrait
     px(x + 2, y + 3, 22, 22, HUDC.frame);
@@ -1827,9 +1883,88 @@ function drawCards(ctx, u, W) {
   }
   return (y + CH + 1) * u;
 }
+// In TEAMS, a bar of each side's colour over its cards, and its name.
+function sideBars(px, ours, theirs, place, CW, Wd) {
+  if (!teamMode() || state === 'training') return;
+  for (const list of [ours, theirs]) {
+    if (!list.length) continue;
+    const xs = list.map((f) => place.get(f)), x0 = Math.min(...xs), x1 = Math.max(...xs) + CW;
+    px(x0, 1, x1 - x0, 2, TEAMS[list[0].team]?.color ?? '#9aa49c');
+  }
+}
+// Cards for a crowd (more than the full ones fit): the face, the name, health, rounds won.
+function drawMiniCards(ctx, u, Wd, ours, theirs) {
+  const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x * u), Math.round(y * u), Math.round(w * u), Math.round(h * u)); };
+  const n = ours.length + theirs.length, gap = 4, CW = Math.max(40, Math.min(70, Math.floor((Wd - 12 - gap * (n - 1)) / n))), y = 4;
+  const place = new Map();
+  ours.forEach((f, i) => place.set(f, 6 + i * (CW + gap)));
+  theirs.forEach((f, i) => place.set(f, Wd - 6 - CW - i * (CW + gap)));
+  sideBars(px, ours, theirs, place, CW, Wd);
+  for (const [f, x] of place) {
+    const me = f === player && !online.watching;
+    px(x, y, CW, 20, 'rgba(8, 11, 10, 0.72)');
+    if (me) px(x, y, CW, 1, '#c9a83a');
+    px(x + 1, y + 2, 16, 16, HUDC.frame);
+    px(x + 2, y + 3, 14, 14, '#2c3526');
+    ctx.drawImage(f.parts.head, 5, 0, 22, 21, Math.round((x + 2) * u), Math.round((y + 4) * u), 14 * u, 13 * u);
+    if (!f.alive) px(x + 2, y + 3, 14, 14, 'rgba(4, 6, 5, 0.7)');
+    let name = me ? 'YOU' : f.name;
+    const room = Math.floor((CW - 20) / 4);
+    if (name.length > room) name = name.slice(0, room);
+    drawText(ctx, name, Math.round((x + 19) * u), Math.round((y + 3) * u), u, f.alive ? tagColor(f) : '#4a5450');
+    const bw = CW - 21, k = Math.max(0, Math.min(1, f.hp / f.maxHp));
+    px(x + 18, y + 10, bw + 2, 4, HUDC.frame);
+    px(x + 19, y + 11, bw, 2, HUDC.barBg);
+    if (f.alive) px(x + 19, y + 11, bw * k, 2, HUDC.hp);
+    // rounds won (pips), or the seconds till they're back, or OUT
+    if (!f.alive) drawText(ctx, f.respawnT > 0 ? f.respawnT.toFixed(1) : 'OUT', Math.round((x + 19) * u), Math.round((y + 15) * u), u, f.respawnT > 0 ? '#8ff0ff' : HUDC.red);
+    else for (let i = 0; i < Math.min(settings.wins, Math.floor(bw / 4)); i++) px(x + 19 + i * 4, y + 15, 3, 3, i < f.wins ? tagColor(f) : '#2a322f');
+  }
+  return (y + 21) * u;
+}
+
+// Hold TAB: the scores - every fighter's rounds, kills, deaths and lives, each side on its own in TEAMS.
+function drawScores(ctx, u, W, H) {
+  const list = game.fighters.filter((f) => !f.isDecoy && !f.dummy);
+  const order = (a, b) => b.wins - a.wins || b.kills - a.kills || (a.deaths ?? 0) - (b.deaths ?? 0);
+  const groups = teamMode() ? [0, 1].map((t) => list.filter((f) => f.team === t).sort(order)) : [list.sort(order)];
+  const rowH = 12 * u, lives = settings.lives > 1;
+  const pw = Math.min(W - 16 * u, 340 * u), ph = 26 * u + 12 * u + groups.reduce((h, g) => h + g.length * rowH + (teamMode() ? 16 * u : 0), 0) + 4 * u;
+  const px = Math.round(W / 2 - pw / 2), py = Math.max(8 * u, Math.round(H / 2 - ph / 2));
+  ctx.fillStyle = 'rgba(5, 8, 7, 0.45)';
+  ctx.fillRect(0, 0, W, H);
+  let y = kit.panel(px, py, pw, ph, { title: 'SCORES', note: `${level.name}   ROUND ${Math.max(1, round)}   FIRST TO ${settings.wins}` });
+  const col = { name: px + 22 * u, rounds: px + pw - 118 * u, kills: px + pw - 84 * u, deaths: px + pw - 50 * u, lives: px + pw - 12 * u };
+  for (const [k, label] of [['rounds', 'ROUNDS'], ['kills', 'KILLS'], ['deaths', 'DEATHS'], ...(lives ? [['lives', 'LIVES']] : [])]) kit.text(label, col[k], y, { small: true, color: KC.faint, align: 'right' });
+  kit.text('NAME', col.name, y, { small: true, color: KC.faint });
+  y += 10 * u;
+  for (const g of groups) {
+    if (teamMode() && g.length) {
+      const t = TEAMS[g[0].team], won = Math.max(0, ...g.map((f) => f.wins));
+      kit.rect(px + 4 * u, y, pw - 8 * u, 13 * u, g[0].team ? 'rgba(255, 106, 90, 0.2)' : 'rgba(106, 216, 255, 0.2)');
+      kit.rect(px + 4 * u, y, 2 * u, 13 * u, t.color);
+      kit.text(`${t.name} TEAM`, px + 10 * u, y + 3 * u, { color: t.color });
+      kit.text(`${won}`, col.rounds, y + 3 * u, { color: t.color, align: 'right' });
+      y += 16 * u;
+    }
+    g.forEach((f, i) => {
+      const me = f === player && !online.watching;
+      kit.rect(px + 4 * u, y - 2 * u, pw - 8 * u, rowH, me ? KC.row : i % 2 ? KC.rowAlt : 'rgba(0, 0, 0, 0)');
+      kit.rect(px + 10 * u, y, 6 * u, 7 * u, tagColor(f));
+      const nw = kit.text(me ? `${f.name === 'YOU' ? 'YOU' : f.name + ' (YOU)'}` : f.name, col.name, y, { color: f.alive ? '#ffffff' : KC.muted });
+      if (f.bot) kit.text('BOT', col.name + nw + 5 * u, y + u, { small: true, color: KC.faint });
+      else if (!f.alive && f.respawnT <= 0) kit.text('OUT', col.name + nw + 5 * u, y + u, { small: true, color: KC.red });
+      kit.text(f.wins, col.rounds, y, { align: 'right', color: KC.gold });
+      kit.text(f.kills, col.kills, y, { align: 'right' });
+      kit.text(f.deaths ?? 0, col.deaths, y, { align: 'right', color: KC.muted });
+      if (lives) kit.text(f.lives ?? 0, col.lives, y, { align: 'right', color: (f.lives ?? 0) > 0 ? '#ff8a8a' : KC.faint });
+      y += rowH;
+    });
+  }
+}
 
 function drawCrosshair(ctx, u) {
-  if (!input.mouse.active) return;
+  if (!input.mouse.active || online.watching) return;
   const d = renderer.dpr, x = Math.round(input.mouse.x * d), y = Math.round(input.mouse.y * d);
   const spread = player.weapon ? Math.round(2 + player.weapon.recoil * 1.2) : 2;
   for (const [col, o] of [['#050604', 1], ['#e8ffd0', 0]]) {
@@ -1855,41 +1990,40 @@ function drawCrosshair(ctx, u) {
   }
 }
 
-// The room's setup screen: a list of settings (click / arrows to change), START.
+// The room's setup screen (single player): the settings in two columns (click a
+// half, or W S to pick and A D to change), the controls, START.
 let menuSel = 0;
-const menuRows = [];   // where each row was drawn (device px), for the mouse
+const CONTROLS = [
+  'A D  WALK      A A / D D  RUN      W / SPACE  JUMP (TWICE IN THE AIR)      S  CROUCH      S S  DROP DOWN',
+  'SHIFT  ROLL      MOUSE  AIM AND SHOOT      R  RELOAD      Q  SKILL      F / RIGHT CLICK  QUICK MELEE',
+  '1  MELEE      2  GUN      3  GRENADE      G  THROW WHAT YOU HOLD      E  PICK UP / SWAP',
+  'HIT SOMEONE WITH MELEE AS THEY SHOOT AND THEIR GUN FLIES OUT OF THEIR HANDS',
+];
 function drawTitle(ctx, u, W, H) {
-  ctx.fillStyle = 'rgba(4, 7, 6, 0.6)';
-  ctx.fillRect(0, 0, W, H);
-  let y = Math.max(10 * u, H * 0.06);
-  centerText(ctx, 'LAB BRAWL', y, 5, '#ffd25a', u);
-  centerText(ctx, 'PROJECT Z ARENA - SET UP THE ROOM', y + 32 * u, 1, '#8ff0ff', u);
-  y += 46 * u;
-  const rowH = 11 * u, colW = 150 * u, x0 = Math.round(W / 2 - colW / 2);
-  panel(ctx, x0 - 8 * u, y - 5 * u, colW + 16 * u, rowH * (OPTIONS.length + 1) + 12 * u, u, '#c9a83a');
-  menuRows.length = 0;
+  kit.shade(0.62);
+  const pw = Math.min(W - 16 * u, 440 * u), px = Math.round(W / 2 - pw / 2);
+  let y = 10 * u;
+  kit.text('SINGLE PLAYER', W / 2, y, { size: 3, color: KC.gold, align: 'center' });
+  y += 28 * u;
+  const rows = Math.ceil(OPTIONS.length / 2), rowH = 12 * u, colW = Math.floor((pw - 18 * u) / 2), ph = 26 * u + rows * rowH;
+  const cy = kit.panel(px, y, pw, ph, { title: 'ROOM SETUP', note: 'CLICK A SIDE, OR A / D, TO CHANGE' });
   OPTIONS.forEach(([k, label, vals], i) => {
-    const on = menuSel === i, ry = y + i * rowH;
-    if (on) { ctx.fillStyle = 'rgba(201, 168, 58, 0.2)'; ctx.fillRect(x0 - 6 * u, ry - 2 * u, colW + 12 * u, rowH); }
+    const c = Math.floor(i / rows), r = i % rows;
     let shown = vals.find(([v]) => v === settings[k])?.[1] ?? '?';
     if (k === 'bots' && teamMode()) shown = '3 (2 V 2)';
-    drawText(ctx, label, x0, ry, u, on ? '#ffd25a' : '#9aa49c');
-    const val = `< ${shown} >`;
-    drawText(ctx, val, x0 + colW - textWidth(val) * u, ry, u, on ? '#ffffff' : '#e8e2d0');
-    menuRows.push({ i, y0: ry - 2 * u, y1: ry - 2 * u + rowH, x0: x0 - 6 * u, x1: x0 + colW + 6 * u, mid: x0 + colW - (textWidth(val) * u) / 2 });
+    kit.stepper(`opt:${i}`, px + 6 * u + c * (colW + 6 * u), cy + r * rowH, colW, rowH - u, label, shown, { selected: menuSel === i });
   });
-  const sy = y + OPTIONS.length * rowH + 2 * u, on = menuSel === OPTIONS.length;
-  const start = Math.floor(game.time * 2) % 2 === 0 || !on ? 'START THE MATCH' : '> START THE MATCH <';
-  centerText(ctx, start, sy, 1, on ? '#ffd25a' : '#c8cfc9', u);
-  menuRows.push({ i: OPTIONS.length, y0: sy - 2 * u, y1: sy - 2 * u + rowH, x0: x0 - 6 * u, x1: x0 + colW + 6 * u, start: true });
-  const lines = [
-    'A D WALK - A A / D D RUN - W SPACE JUMP (TWICE IN THE AIR) - S CROUCH - S S DROP DOWN - W S CLIMB',
-    'SHIFT ROLL (ON THE GROUND OR ONCE IN THE AIR) - MOUSE AIM AND ATTACK - R RELOAD - Q GRAPPLE LINE',
-    '1 MELEE  2 PISTOL  3 GUN  4 GRENADE (OR THE WHEEL) - F / RIGHT CLICK QUICK MELEE (HOLD TO KEEP HITTING) - G THROW IT - E SWAP',
-    'HIT SOMEONE WITH MELEE WHILE THEY SHOOT AND THEIR GUN FLIES OUT OF THEIR HANDS',
-  ];
-  lines.forEach((l, i) => centerText(ctx, l, sy + 16 * u + i * 9 * u, 1, i === 3 ? '#ff8a6a' : '#7a8a80', u));
-  centerText(ctx, 'W S / UP DOWN - PICK   A D / LEFT RIGHT / CLICK - CHANGE   ENTER - START', H - 10 * u, 1, '#5a6a60', u);
+  y += ph + 8 * u;
+  // the controls, if there's room
+  const ch = 26 * u + CONTROLS.length * 9 * u;
+  if (y + ch + 40 * u < H) {
+    const ty = kit.panel(px, y, pw, ch, { title: 'CONTROLS', accent: KC.teal });
+    CONTROLS.forEach((l, i) => kit.text(l, px + 8 * u, ty + i * 9 * u, { small: true, color: i === CONTROLS.length - 1 ? '#ffa080' : KC.text }));
+    y += ch + 8 * u;
+  }
+  kit.button('back', px, y, 80 * u, 18 * u, 'BACK');
+  kit.button('start', px + pw - 130 * u, y, 130 * u, 18 * u, 'START MATCH', { kind: 'primary', selected: menuSel === OPTIONS.length });
+  kit.hints('W S  PICK A SETTING      A D / CLICK  CHANGE IT      ENTER  START      ESC  BACK');
 }
 
 // Step a setting one way or the other.
@@ -1914,31 +2048,56 @@ function titleInput() {
     if (input.wasPressed('KeyA', 'ArrowLeft')) changeSetting(menuSel, -1);
     if (input.wasPressed('KeyD', 'ArrowRight')) changeSetting(menuSel, 1);
   }
-  // the mouse: hover picks a row, a click changes it (left half back, right half on) or starts
-  if (input.mouse.active) {
-    const mx = input.mouse.x * renderer.dpr, my = input.mouse.y * renderer.dpr;
-    const row = menuRows.find((r) => my >= r.y0 && my < r.y1 && mx >= r.x0 && mx <= r.x1);
-    if (row && input.wasPressed('Mouse0', 'Mouse2')) {
-      menuSel = row.i;
-      if (row.start) return startMatch();
-      changeSetting(row.i, input.wasPressed('Mouse2') || mx < row.mid - 20 * hudScale() ? -1 : 1);
-    } else if (row && input.pressed.size === 0 && (input.mouse.x !== titleInput.lx || input.mouse.y !== titleInput.ly)) menuSel = row.i;
-    titleInput.lx = input.mouse.x;
-    titleInput.ly = input.mouse.y;
+  const c = kit.click;
+  if (c?.startsWith('opt:')) {
+    const [, i, dir] = c.split(':');
+    menuSel = +i;
+    return changeSetting(+i, +dir);
   }
-  if (input.wasPressed('Enter') || (menuSel === OPTIONS.length && input.wasPressed('Space'))) startMatch();
-  else if (input.wasPressed('Escape')) state = 'menu';   // back to the main menu
+  if (c === 'start' || input.wasPressed('Enter') || (menuSel === OPTIONS.length && input.wasPressed('Space'))) return startMatch();
+  if (c === 'back' || input.wasPressed('Escape')) state = 'menu';   // back to the main menu
 }
 
+// The match over: who won, everyone's rounds and kills, what next.
 function drawMatch(ctx, u, W, H) {
-  ctx.fillStyle = 'rgba(4, 6, 6, 0.72)';
-  ctx.fillRect(0, 0, W, H);
-  const c = champion, y = H * 0.24;
-  centerText(ctx, teamMode() ? `${TEAMS[c.team].name} TEAM WINS THE MATCH` : c === player ? 'YOU WIN THE MATCH' : `${c.name} WINS THE MATCH`, y, 4, tagColor(c), u);
-  const rows = [...game.fighters].sort((a, b) => b.wins - a.wins || b.kills - a.kills);
-  centerText(ctx, 'NAME      ROUNDS   KILLS', y + 36 * u, 1, '#5a6a60', u);
-  rows.forEach((o, i) => centerText(ctx, `${o.name.padEnd(8)}  ${String(o.wins).padStart(4)}   ${String(o.kills).padStart(5)}`, y + 48 * u + i * 11 * u, 1, tagColor(o), u));
-  if (!online.active && Math.floor(game.time * 2) % 2 === 0) centerText(ctx, 'CLICK OR ENTER - REMATCH      S - ROOM SETUP      ESC - MAIN MENU', y + 110 * u, 1, '#ffd25a', u);
+  kit.shade(0.74);
+  const c = champion, rows = game.fighters.filter((f) => !f.isDecoy).sort((a, b) => b.wins - a.wins || b.kills - a.kills);
+  const pw = Math.min(W - 16 * u, 320 * u), rowH = 11 * u, ph = 26 * u + 24 * u + 12 * u + rows.length * rowH + 30 * u;
+  const px = Math.round(W / 2 - pw / 2), py = Math.max(8 * u, Math.round(H / 2 - ph / 2));
+  let y = kit.panel(px, py, pw, ph, { title: 'MATCH OVER' });
+  const head = teamMode() ? `${TEAMS[c.team].name} TEAM WINS` : c === player ? 'YOU WIN!' : `${c.name} WINS`;
+  kit.text(head, W / 2, y, { size: 2, color: tagColor(c), align: 'center' });
+  y += 24 * u;
+  const colR = px + pw - 70 * u, colK = px + pw - 12 * u;
+  kit.text('#', px + 10 * u, y, { small: true, color: KC.faint });
+  kit.text('NAME', px + 24 * u, y, { small: true, color: KC.faint });
+  kit.text('ROUNDS', colR, y, { small: true, color: KC.faint, align: 'right' });
+  kit.text('KILLS', colK, y, { small: true, color: KC.faint, align: 'right' });
+  y += 10 * u;
+  rows.forEach((o, i) => {
+    kit.rect(px + 4 * u, y - 2 * u, pw - 8 * u, rowH, o === player ? KC.row : i % 2 ? KC.rowAlt : 'rgba(0, 0, 0, 0)');
+    kit.text(i + 1, px + 10 * u, y, { color: i === 0 ? KC.gold : KC.muted });
+    kit.text(o === player && o.name !== 'YOU' ? `${o.name} (YOU)` : o.name, px + 24 * u, y, { color: tagColor(o) });
+    kit.text(o.wins, colR, y, { align: 'right' });
+    kit.text(o.kills, colK, y, { align: 'right' });
+    y += rowH;
+  });
+  y += 8 * u;
+  if (online.active) {
+    if (online.isHost) kit.button('back-room', px + 8 * u, y, pw - 16 * u, 18 * u, 'BACK TO THE ROOM', { kind: 'primary', disabled: stateT < 2 });
+    else kit.text('THE HOST WILL TAKE EVERYONE BACK TO THE ROOM', W / 2, y + 6 * u, { small: true, color: KC.muted, align: 'center' });
+    return;
+  }
+  const bw = Math.floor((pw - 16 * u - 12 * u) / 3);
+  kit.button('rematch', px + 8 * u, y, bw, 18 * u, 'REMATCH', { kind: 'primary', disabled: stateT < 1 });
+  kit.button('setup', px + 8 * u + bw + 6 * u, y, bw, 18 * u, 'ROOM SETUP');
+  kit.button('menu', px + 8 * u + (bw + 6 * u) * 2, y, bw, 18 * u, 'MAIN MENU');
+}
+function matchInput() {
+  const c = kit.click;
+  if (stateT > 1 && (c === 'rematch' || input.wasPressed('Enter'))) startMatch();
+  else if (c === 'setup' || input.wasPressed('KeyS')) { state = 'title'; banner = null; }
+  else if (c === 'menu' || input.wasPressed('Escape')) { state = 'menu'; banner = null; }
 }
 
 // ---------- training ----------
@@ -2361,7 +2520,6 @@ const MODES = [
   { key: 'training', name: 'TRAINING', desc: 'EVERY WEAPON AND SKILL - A RANGE, A COURSE, A GRAPPLE SHAFT' },
 ];
 let modeSel = 1, soonMode = null;
-const modeRows = [];
 const onMenu = () => state === 'menu' || state === 'soon' || state === 'title' || online.isScreen(state);
 
 function pickMode(m) {
@@ -2376,50 +2534,39 @@ function mainMenuInput() {
   const n = MODES.length;
   if (input.wasPressed('KeyW', 'ArrowUp')) modeSel = (modeSel + n - 1) % n;
   if (input.wasPressed('KeyS', 'ArrowDown')) modeSel = (modeSel + 1) % n;
-  if (input.mouse.active) {
-    const mx = input.mouse.x * renderer.dpr, my = input.mouse.y * renderer.dpr;
-    const row = modeRows.find((r) => my >= r.y0 && my < r.y1 && mx >= r.x0 && mx <= r.x1);
-    if (row && (input.mouse.x !== mainMenuInput.lx || input.mouse.y !== mainMenuInput.ly)) modeSel = row.i;
-    mainMenuInput.lx = input.mouse.x;
-    mainMenuInput.ly = input.mouse.y;
-    if (row && input.wasPressed('Mouse0')) return pickMode(MODES[row.i]);
-  }
+  if (kit.hover?.startsWith('mode:') && (input.mouse.x !== mainMenuInput.lx || input.mouse.y !== mainMenuInput.ly)) modeSel = +kit.hover.slice(5);
+  mainMenuInput.lx = input.mouse.x;
+  mainMenuInput.ly = input.mouse.y;
+  if (kit.click?.startsWith('mode:')) return pickMode(MODES[+kit.click.slice(5)]);
   if (input.wasPressed('Enter', 'Space')) pickMode(MODES[modeSel]);
 }
 
 function drawMainMenu(ctx, u, W, H) {
-  ctx.fillStyle = 'rgba(4, 7, 6, 0.5)';
-  ctx.fillRect(0, 0, W, H);
-  const y = Math.max(14 * u, H * 0.16);
-  centerText(ctx, 'PROJECT Z', y, 7, '#ffd25a', u);
-  centerText(ctx, 'LAB BRAWL', y + 40 * u, 2, '#8ff0ff', u);
-  const rowH = 27 * u, colW = 200 * u, x0 = Math.round(W / 2 - colW / 2), top = y + 64 * u;
-  modeRows.length = 0;
+  kit.shade(0.5);
+  let y = Math.max(12 * u, Math.round(H * 0.09));
+  kit.text('PROJECT Z', W / 2, y, { size: 5, color: KC.gold, align: 'center' });
+  y += 40 * u;
+  kit.hazard(W / 2 - 112 * u, y, 224 * u, 4 * u);
+  y += 10 * u;
+  kit.text('LAB BRAWL', W / 2, y, { size: 2, color: KC.teal, align: 'center' });
+  y += 28 * u;
+  const bw = Math.min(W - 24 * u, 260 * u), bh = 30 * u, x = Math.round(W / 2 - bw / 2);
   MODES.forEach((m, i) => {
-    const on = modeSel === i, ry = top + i * rowH, soon = !!m.soon;
-    panel(ctx, x0, ry, colW, rowH - 4 * u, u, on ? '#ffd25a' : '#2a3632');
-    if (on) { ctx.fillStyle = 'rgba(201, 168, 58, 0.16)'; ctx.fillRect(x0, ry + u, colW, rowH - 6 * u); }
-    drawText(ctx, m.name, x0 + 8 * u, ry + 4 * u, 2 * u, on ? '#ffffff' : soon ? '#7a8a80' : '#e8e2d0');
-    drawText(ctx, m.desc, x0 + 8 * u, ry + 16 * u, u, on ? '#c8cfc9' : '#5a6a60');
-    if (soon) {
-      const t = 'COMING SOON';
-      drawText(ctx, t, x0 + colW - (textWidth(t) + 6) * u, ry + 6 * u, u, on ? '#ff8a6a' : '#6a4a40');
-    }
-    if (on) drawText(ctx, '>', x0 - 10 * u, ry + 6 * u, 2 * u, '#ffd25a');
-    modeRows.push({ i, y0: ry, y1: ry + rowH - 4 * u, x0, x1: x0 + colW });
+    kit.button(`mode:${i}`, x, y, bw, bh, m.name, { size: 2, sub: m.soon ? 'COMING SOON' : m.desc, selected: modeSel === i });
+    y += bh + 5 * u;
   });
-  centerText(ctx, 'W S / UP DOWN / MOUSE - PICK      ENTER / CLICK - GO', H - 10 * u, 1, '#5a6a60', u);
+  kit.hints('W S / MOUSE  CHOOSE      ENTER / CLICK  GO');
 }
 
 // A mode that isn't built yet: what it's going to be.
 function drawSoon(ctx, u, W, H) {
-  ctx.fillStyle = 'rgba(4, 7, 6, 0.7)';
-  ctx.fillRect(0, 0, W, H);
-  const m = soonMode, y = H * 0.3;
-  centerText(ctx, m.name, y, 4, '#ffd25a', u);
-  centerText(ctx, 'COMING SOON', y + 28 * u, 2, '#ff8a6a', u);
-  m.soon.forEach((l, i) => centerText(ctx, l, y + 52 * u + i * 10 * u, 1, i ? '#9aa49c' : '#c8cfc9', u));
-  centerText(ctx, 'ESC / ENTER / CLICK - BACK', y + 98 * u, 1, '#5a6a60', u);
+  kit.shade(0.72);
+  const m = soonMode, pw = Math.min(W - 16 * u, 340 * u), ph = 26 * u + m.soon.length * 10 * u + 30 * u;
+  const px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
+  let y = kit.panel(px, py, pw, ph, { title: m.name, note: 'COMING SOON', noteColor: KC.red });
+  m.soon.forEach((l, i) => kit.text(l, W / 2, y + i * 10 * u, { small: true, color: i ? KC.muted : KC.text, align: 'center' }));
+  y += m.soon.length * 10 * u + 8 * u;
+  kit.button('back', W / 2 - 50 * u, y, 100 * u, 18 * u, 'BACK');
 }
 
 // ---------- online ----------
@@ -2436,6 +2583,8 @@ function startNetMatch(roster, mapKey, me, host) {
     return f;
   });
   player = game.fighters.find((f) => f.peer === me) ?? game.fighters[0];
+  for (const f of game.fighters) f.deaths = 0;
+  if (!settings.skills) for (const f of game.fighters) f.skill = null;
   bots = host ? game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.85 + i * 0.12) * settings.skill)) : [];
   round = 0;
   champion = null;
@@ -2454,7 +2603,7 @@ function changeNetSetting(i, dir) {
 }
 initOnline({
   game, settings, OPTIONS, input, renderer, images, IDLE, MAP_KEYS, pick, weapons: WEAPONS, iconOf,
-  drawText, textWidth, centerText, panel, playerControl, startNetMatch, changeNetSetting,
+  drawText, textWidth, centerText, panel, playerControl, startNetMatch, changeNetSetting, kit, tagColor,
   get state() { return state; }, set state(v) { state = v; },
   get player() { return player; }, set player(v) { player = v; },
   get stateT() { return stateT; }, set stateT(v) { stateT = v; },
@@ -2490,22 +2639,16 @@ function frame(now) {
 
 function tick(realDt, draw = true) {
   netUpdate(realDt);
+  kit.pointer(input, renderer.dpr);   // (what the mouse is over on the menus, what's clicked)
   // menus
   if (state === 'menu') mainMenuInput();
-  else if (state === 'soon') { if (input.wasPressed('Escape', 'Enter', 'Mouse0', 'Space')) state = 'menu'; }
+  else if (state === 'soon') { if (input.wasPressed('Escape', 'Enter', 'Space') || kit.click === 'back') state = 'menu'; }
   else if (state === 'title') titleInput();
   else if (online.isScreen(state)) netScreenInput();
   else if (online.active) netGameInput();   // (online, ESC doesn't pause: it's a menu over the game, which goes on)
-  else if (state === 'match') {
-    if (stateT > 1 && input.wasPressed('Enter', 'Mouse0')) startMatch();
-    else if (stateT > 1 && input.wasPressed('KeyS')) { state = 'title'; banner = null; }
-    else if (input.wasPressed('Escape')) { state = 'menu'; banner = null; }
-  } else if (input.wasPressed('Escape')) { if (locker) locker = null; else paused = !paused; }
-  if (paused) {
-    if (input.wasPressed('KeyQ')) { paused = false; state = 'menu'; banner = null; }
-    if (input.wasPressed('KeyR')) { paused = false; if (state === 'training') startTraining(); else startMatch(); }
-    if (input.wasPressed('KeyS')) { paused = false; state = 'title'; banner = null; }
-  }
+  else if (state === 'match') matchInput();
+  else if (input.wasPressed('Escape')) { if (locker) locker = null; else paused = !paused; }
+  else if (paused) pauseInput();
 
   if (online.isClient && !onMenu()) {
     // in someone else's game: what the host sends is drawn, our controls go to it (see online.js)
@@ -2564,7 +2707,7 @@ function tick(realDt, draw = true) {
     hostFrame(realDt);   // (hosting online: the state of the game out to everyone)
   }
   // the system cursor on the menus (setup, results, pause); in a fight the crosshair takes its place
-  const cursor = onMenu() || state === 'match' || paused || locker || online.menuOpen ? 'default' : 'none';
+  const cursor = onMenu() || state === 'match' || paused || locker || online.menuOpen || online.watching ? 'default' : 'none';
   if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor;
   if (draw) {
     drawWorld();

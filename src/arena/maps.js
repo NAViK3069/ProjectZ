@@ -1,6 +1,7 @@
 // The arena maps. Each builds its grid (row / fill / ladder), lamps, back-wall
 // fittings, the props standing about (crates, drums, furniture - all of them
-// break), and where everyone spawns. Rows count down from the top; a prop
+// break), and where everyone spawns - eight spots, four each side (in TEAMS,
+// BLUE starts on the left, RED on the right). Rows count down from the top; a prop
 // "on row r" stands on the floor whose top is row r.
 
 import { SOLID, PLAT, ACID, EMPTY, LOW } from './level.js';
@@ -33,7 +34,8 @@ export const MAPS = {
       );
       for (const [k, x, y] of [['crate', 4, 7], ['crate', 43, 7], ['barrel', 27, 7], ['table', 20, 7], ['chair', 18, 7], ['crate', 2, 13], ['barrel', 9, 13], ['locker', 46, 13], ['table', 33, 13], ['chair', 35, 13], ['wcrate', 13, 13],
         ['barrel', 13, 19], ['crate', 14, 19], ['table', 34, 19], ['barrel', 45, 19], ['wcrate', 4, 25], ['barrel', 12, 25], ['crate', 42, 25], ['wcrate', 35, 25], ['cabinet', 9, 25], ['chair', 38, 25]]) L.prop(k, x, y);
-      L.spawn(4, 7); L.spawn(43, 7); L.spawn(5, 25); L.spawn(42, 25);
+      L.spawn(4, 7); L.spawn(7, 13); L.spawn(3, 19); L.spawn(5, 25);        // the west side (BLUE in TEAMS)
+      L.spawn(43, 7); L.spawn(40, 13); L.spawn(44, 19); L.spawn(42, 25);    // the east side (RED)
     },
   },
 
@@ -63,7 +65,8 @@ export const MAPS = {
         ['wcrate', 4, 14], ['crate', 8, 14], ['barrel', 13, 14], ['wcrate', 38, 14], ['crate', 43, 14], ['wcrate', 47, 14], ['wcrate', 47, 14, 14],
         ['wcrate', 23, 17], ['barrel', 28, 17], ['wcrate', 14, 8], ['wcrate', 37, 8], ['barrel', 26, 8],
       ]) L.prop(k, x, y, 0, lift ?? 0);
-      L.spawn(5, 14); L.spawn(46, 14); L.spawn(14, 22); L.spawn(38, 22);
+      L.spawn(5, 5); L.spawn(5, 14); L.spawn(16, 8); L.spawn(14, 22);
+      L.spawn(46, 5); L.spawn(46, 14); L.spawn(35, 8); L.spawn(38, 22);
     },
   },
 
@@ -93,7 +96,8 @@ export const MAPS = {
         ['desk', 6, 15], ['monitor', 6, 15], ['chair', 4, 15], ['bookshelf', 15, 15], ['desk', 30, 15], ['monitor', 30, 15], ['chair', 32, 15], ['cabinet', 44, 15], ['cooler', 20, 15],
         ['desk', 13, 23], ['monitor', 13, 23], ['chair', 15, 23], ['bookshelf', 22, 23], ['desk', 36, 23], ['monitor', 36, 23], ['chair', 34, 23], ['cabinet', 3, 23], ['wcrate', 46, 23], ['barrel', 26, 23],
       ]) L.prop(k, x, y);
-      L.spawn(3, 7); L.spawn(46, 7); L.spawn(3, 15); L.spawn(46, 23);
+      L.spawn(3, 7); L.spawn(13, 7); L.spawn(3, 15); L.spawn(5, 23);
+      L.spawn(46, 7); L.spawn(36, 7); L.spawn(46, 15); L.spawn(44, 23);
     },
   },
 
@@ -119,7 +123,8 @@ export const MAPS = {
         { kind: 'sign', x: 36, y: 15, text: 'HOTEL' },
       );
       for (const [k, x, y] of [['ac', 2, 12], ['wcrate', 12, 12], ['barrel', 6, 12], ['ac', 28, 9], ['wcrate', 20, 9], ['barrel', 29, 9], ['ac', 39, 14], ['wcrate', 42, 14], ['barrel', 36, 14], ['ac', 53, 11], ['wcrate', 58, 11], ['pallet', 51, 11], ['wcrate', 9, 8]]) L.prop(k, x, y);
-      L.spawn(8, 12); L.spawn(25, 9); L.spawn(41, 14); L.spawn(53, 11);
+      L.spawn(7, 12); L.spawn(10, 8); L.spawn(22, 9); L.spawn(24, 5);      // buildings A and B
+      L.spawn(38, 14); L.spawn(41, 14); L.spawn(53, 11); L.spawn(54, 6);   // C and D
     },
   },
 
@@ -142,7 +147,8 @@ export const MAPS = {
         ['wcrate', 3, 24], ['pallet', 9, 24], ['sandbags', 9, 24, 3], ['barrel', 16, 24], ['pipes', 22, 24], ['wcrate', 30, 24], ['wcrate', 31, 24], ['wcrate', 30, 24, 14], ['barrel', 36, 24], ['sandbags', 45, 24], ['wcrate', 52, 24],
         ['wcrate', 20, 18], ['barrel', 33, 18], ['pallet', 38, 18], ['toolbox', 15, 18], ['wcrate', 28, 12], ['sandbags', 19, 12], ['barrel', 35, 12], ['wcrate', 4, 20], ['wcrate', 51, 20], ['toolbox', 30, 6],
       ]) L.prop(k, x, y, 0, lift ?? 0);
-      L.spawn(4, 24); L.spawn(51, 24); L.spawn(20, 12); L.spawn(36, 12);
+      L.spawn(4, 24); L.spawn(5, 14); L.spawn(16, 18); L.spawn(20, 12);
+      L.spawn(51, 24); L.spawn(50, 14); L.spawn(39, 18); L.spawn(35, 12);
     },
   },
 
