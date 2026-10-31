@@ -1751,6 +1751,7 @@ export class Fighter {
     this.hp -= d;
     this.flash = 0.06;
     this.hurtT = 0;
+    this.hitBy = from?.isDecoy ? from.owner : from;   // (the bots: who it was)
     this.vx += kx * (this.dummy ? 0.25 : 1);
     this.vy += ky * (this.dummy ? 0.25 : 1);
     if (this.onLadder && Math.abs(kx) > 80) this.onLadder = false;

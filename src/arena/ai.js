@@ -6,8 +6,10 @@
 //
 // On top of that: pick someone to fight, get a gun if it hasn't one, shoot
 // when it can see its target (with a reaction delay and an aim that settles),
-// keep its distance, dodge-roll now and then, lob a grenade, and never walk
-// into the acid.
+// keep its distance, dodge-roll now and then, lob a grenade, use its skill
+// (Q) when it's worth it, and never walk into the acid. With nobody to fight
+// (they're hidden, say) it doesn't stand about: it goes looking where they
+// were last, picks up what's lying around, roams and hops.
 
 import { T, SOLID, PLAT, LADDER, ACID, LOW } from './level.js';
 
@@ -186,6 +188,7 @@ export class Bot {
       known: new Map(),        // fighter -> { x, y, t }: where it last saw / heard each one
       mode: 'search', wander: null, pauseT: 0, lookT: 0, burstT: 0, spot: null, spotT: 0,
       bias: new Map(), biasT: 0, react: rand(0.35, 0.6) / this.skill,
+      skillT: rand(1, 3), lost: null, hopT: rand(1, 3),   // skillT: a beat before it thinks of its skill again; lost: where a foe vanished
     });
   }
 
@@ -208,13 +211,17 @@ export class Bot {
     const f = this.f, G = this.game, nav = G.nav;
     const c = { move: 0, up: false, down: false, jump: false, jumpHeld: false, sprint: false, fire: false, aim: null, target: null, reload: false, roll: false, melee: false, grenade: false, pickup: false };
     if (!f.alive) return c;
-    for (const k of ['repath', 'nadeT', 'rollT', 'punchT', 'targetT', 'pauseT', 'lookT', 'burstT', 'spotT', 'biasT']) this[k] -= dt;
+    for (const k of ['repath', 'nadeT', 'rollT', 'punchT', 'targetT', 'pauseT', 'lookT', 'burstT', 'spotT', 'biasT', 'skillT', 'hopT']) this[k] -= dt;
     if (this.biasT <= 0) this.rebias();
 
     // a cloaked fighter isn't seen at all - unless it's right up against the bot
     const unseen = (o) => o.hidden && !o.glimpsed && Math.hypot(o.x - f.x, o.y - f.y) > 22;   // (a cloak glitching shows them for a moment)
     const enemies = G.fighters.filter((o) => o.alive && G.foes(f, o) && !unseen(o));
-    if (!enemies.length && !this.target?.alive) return c;
+    // hit by someone: it knows roughly where from (even if it can't see them)
+    if (f.hurtT < 0.1 && f.hitBy?.alive && G.foes(f, f.hitBy)) this.known.set(f.hitBy, { x: f.hitBy.x, y: f.hitBy.y, t: G.time });
+    // someone it was after just vanished: remember where, to go and look round there
+    if (this.target && this.target.alive && unseen(this.target) && !this.lost) this.lost = { x: this.target.x, y: this.target.y, t: G.time };
+    if (this.lost && G.time - this.lost.t > 7) this.lost = null;
     const s = f.shoulder;
     const sees = (o) => G.los(s.x, s.y, o.x, o.y - 12) || G.los(s.x, s.y, o.x, o.y - 22);
     for (const o of enemies) if (Math.abs(o.x - f.x) < 420 && sees(o)) this.known.set(o, { x: o.x, y: o.y, t: G.time });
@@ -236,7 +243,7 @@ export class Bot {
     const aimY = t ? (t.roll ? t.y - 7 : t.y - 12) : 0;
     const dist = t ? Math.hypot(t.x - f.x, aimY - s.y) : Infinity;
     this.seen = vis ? this.seen + dt : 0;
-    const w = f.bestGun(), armed = !!w;   // the gun, while it has ammo
+    const w = f.cloak ? null : f.bestGun(), armed = !!w;   // the gun, while it has ammo (cloaked: the knife, for a stab)
     const hpK = f.hp / f.maxHp;
 
     // ---- what to do ----
@@ -248,12 +255,13 @@ export class Bot {
       }
       return best && bd < range ? best : null;
     };
-    const healthP = hpK < 0.45 ? pick((p) => p.kind === 'health', 520) : null;
+    const calm = !this.target;   // nobody to fight right now: time to stock up
+    const healthP = hpK < (calm ? 0.8 : 0.45) ? pick((p) => p.kind === 'health', calm ? 900 : 520) : null;
     // a gun better than what's in its slot (an empty slot: anything)
     const better = (def) => { const g = f.gunIn(f.slotFor(def)); return gunTier(def) > gunTier(g && (g.ammo > 0 || g.reserve > 0) ? g.def : null) + 0.4; };
-    const gunP = pick((p) => p.kind === 'gun' && better(G.weapons[p.key]), armed ? 260 : 700);
+    const gunP = pick((p) => p.kind === 'gun' && better(G.weapons[p.key]), calm ? 900 : armed ? 260 : 700);
     // bare fists: a melee weapon lying about is worth fetching
-    const meleeP = f.melee.def.fists ? pick((p) => p.kind === 'melee', armed ? 220 : 420) : null;
+    const meleeP = f.melee.def.fists && !f.cloak ? pick((p) => p.kind === 'melee', calm ? 600 : armed ? 220 : 420) : null;
     let goal = null, key = null, fight = false, sprint = false;
     const losing = vis && hpK < 0.3 && t.hp / t.maxHp > hpK + 0.15;
     if (healthP && !(vis && dist < 110)) { goal = nav.nodeBelow(healthP.x, healthP.y); key = healthP; sprint = vis; this.mode = 'heal'; }
@@ -274,15 +282,19 @@ export class Bot {
       } else { this.known.delete(t); this.target = null; }
     }
     if (!goal && !fight) {
-      // nothing to go on: wander the lab, pausing to look around
+      // nothing to go on: roam - round where someone vanished, if someone did, otherwise
+      // anywhere - pausing a moment to look about
       if (this.mode !== 'search' || !this.wander || this.wanderReached()) {
-        const spots = nav.standable.filter((n) => Math.abs(n.cx * T - f.x) > 96);
+        const L = this.lost, near = (n) => Math.abs((n.cx + 0.5) * T - L.x) < 8 * T && Math.abs((n.cy + 1) * T - L.y) < 5 * T;
+        let spots = nav.standable.filter((n) => Math.abs(n.cx * T - f.x) > 64 && (!L || near(n)));
+        if (!spots.length) spots = nav.standable.filter((n) => Math.abs(n.cx * T - f.x) > 96);
         this.wander = pick2(spots);
-        this.pauseT = rand(0.4, 1.2);
+        this.pauseT = L ? rand(0.1, 0.4) : rand(0.3, 0.8);
       }
       this.mode = 'search';
       goal = this.wander;
       key = this.wander;
+      sprint = !!this.lost && f.stamina > 60;
     }
 
     // ---- aim ----
@@ -346,6 +358,8 @@ export class Bot {
       this.rollT = rand(2, 4);
     }
 
+    this.useSkill(c, t, vis, dist, hpK, enemies);
+
     if (fight && f.onLadder) { fight = false; goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? nav.nodeBelow(t.x, t.y); key = t; }
     if (fight) this.duel(dt, c, t);
     else if (this.pauseT > 0 && this.mode === 'search' && !f.onLadder) { if (!c.roll) c.move = 0; }   // a moment to look around
@@ -357,10 +371,55 @@ export class Bot {
       if (c.roll) c.move = rolled;
       c.sprint = sprint && f.stamina > 30;
     }
+    if (this.mode === 'search' && f.onGround && c.move && this.hopT <= 0 && !this.path[0]?.edge.kind.match(/drop|climb/)) {
+      this.hopT = rand(1.5, 4);
+      if (this.safeAhead(c.move)) { c.jump = true; c.jumpHeld = Math.random() < 0.5; }
+    }
     this.airControl(c);
     this.avoidAcid(c);
     this.unstick(dt, c);
     return c;
+  }
+
+  // Q, when it's worth it - each skill has its moment. (Not while one's still going:
+  // a second Q would cut the cloak short, say.)
+  useSkill(c, t, vis, dist, hpK, enemies) {
+    const f = this.f, G = this.game, k = f.skill;
+    if (!k || f.skillCD > 0 || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
+    if (f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook) return;
+    this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
+    const aimed = vis && Math.abs(this.aimErr) < 0.2;
+    const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
+    let go = false;
+    switch (k) {
+      case 'cloak':      // to slip away when it's losing, or to creep up for a stab
+        go = (vis && hpK < 0.4) || (!!t && !vis && dist < 420 && Math.random() < 0.5) || (vis && dist < 160 && Math.random() < 0.25);
+        break;
+      case 'decoy':      // a double to take the heat in a fight
+        go = vis && (hpK < 0.6 || dist < 220) && Math.random() < 0.6;
+        break;
+      case 'archery':    // the more in reach the better
+        go = near.length >= 2 || (near.length === 1 && (vis || Math.random() < 0.3));
+        break;
+      case 'murasaki':   // the line of it at someone in sight
+        go = aimed && dist < 380;
+        break;
+      case 'blaze':      // close enough to dash and hit
+        go = aimed && dist < 165 && Math.abs(t.y - f.y) < 50;
+        break;
+      case 'galaxy':     // where they stand
+        go = vis && dist < 230;
+        if (go) c.target = { x: t.x, y: t.y - 12 };
+        break;
+      case 'demon':      // a fight coming: call up the golem
+        go = f.onGround && ((vis && dist < 320) || near.length >= 2);
+        break;
+      case 'grapple':    // out of a fight going badly: up and away
+        go = vis && hpK < 0.35 && Math.random() < 0.3;
+        if (go) { c.aim = -Math.PI / 2 + rand(-0.5, 0.5); c.target = { x: f.x + Math.cos(c.aim) * 160, y: f.y + Math.sin(c.aim) * 160 }; }
+        break;
+    }
+    if (go) c.skill = true;
   }
 
   wanderReached() {

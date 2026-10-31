@@ -135,6 +135,72 @@ export class Kit {
       this.hit(`${id}:1`, x + w / 2, y, w / 2, h);
     } else this.text(value, x + w - 4 * u, ty, { color: K.text, align: 'right' });
   }
+  // a setting picked from a list: its name at the left, the value (and a little down-arrow) at the
+  // right; a click anywhere on it opens the list (see choices)
+  select(id, x, y, w, h, label, value, { enabled = true, img = null } = {}) {
+    const u = this.u, hot = enabled && this.hover === id;
+    this.rect(x, y, w, h, hot ? K.row : 'rgba(255, 255, 255, 0.03)');
+    const ty = y + (h - 7 * u) / 2;
+    this.text(label, x + 4 * u, ty + u, { small: true, color: hot ? K.gold : K.muted });
+    let right = x + w - 4 * u;
+    if (enabled) {
+      // the arrow: a little triangle pointing down
+      for (let i = 0; i < 3; i++) this.rect(right - 5 * u + i * u, ty + 2 * u + i * u, (5 - i * 2) * u, u, hot ? K.gold : K.muted);
+      right -= 9 * u;
+    }
+    const vw = this.text(value, right, ty, { color: enabled ? '#ffffff' : K.muted, align: 'right' });
+    if (img) this.icon(img, right - vw - 14 * u, y + (h - 10 * u) / 2, 10 * u);
+    if (enabled) this.hit(id, x, y, w, h);
+  }
+  // a picture (a canvas) scaled up by whole pixels to fit a box `size` across, centred in it
+  icon(img, x, y, size) {
+    const res = img.res ?? 1, iw = img.width / res, ih = img.height / res;
+    const sc = Math.max(1, Math.floor(Math.min(size / iw, size / ih)));
+    this.ctx.drawImage(img, Math.round(x + (size - iw * sc) / 2), Math.round(y + (size - ih * sc) / 2), Math.round(iw * sc), Math.round(ih * sc));
+  }
+  // words split into lines no wider than w (the small font)
+  wrap(s, w) {
+    const out = [];
+    let line = '';
+    for (const word of String(s).split(' ')) {
+      const t = line ? `${line} ${word}` : word;
+      if (line && this.width(t, { small: true }) > w) { out.push(line); line = word; } else line = t;
+    }
+    if (line) out.push(line);
+    return out;
+  }
+  // A list to pick from, over everything else (a dropdown made big): a card for each choice
+  // - its picture, its name, a line or two about it, a note at its corner - the one picked now
+  // lit gold. Only these can be clicked while it's up: `${id}:<n>`, or `${id}:close` outside it.
+  choices(id, title, items, current, sel = -1) {
+    const { u, W, H, ctx } = this;
+    this.shade(0.6);
+    this.hits = [];
+    const cols = W >= 440 * u ? 3 : 2, gap = 6 * u, ch = 36 * u;
+    const cw = Math.min(150 * u, Math.floor((W - 28 * u - gap * (cols - 1)) / cols)), rows = Math.ceil(items.length / cols);
+    const pw = cols * cw + (cols - 1) * gap + 16 * u, ph = 26 * u + rows * (ch + gap) + 4 * u;
+    const px = Math.round(W / 2 - pw / 2), py = Math.max(6 * u, Math.round(H / 2 - ph / 2));
+    const y0 = this.panel(px, py, pw, ph, { title, note: 'CLICK ONE  -  THE NUMBER: ITS WAIT BETWEEN USES  -  ESC TO CLOSE' });
+    const cards = [];
+    items.forEach((it, i) => {
+      const x = px + 8 * u + (i % cols) * (cw + gap), y = y0 + Math.floor(i / cols) * (ch + gap), hid = `${id}:${i}`;
+      const on = it.key === current, hot = this.hover === hid || sel === i;
+      this.rect(x - u, y - u, cw + 2 * u, ch + 2 * u, K.ink);
+      this.rect(x, y, cw, ch, on ? K.gold : hot ? K.teal : K.edge);
+      this.rect(x + u, y + u, cw - 2 * u, ch - 2 * u, on ? '#3a3212' : hot ? '#1f3a36' : '#141c19');
+      // the picture, in a dark box edged in the skill's colour
+      this.rect(x + 4 * u, y + 4 * u, 24 * u, 24 * u, it.color ?? K.edge);
+      this.rect(x + 5 * u, y + 5 * u, 22 * u, 22 * u, '#0b100e');
+      if (it.img) this.icon(it.img, x + 6 * u, y + 6 * u, 20 * u);
+      else this.text('?', x + 16 * u, y + 9 * u, { size: 2, color: it.color ?? K.muted, align: 'center' });
+      this.text(it.label, x + 32 * u, y + 4 * u, { color: on ? K.gold : hot ? '#ffffff' : K.text });
+      if (it.note) this.text(it.note, x + cw - 4 * u, y + 5 * u, { small: true, color: K.faint, align: 'right' });
+      this.wrap(it.desc ?? '', cw - 36 * u).slice(0, 3).forEach((l, j) => this.text(l, x + 32 * u, y + 14 * u + j * 7 * u, { small: true, color: K.muted }));
+      cards.push([hid, x, y, cw, ch]);
+    });
+    for (const c of cards) this.hit(...c);
+    this.hit(`${id}:close`, 0, 0, W, H);   // (after the cards: the first hit under the mouse is the one that counts)
+  }
   // the keys at the bottom of the screen
   hints(s) {
     const { u, W, H } = this;

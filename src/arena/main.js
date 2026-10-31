@@ -73,6 +73,8 @@ const OPTIONS = [
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
+  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS GOLEM'], [null, 'NO SKILL']]],
+  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS GOLEM'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -81,7 +83,7 @@ const OPTIONS = [
   ['drops', 'ITEM DROPS', [[0, 'OFF'], [0.5, 'FEW'], [1, 'NORMAL'], [2, 'MANY']]],
   ['pool', 'WEAPONS THAT DROP', [['all', 'GUNS + MELEE'], ['guns', 'GUNS ONLY'], ['melee', 'MELEE ONLY']]],
 ];
-const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all' };
+const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all' };
 const settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('arena.settings') ?? '{}')); } catch {}
 const saveSettings = () => { try { localStorage.setItem('arena.settings', JSON.stringify(settings)); } catch {} };
@@ -375,7 +377,8 @@ function makeFighters() {
   game.fighters = ROSTER.slice(0, n + 1).map((r, i) => {
     // teams: you and VEX against KORA and DUKE; otherwise everyone for themselves
     const team = teams ? (i < 2 ? 0 : 1) : i;
-    const f = new Fighter(game, images, teams ? { ...r, ...TEAMS[team].look } : r);
+    const look = { ...r, skill: r.bot ? botSkill() : settings.myskill };
+    const f = new Fighter(game, images, teams ? { ...look, ...TEAMS[team].look } : look);
     f.team = team;
     return f;
   });
@@ -383,6 +386,9 @@ function makeFighters() {
   if (!settings.skills) for (const f of game.fighters) f.skill = null;
   bots = game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.85 + i * 0.12) * settings.skill));
 }
+// a bot's skill, by the setting: the one picked, or one at random
+const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon'];
+const botSkill = () => (settings.botskill === 'random' ? pick(BOT_SKILLS) : settings.botskill ?? null);
 const teamMode = () => settings.mode === 'teams' && state !== 'training';   // (training's just you and the dummies, whatever the room says)
 const tagColor = (f) => (teamMode() ? TEAMS[f.team]?.color ?? f.color : f.color);
 
@@ -1693,11 +1699,12 @@ function drawHud() {
   if (state === 'menu') return drawMainMenu(ctx, u, W, H);
   if (state === 'soon') return drawSoon(ctx, u, W, H);
   if (state === 'title') return drawTitle(ctx, u, W, H);
-  if (online.isScreen(state)) return drawNetScreen(ctx, u, W, H);
+  if (online.isScreen(state)) { drawNetScreen(ctx, u, W, H); return drawPicker(); }
 
   // everyone's card in a row along the top (Superfighters style)
   drawHurt(ctx, W, H, player);
   const cardsBottom = drawCards(ctx, u, W);
+  if (!locker && !paused && state !== 'match') drawSkillBox(u, W, H, player);
   if (state === 'training') {
     drawMeter(ctx, u, W);
     if (locker) drawLocker(ctx, u, W, H);
@@ -1822,7 +1829,7 @@ function drawCards(ctx, u, W) {
     ctx.drawImage(f.parts.head, 5, 0, 22, 21, Math.round((x + 3) * u), Math.round((y + 5) * u), 20 * u, 19 * u);
     // the skill (Q) on the portrait's corner: lit when it's ready, filling back up while it waits
     if (f.skill && f.alive) {
-      const k = Math.max(0, Math.min(1, 1 - f.skillCD / SKILL_CD[f.skill])), ready = k >= 1, on = !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || game.demons.some((d) => d.owner === f && d.phase !== 'gone');
+      const k = Math.max(0, Math.min(1, 1 - f.skillCD / SKILL_CD[f.skill])), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
       if (on) { const left = Math.max(0, f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (game.demons.find((d) => d.owner === f)?.life ?? 0) / DEMON_LIFE) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.skill === 'demon' ? '#6a22b0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
@@ -1883,6 +1890,55 @@ function drawCards(ctx, u, W) {
   }
   return (y + CH + 1) * u;
 }
+// A skill going (cast, out, or what it called up still about).
+const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || game.demons.some((d) => d.owner === f && d.phase !== 'gone');
+
+// Your skill, bottom right: its picture and name, Q, and how it stands - READY (lit, with a
+// flash the moment it comes ready), going, or the wait left as a bar filling back up.
+function drawSkillBox(u, W, H, f) {
+  const info = SKILL_INFO.find((k) => k.key === f?.skill);
+  if (!info || !f.alive) return;
+  const cd = Math.max(0, f.skillCD ?? 0), total = SKILL_CD[f.skill], on = skillOn(f), ready = cd <= 0 && !on;
+  if (ready && f.readySeen === false) f.readyAt = game.time;
+  f.readySeen = ready;
+  const flash = Math.max(0, 1 - (game.time - (f.readyAt ?? -9)) / 0.7);
+  const w = 132 * u, h = 30 * u, x = W - w - 6 * u, y = H - h - 8 * u;
+  const edge = ready ? info.color : on ? '#d8c8ff' : KC.edge;
+  kit.rect(x - u, y - u, w + 2 * u, h + 2 * u, KC.ink);
+  kit.rect(x, y, w, h, edge);
+  kit.rect(x + u, y + u, w - 2 * u, h - 2 * u, 'rgba(11, 16, 14, 0.92)');
+  // the picture, dimmed while it waits
+  kit.rect(x + 4 * u, y + 4 * u, 22 * u, 22 * u, ready ? info.color : '#26302c');
+  kit.rect(x + 5 * u, y + 5 * u, 20 * u, 20 * u, '#0b100e');
+  const ctx = kit.ctx;
+  ctx.globalAlpha = ready || on ? 1 : 0.35;
+  kit.icon(info.img, x + 6 * u, y + 6 * u, 18 * u);
+  ctx.globalAlpha = 1;
+  // the key, on the picture's corner
+  kit.rect(x + 18 * u, y + 18 * u, 9 * u, 9 * u, KC.ink);
+  kit.rect(x + 19 * u, y + 19 * u, 7 * u, 7 * u, ready ? KC.gold : '#3a4440');
+  kit.text('Q', x + 21 * u, y + 20 * u, { small: true, color: ready ? KC.ink : KC.muted, shadow: null });
+  kit.text(info.name, x + 31 * u, y + 5 * u, { color: ready ? '#ffffff' : KC.muted });
+  if (ready) {
+    const pulse = 0.6 + 0.4 * Math.sin(game.time * 6);
+    ctx.globalAlpha = pulse;
+    kit.text('READY  -  PRESS Q', x + 31 * u, y + 17 * u, { small: true, color: KC.green });
+    ctx.globalAlpha = 1;
+  } else if (on) kit.text('IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  else {
+    // the wait: a bar filling back up, the seconds left beside it
+    const bw = w - 31 * u - 30 * u, k = Math.max(0, Math.min(1, 1 - cd / total));
+    kit.rect(x + 31 * u, y + 18 * u, bw, 5 * u, KC.ink);
+    kit.rect(x + 32 * u, y + 19 * u, (bw - 2 * u) * k, 3 * u, info.color);
+    kit.text(`${cd.toFixed(1)} S`, x + w - 5 * u, y + 17 * u, { small: true, color: KC.text, align: 'right' });
+  }
+  if (flash > 0) {
+    ctx.globalAlpha = flash * 0.5;
+    kit.rect(x, y, w, h, '#ffffff');
+    ctx.globalAlpha = 1;
+  }
+}
+
 // In TEAMS, a bar of each side's colour over its cards, and its name.
 function sideBars(px, ours, theirs, place, CW, Wd) {
   if (!teamMode() || state === 'training') return;
@@ -2011,7 +2067,11 @@ function drawTitle(ctx, u, W, H) {
     const c = Math.floor(i / rows), r = i % rows;
     let shown = vals.find(([v]) => v === settings[k])?.[1] ?? '?';
     if (k === 'bots' && teamMode()) shown = '3 (2 V 2)';
-    kit.stepper(`opt:${i}`, px + 6 * u + c * (colW + 6 * u), cy + r * rowH, colW, rowH - u, label, shown, { selected: menuSel === i });
+    const ox = px + 6 * u + c * (colW + 6 * u), oy = cy + r * rowH;
+    if (k === 'myskill' || k === 'botskill') {
+      if (menuSel === i) kit.rect(ox, oy, colW, rowH - u, KC.row);
+      kit.select(`pick:${k}`, ox, oy, colW, rowH - u, label, settings.skills ? shown : 'OFF', { enabled: !!settings.skills, img: settings.skills ? SKILL_INFO.find((s) => s.key === settings[k])?.img : null });
+    } else kit.stepper(`opt:${i}`, ox, oy, colW, rowH - u, label, shown, { selected: menuSel === i });
   });
   y += ph + 8 * u;
   // the controls, if there's room
@@ -2024,6 +2084,17 @@ function drawTitle(ctx, u, W, H) {
   kit.button('back', px, y, 80 * u, 18 * u, 'BACK');
   kit.button('start', px + pw - 130 * u, y, 130 * u, 18 * u, 'START MATCH', { kind: 'primary', selected: menuSel === OPTIONS.length });
   kit.hints('W S  PICK A SETTING      A D / CLICK  CHANGE IT      ENTER  START      ESC  BACK');
+  drawPicker();
+}
+
+// The list for YOUR SKILL or BOT SKILLS; the pick goes into the setting.
+function pickSkillSetting(k) {
+  const bots = k === 'botskill';
+  openPicker(`pk-${k}`, bots ? 'BOT SKILLS' : 'YOUR SKILL', skillItems(bots), settings[k], (key) => {
+    settings[k] = key;
+    saveSettings();
+    if (state === 'title') { makeFighters(); startRound(); round = 0; state = 'title'; banner = null; }
+  });
 }
 
 // Step a setting one way or the other.
@@ -2054,6 +2125,7 @@ function titleInput() {
     menuSel = +i;
     return changeSetting(+i, +dir);
   }
+  if (c?.startsWith('pick:')) return pickSkillSetting(c.slice(5));
   if (c === 'start' || input.wasPressed('Enter') || (menuSel === OPTIONS.length && input.wasPressed('Space'))) return startMatch();
   if (c === 'back' || input.wasPressed('Escape')) state = 'menu';   // back to the main menu
 }
@@ -2286,6 +2358,47 @@ const NO_SKILL = sprite(9, 9, (g) => {
   for (let i = 1; i < 8; i++) rect(g, '#c83a2a', i, 8 - i, 1, 1);
 });
 
+// Every skill: its name, picture, colour and what it does (for the lists to pick one from, and the skill bay).
+const SKILL_INFO = [
+  { key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, color: '#9ad0ff', desc: 'SHOOT A LINE AND ZIP TO WHERE YOU AIM' },
+  { key: 'cloak', name: 'CLOAK', img: CLOAK_ICON, color: '#a89aff', desc: '8 S UNSEEN WITH A KNIFE - ONE STAB, X4.5 IN THE BACK' },
+  { key: 'decoy', name: 'SHADOW CLONE', img: CLONE_ICON, color: '#8aa8ff', desc: 'A DOUBLE OUT OF THE MIST FIGHTS FOR YOU, 3 S UNSEEN' },
+  { key: 'archery', name: 'ARCHERY', img: BOW_ICON, color: '#7aff8a', desc: 'LOCK ON TO EVERY FOE NEAR, AN ARROW SPLITS FOR THEM ALL' },
+  { key: 'murasaki', name: 'MURASAKI', img: VOID_ICON, color: '#c07aff', desc: 'RED AND BLUE MADE ONE: A PURPLE THAT ERASES ALL IN ITS LINE' },
+  { key: 'blaze', name: 'FLAME FIST', img: FIST_FIRE_ICON, color: '#ff9a4a', desc: 'FISTS ALIGHT, THEN A DASH AND A PUNCH THE WAY YOU AIM' },
+  { key: 'galaxy', name: 'GALAXY', img: GALAXY_ICON, color: '#7af0ff', desc: 'A BLACK HOLE WHERE YOU AIM: DRAGS THEM IN, THEN GOES OFF' },
+  { key: 'demon', name: 'ABYSS GOLEM', img: DEMON_ICON, color: '#b06aff', desc: 'A GOLEM OF BLACK FIRE FIGHTS AT YOUR BACK FOR 12 S' },
+];
+// the choices for a pick list: each skill (with its wait), then none - and for the bots, RANDOM first
+function skillItems(forBots = false) {
+  const list = SKILL_INFO.map((k) => ({ key: k.key, label: k.name, desc: k.desc, img: k.img, color: k.color, note: `${SKILL_CD[k.key]} S` }));
+  if (forBots) list.unshift({ key: 'random', label: 'RANDOM', desc: 'EACH BOT GETS ONE OF THEM AT RANDOM, NEW EVERY MATCH', color: KC.gold });
+  list.push({ key: null, label: forBots ? 'NONE' : 'NO SKILL', desc: forBots ? 'THE BOTS GO WITHOUT' : 'GO WITHOUT ONE', img: NO_SKILL, color: '#c83a2a' });
+  return list;
+}
+const skillName = (key) => SKILL_INFO.find((k) => k.key === key)?.name ?? (key === 'random' ? 'RANDOM' : 'NO SKILL');
+
+// The pick list open over a screen: { id, title, items, current, apply(key), sel }.
+let picker = null;
+function openPicker(id, title, items, current, apply) {
+  picker = { id, title, items, current, apply, sel: Math.max(0, items.findIndex((it) => it.key === current)) };
+}
+function pickerInput() {
+  const c = kit.click, P = picker, n = P.items.length, cols = renderer.width >= 440 * hudScale() ? 3 : 2;
+  if (input.wasPressed('KeyA', 'ArrowLeft')) P.sel = (P.sel + n - 1) % n;
+  if (input.wasPressed('KeyD', 'ArrowRight')) P.sel = (P.sel + 1) % n;
+  if (input.wasPressed('KeyW', 'ArrowUp')) P.sel = (P.sel - cols + n) % n;
+  if (input.wasPressed('KeyS', 'ArrowDown')) P.sel = (P.sel + cols) % n;
+  const i = c?.startsWith(`${P.id}:`) ? c.slice(P.id.length + 1) : null;
+  if (i === 'close' || input.wasPressed('Escape')) picker = null;
+  else if ((i !== null && i !== '') || input.wasPressed('Enter', 'Space')) {
+    const it = P.items[i !== null ? +i : P.sel];
+    picker = null;
+    if (it) P.apply(it.key);
+  }
+}
+const drawPicker = () => { if (picker) kit.choices(picker.id, picker.title, picker.items, picker.current, picker.sel); };
+
 const gunItem = (d) => ({ kind: 'gun', key: d.key, name: d.name, img: iconOf(d.key), def: d });
 const LOCKERS = {
   guns: { name: 'GUN LOCKER', tabs: () => [
@@ -2298,14 +2411,7 @@ const LOCKERS = {
     ] },
   ] },
   skills: { name: 'SKILL BAY', tabs: () => [{ label: 'SKILLS', items: [
-    { kind: 'skill', key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, desc: 'Q - SHOOT A LINE AND ZIP TO WHERE YOU AIM' },
-    { kind: 'skill', key: 'cloak', name: 'CLOAK', img: CLOAK_ICON, desc: 'Q - 8 S UNSEEN, A KNIFE - ONE STAB, X4.5 IN THE BACK' },
-    { kind: 'skill', key: 'decoy', name: 'SHADOW CLONE', img: CLONE_ICON, desc: 'Q - A DOUBLE OUT OF THE MIST FIGHTS FOR YOU, 3 S UNSEEN' },
-    { kind: 'skill', key: 'archery', name: 'ARCHERY', img: BOW_ICON, desc: 'Q - LOCK ON TO EVERY FOE NEAR, LOOSE AN ARROW THAT SPLITS FOR THEM ALL' },
-    { kind: 'skill', key: 'murasaki', name: 'MURASAKI', img: VOID_ICON, desc: 'Q - RED AND BLUE MADE ONE: A PURPLE THAT ERASES ALL IN ITS LINE' },
-    { kind: 'skill', key: 'blaze', name: 'FLAME FIST', img: FIST_FIRE_ICON, desc: 'Q - FISTS ALIGHT, THEN A DASH AND A PUNCH THE WAY YOU AIM - IT ALL GOES UP' },
-    { kind: 'skill', key: 'galaxy', name: 'GALAXY', img: GALAXY_ICON, desc: 'Q - CAST A BLACK HOLE WHERE YOU AIM: IT DRAGS THEM IN, THEN GOES OFF' },
-    { kind: 'skill', key: 'demon', name: 'ABYSS GOLEM', img: DEMON_ICON, desc: 'Q - CALL UP A GOLEM OF BLACK FIRE TO FIGHT AT YOUR BACK FOR 12 S' },
+    ...SKILL_INFO.map((k) => ({ kind: 'skill', key: k.key, name: k.name, img: k.img, desc: `Q - ${k.desc}` })),
     { kind: 'skill', key: null, name: 'NO SKILL', img: NO_SKILL, desc: 'GO WITHOUT ONE' },
     { kind: 'cooldown', get name() { return skillCooldowns ? 'COOLDOWN ON' : 'COOLDOWN OFF'; }, get img() { return skillCooldowns ? CLOCK_ON : CLOCK_OFF; },
       get desc() { return skillCooldowns ? 'A WAIT BETWEEN USES, AS IN A FIGHT - TAKE TO TURN IT OFF' : 'NO WAIT BETWEEN USES - TAKE TO TURN IT ON'; } },
@@ -2604,6 +2710,7 @@ function changeNetSetting(i, dir) {
 initOnline({
   game, settings, OPTIONS, input, renderer, images, IDLE, MAP_KEYS, pick, weapons: WEAPONS, iconOf,
   drawText, textWidth, centerText, panel, playerControl, startNetMatch, changeNetSetting, kit, tagColor,
+  skillItems, skillName, openPicker, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
   get state() { return state; }, set state(v) { state = v; },
   get player() { return player; }, set player(v) { player = v; },
   get stateT() { return stateT; }, set stateT(v) { stateT = v; },
@@ -2640,8 +2747,9 @@ function frame(now) {
 function tick(realDt, draw = true) {
   netUpdate(realDt);
   kit.pointer(input, renderer.dpr);   // (what the mouse is over on the menus, what's clicked)
-  // menus
-  if (state === 'menu') mainMenuInput();
+  // menus (a pick list open over one takes the keys and clicks)
+  if (picker) pickerInput();
+  else if (state === 'menu') mainMenuInput();
   else if (state === 'soon') { if (input.wasPressed('Escape', 'Enter', 'Space') || kit.click === 'back') state = 'menu'; }
   else if (state === 'title') titleInput();
   else if (online.isScreen(state)) netScreenInput();
@@ -2707,7 +2815,7 @@ function tick(realDt, draw = true) {
     hostFrame(realDt);   // (hosting online: the state of the game out to everyone)
   }
   // the system cursor on the menus (setup, results, pause); in a fight the crosshair takes its place
-  const cursor = onMenu() || state === 'match' || paused || locker || online.menuOpen || online.watching ? 'default' : 'none';
+  const cursor = onMenu() || picker || state === 'match' || paused || locker || online.menuOpen || online.watching ? 'default' : 'none';
   if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor;
   if (draw) {
     drawWorld();
@@ -2720,7 +2828,7 @@ requestAnimationFrame(frame);
 // for testing from the console: arena.step(seconds) runs the game without the browser's frame clock
 let testControl = null, frozen = false;
 window.arena = {
-  game, renderer, startMatch, startTraining, settings, loadMap,
+  game, renderer, startMatch, startTraining, settings, loadMap, online,
   get level() { return level; },
   get player() { return player; }, get state() { return state; }, get bots() { return bots; },
   set control(c) { testControl = c; },

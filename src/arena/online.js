@@ -46,7 +46,8 @@ const N = {
   server: null, lobby: null, room: null, mode: null,   // mode: 'host' | 'client' while in a room
   roomName: '', made: 0, members: [], slots: [], playing: false,
   msg: '', msgT: 0, busy: '', sel: -1, pings: {}, pingT: 0,
-  watching: false, match: null, deadT: 0,   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
+  watching: false, match: null, deadT: 0,
+  pass: '', creating: null, joinAsk: null, joinPass: '',   // pass: (the host) the room's password, '' for none; creating: the CREATE ROOM box ({ name, pass }); joinAsk: a locked room we're asked the password for   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
   ctl: new Map(), sendT: 0, snaps: [], gotSnap: false, menu: false, saved: null, ctlT: 0, lastCtl: '', pend: {},
   fighters: new Map(), props: new Map(), nextNid: 100, propIds: 0, fistsDef: null,
   sent: new Map(),   // (the host) what each fighter and prop was last sent as, field by field - only what's changed goes again
@@ -64,6 +65,7 @@ export const online = {
   get menuOpen() { return N.menu; },
   get watching() { return N.watching; },
   get snapSize() { return N.lastSize; },   // (for checking: how big a state of the game sent lately was, in bytes)
+  get debug() { return N; },               // (for checking, from the console)
   isScreen: (state) => state === 'net-servers' || state === 'net-lobby' || state === 'net-room',
 };
 
@@ -323,10 +325,10 @@ const seatOf = (id) => N.slots.findIndex((x) => x.k === 'p' && x.id === id);
 const seated = () => N.members.filter((m) => seatOf(m.id) >= 0);
 const watchers = () => N.members.filter((m) => seatOf(m.id) < 0);
 function lobbyAd() {
-  return { name: N.roomName, mode: A.settings.mode, map: A.settings.map, n: seated().length, max: roomSize(), w: watchers().length, playing: N.playing, made: N.made };
+  return { name: N.roomName, mode: A.settings.mode, map: A.settings.map, n: seated().length, max: roomSize(), w: watchers().length, playing: N.playing, made: N.made, lock: !!N.pass };
 }
 function roomState() {
-  return { t: 'room', name: N.roomName, members: N.members, slots: N.slots, settings: { ...A.settings }, playing: N.playing };
+  return { t: 'room', name: N.roomName, members: N.members, slots: N.slots, settings: { ...A.settings }, playing: N.playing, lock: !!N.pass };
 }
 // (the host) a player into slot i (if it's open), out of the one they were in
 function moveTo(id, i) {
@@ -373,12 +375,14 @@ function leaveServer() {
   A.state = 'net-servers';
 }
 
-async function createRoom() {
+async function createRoom(name = '', pass = '') {
   N.busy = 'MAKING THE ROOM...';
+  N.creating = null;
   try {
     N.room = await GameRoom.open(N.server, myId());
     N.mode = 'host';
-    N.roomName = `${N.name}'S ROOM`;
+    N.roomName = name.trim() || `${N.name}'S ROOM`;
+    N.pass = pass;
     N.made = Date.now();
     N.playing = false;
     N.members = [{ id: myId(), name: N.name, skill: N.skill, ready: true }];
@@ -394,7 +398,9 @@ async function createRoom() {
   N.busy = '';
 }
 // (a game that's started, or a room that's full: in to watch - a slot comes with the next game, if one's open)
-async function joinRoom(ad) {
+async function joinRoom(ad, pass = '') {
+  N.joinAsk = null;
+  N.joinPass = pass;
   N.busy = `${ad.playing || ad.n >= ad.max ? 'GOING IN TO WATCH' : 'JOINING'} ${ad.name}...`;
   try {
     N.room = await GameRoom.open(N.server, ad.host);
@@ -424,6 +430,7 @@ function leaveRoom(quiet = false) {
   N.playing = false;
   N.watching = false;
   N.match = null;
+  N.pass = '';
   N.menu = false;
   N.busy = '';
   N.snaps = [];
@@ -438,7 +445,7 @@ function leaveRoom(quiet = false) {
 function hookRoom() {
   const r = N.room;
   r.onJoin = (id) => {
-    if (N.mode === 'client' && id === r.hostId) r.send({ t: 'hello', name: N.name, skill: N.skill }, id);
+    if (N.mode === 'client' && id === r.hostId) r.send({ t: 'hello', name: N.name, skill: N.skill, pass: N.joinPass }, id);
   };
   r.onLeave = (id) => {
     if (N.mode === 'client' && id === r.hostId) { leaveRoom(true); say('THE HOST LEFT - THE ROOM IS GONE'); return; }
@@ -474,6 +481,7 @@ function hostMsg(m, from) {
   if (m.t === 'hello') {
     // into an open slot - or, with the game going or no slot open, in to watch
     const name = String(m.name).slice(0, 12);
+    if (!N.members.some((x) => x.id === from) && N.pass && m.pass !== N.pass) return N.room.send({ t: 'no', why: m.pass ? 'WRONG PASSWORD' : 'THAT ROOM HAS A PASSWORD' }, from);
     if (!N.members.some((x) => x.id === from)) {
       const free = N.playing ? -1 : N.slots.findIndex((x) => x.k === 'open');
       if (free < 0 && watchers().length >= MAX_WATCH) return N.room.send({ t: 'no', why: 'THAT ROOM IS FULL' }, from);
@@ -514,6 +522,7 @@ function clientMsg(m) {
     N.slots = m.slots ?? [];
     N.playing = m.playing;
     N.hostSettings = m.settings;
+    N.locked = !!m.lock;
   } else if (m.t === 'start') {
     N.saved ??= { ...A.settings };
     Object.assign(A.settings, m.settings);
@@ -549,7 +558,7 @@ function startGame() {
     if (x.k === 'p') {
       const m = N.members.find((y) => y.id === x.id);
       if (m) roster.push({ name: m.name, ...look, skill: m.skill, peer: m.id, team });
-    } else if (x.k === 'bot') roster.push({ name: BOT_NAMES[bots++], ...look, bot: true, team });
+    } else if (x.k === 'bot') roster.push({ name: BOT_NAMES[bots++], ...look, bot: true, team, skill: A.botSkill() });
   });
   if (roster.length < 2) return say('NEED SOMEONE TO FIGHT - A PLAYER OR A BOT', 2.5);
   if (s.mode === 'teams' && new Set(roster.map((r) => r.team)).size < 2) return say('TEAMS NEEDS SOMEONE ON EACH SIDE', 2.5);
@@ -592,38 +601,55 @@ export function netUpdate(dt) {
 }
 
 // typing a name in: letters, digits, a few marks; ENTER done, ESC back out (a click elsewhere: done)
+const isPass = (what) => what === 'pass' || what === 'crpass' || what === 'jpass';
+const LIMIT = { name: 12, room: 20, crname: 20 };
+// (true: the keys went into the box; false: it's done, and a click that ended it is still to be dealt with)
 function typing() {
-  const I = A.input;
+  const I = A.input, pass = isPass(N.edit);
   for (const code of I.pressed) {
-    if (code === 'Enter') { finishEdit(true); return; }
-    if (code === 'Escape') { finishEdit(false); return; }
+    if (code === 'Enter') { finishEdit(true, true); return true; }
+    if (code === 'Escape') { finishEdit(false); return true; }
     if (code === 'Backspace') N.draft = N.draft.slice(0, -1);
-    else if (N.draft.length < (N.edit === 'name' ? 12 : 20)) {
+    else if (N.draft.length < (pass ? 8 : LIMIT[N.edit] ?? 20)) {
       if (code.startsWith('Key')) N.draft += code.slice(3);
       else if (code.startsWith('Digit')) N.draft += code.slice(5);
+      else if (pass) continue;
       else if (code === 'Space') N.draft += ' ';
       else if (code === 'Minus') N.draft += '-';
       else if (code === 'Quote') N.draft += "'";
     }
   }
-  if (A.kit.click && A.kit.click !== N.edit) finishEdit(true);
+  if (A.kit.click && A.kit.click !== N.edit) { finishEdit(true); return false; }
+  return true;
 }
 function startEdit(what) {
   N.edit = what;
-  N.draft = what === 'name' ? N.name : N.roomName;
+  N.draft = { name: N.name, room: N.roomName, crname: N.creating?.name, crpass: N.creating?.pass, pass: N.pass, jpass: N.joinPass }[what] ?? '';
 }
-function finishEdit(keep) {
-  const v = N.draft.trim();
-  if (keep && v) {
-    if (N.edit === 'name') { N.name = v; saveMe(); }
-    else { N.roomName = v; shareRoom(); }
-  }
+// a box typed in, done with (keep: what's typed stays; enter: ENTER did it - in the CREATE ROOM box or a password asked for, that's go)
+function finishEdit(keep, enter = false) {
+  const v = N.draft.trim(), what = N.edit;
   N.edit = null;
+  if (!keep) return;
+  if (what === 'name' && v) { N.name = v; saveMe(); }
+  else if (what === 'room' && v) { N.roomName = v; shareRoom(); }
+  else if (what === 'pass') { N.pass = v; shareRoom(); say(v ? `PASSWORD SET: ${v}` : 'NO PASSWORD - ANYONE CAN JOIN', 2); }
+  else if (what === 'crname' && N.creating) { N.creating.name = v; if (enter) startEdit('crpass'); }
+  else if (what === 'crpass' && N.creating) { N.creating.pass = v; if (enter) createRoom(N.creating.name, v); }
+  else if (what === 'jpass' && N.joinAsk) { N.joinPass = v; if (enter) joinRoom(N.joinAsk, v); }
+}
+function setMySkill(key) {
+  const me = N.members.find((m) => m.id === myId());
+  N.skill = key;
+  saveMe();
+  if (me) me.skill = key;
+  if (N.mode === 'host') shareRoom();
+  else N.room?.send({ t: 'me', skill: key, ready: !!me?.ready });
 }
 
 export function netScreenInput() {
   const I = A.input, state = A.state, click = A.kit.click;
-  if (N.edit) return typing();
+  if (N.edit && typing()) return;
   if (N.busy) { if (I.wasPressed('Escape')) { leaveRoom(true); N.busy = ''; } return; }
   if (state === 'net-servers') {
     const rec = recommended(), from = N.sel >= 0 ? N.sel : Math.max(0, rec);
@@ -633,12 +659,25 @@ export function netScreenInput() {
     if (click?.startsWith('srv:') || I.wasPressed('Enter')) enterServer(SERVERS[N.sel >= 0 ? N.sel : from]);
     else if (click === 'name' || I.wasPressed('KeyN')) startEdit('name');
     else if (click === 'back' || I.wasPressed('Escape')) A.state = 'menu';
+  } else if (state === 'net-lobby' && N.creating) {
+    // the CREATE ROOM box: its name, a password (or none), then make it
+    if (click === 'crname' || click === 'crpass') startEdit(click);
+    else if (click === 'cr-go' || I.wasPressed('Enter')) createRoom(N.creating.name, N.creating.pass);
+    else if (click === 'cr-cancel' || I.wasPressed('Escape')) N.creating = null;
+  } else if (state === 'net-lobby' && N.joinAsk) {
+    // a locked room: its password first
+    if (click === 'jpass') startEdit('jpass');
+    else if (click === 'jp-go' || I.wasPressed('Enter')) joinRoom(N.joinAsk, N.joinPass);
+    else if (click === 'jp-cancel' || I.wasPressed('Escape')) N.joinAsk = null;
   } else if (state === 'net-lobby') {
     const list = N.lobby?.list ?? [];
-    if (click?.startsWith('room:')) { const ad = list.find((r) => r.host === click.slice(5)); if (ad) joinRoom(ad); }
-    else if (click === 'create' || I.wasPressed('KeyC')) createRoom();
+    if (click?.startsWith('room:')) {
+      const ad = list.find((r) => r.host === click.slice(5));
+      if (ad?.lock) { N.joinAsk = ad; N.joinPass = ''; startEdit('jpass'); }
+      else if (ad) joinRoom(ad);
+    } else if (click === 'create' || I.wasPressed('KeyC')) { N.creating = { name: `${N.name}'S ROOM`, pass: '' }; startEdit('crname'); }
     else if (click === 'quick' || I.wasPressed('Enter')) {
-      const ad = list.find((r) => !r.playing && r.n < r.max);
+      const ad = list.find((r) => !r.playing && r.n < r.max && !r.lock);
       if (ad) joinRoom(ad);
       else say('NO OPEN ROOMS - MAKE ONE');
     } else if (click === 'servers' || I.wasPressed('Escape')) leaveServer();
@@ -661,14 +700,13 @@ export function netScreenInput() {
       const [, i, dir] = click.split(':');
       A.changeNetSetting(+i, +dir);
       shareRoom();
-    } else if (click?.startsWith('skill:') || I.wasPressed('KeyQ')) {
-      const at = SKILLS.findIndex(([k]) => k === N.skill), dir = click === 'skill:-1' ? -1 : 1;
-      N.skill = SKILLS[(at + dir + SKILLS.length) % SKILLS.length][0];
-      saveMe();
-      if (me) me.skill = N.skill;
-      if (host) shareRoom();
-      else N.room.send({ t: 'me', skill: N.skill, ready: !!me?.ready });
-    } else if (click === 'roomname' && host) startEdit('room');
+    } else if (click === 'pick-skill') A.openPicker('pk-skill', 'YOUR SKILL', A.skillItems(false), N.skill, setMySkill);
+    else if (click === 'pick-botskill' && host) A.openPicker('pk-botskill', 'BOT SKILLS', A.skillItems(true), A.settings.botskill, (key) => { A.setSetting('botskill', key); shareRoom(); });
+    else if (I.wasPressed('KeyQ')) {
+      const at = SKILLS.findIndex(([k]) => k === N.skill);
+      setMySkill(SKILLS[(at + 1) % SKILLS.length][0]);
+    } else if ((click === 'roomname' || click === 'rename') && host) startEdit('room');
+    else if (click === 'roompass' && host) startEdit('pass');
     else if (click === 'ready' || (I.wasPressed('Enter') && !host)) {
       if (!host && me) { me.ready = !me.ready; N.room.send({ t: 'me', skill: N.skill, ready: me.ready }); }
     } else if ((click === 'start' || I.wasPressed('Enter')) && host) {
@@ -789,7 +827,7 @@ function drawLobby(k, u, W, H) {
   const rowH = 13 * u, rows = Math.max(4, Math.min(10, Math.floor((H - y - 26 * u - 14 * u - 46 * u) / rowH)));
   const ph = 26 * u + 12 * u + rows * rowH;
   const cy = k.panel(px, y, pw, ph, { title: 'ROOMS', note: list.length ? `${list.length} ROOM${list.length > 1 ? 'S' : ''}` : 'NONE YET' });
-  const col = { no: px + 8 * u, name: px + 30 * u, mode: px + pw * 0.52, map: px + pw * 0.63, n: px + pw * 0.79, st: px + pw * 0.88 };
+  const col = { no: px + 8 * u, name: px + 38 * u, mode: px + pw * 0.52, map: px + pw * 0.63, n: px + pw * 0.79, st: px + pw * 0.88 };
   for (const [key, label] of [['no', 'NO'], ['name', 'ROOM NAME'], ['mode', 'MODE'], ['map', 'MAP'], ['n', 'PLAYERS'], ['st', 'STATE']]) k.text(label, col[key], cy, { small: true, color: K.faint });
   const ry0 = cy + 10 * u;
   for (let i = 0; i < rows; i++) {
@@ -798,6 +836,7 @@ function drawLobby(k, u, W, H) {
     if (!r) continue;
     const full = r.n >= r.max, shut = r.playing || full, ty = ry + 3 * u;
     k.text(String(i + 1).padStart(3, '0'), col.no, ty, { color: K.faint });
+    if (r.lock) drawLock(k, u, col.name - 10 * u, ty);
     k.text(String(r.name).slice(0, 20), col.name, ty, { color: k.hover === id ? '#ffffff' : shut ? K.muted : K.text });
     k.text(MODE_NAME[r.mode] ?? r.mode, col.mode, ty, { color: K.muted });
     k.text(String(r.map).toUpperCase().slice(0, 7), col.map, ty, { color: K.muted });
@@ -813,6 +852,45 @@ function drawLobby(k, u, W, H) {
   k.button('quick', px + bw + 8 * u, y, bw, 18 * u, 'QUICK JOIN');
   k.button('servers', px + (bw + 8 * u) * 2, y, bw, 18 * u, 'CHANGE SERVER');
   k.hints('CLICK A ROOM  JOIN (PLAYING OR FULL: WATCH)      C  CREATE      ENTER  QUICK JOIN      ESC  SERVERS');
+  if (N.creating) drawCreateBox(k, u, W, H);
+  else if (N.joinAsk) drawPassBox(k, u, W, H);
+}
+// a little padlock (a room with a password), 7 font-pixels tall
+function drawLock(k, u, x, y, c = K.gold) {
+  k.rect(x + u, y, 4 * u, u, c);
+  k.rect(x + u, y, u, 3 * u, c);
+  k.rect(x + 4 * u, y, u, 3 * u, c);
+  k.rect(x, y + 3 * u, 6 * u, 4 * u, c);
+  k.rect(x + 2.5 * u, y + 4 * u, u, 2 * u, K.ink);
+}
+// a box over the lobby (only it can be clicked while it's up)
+function dialog(k, u, W, H, title, h) {
+  k.hits = [];
+  k.shade(0.55);
+  const pw = Math.min(W - 16 * u, 260 * u), px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - h / 2);
+  return { px, pw, y: k.panel(px, py, pw, h, { title }) };
+}
+function drawCreateBox(k, u, W, H) {
+  const c = N.creating, { px, pw, y } = dialog(k, u, W, H, 'CREATE ROOM', 26 * u + 94 * u);
+  let cy = y;
+  k.text('ROOM NAME', px + 8 * u, cy, { small: true, color: K.muted });
+  field(k, u, 'crname', px + 8 * u, cy + 8 * u, pw - 16 * u, 16 * u, c.name, N.edit === 'crname');
+  cy += 30 * u;
+  k.text('PASSWORD (OPTIONAL)', px + 8 * u, cy, { small: true, color: K.muted });
+  field(k, u, 'crpass', px + 8 * u, cy + 8 * u, pw - 16 * u, 16 * u, c.pass || (N.edit === 'crpass' ? '' : 'NONE'), N.edit === 'crpass');
+  k.text('LETTERS AND NUMBERS, 8 AT MOST - LEAVE IT EMPTY AND ANYONE CAN JOIN', px + 8 * u, cy + 27 * u, { small: true, color: K.faint });
+  cy += 40 * u;
+  const bw = Math.floor((pw - 22 * u) / 2);
+  k.button('cr-go', px + 8 * u, cy, bw, 18 * u, 'CREATE', { kind: 'primary' });
+  k.button('cr-cancel', px + 14 * u + bw, cy, bw, 18 * u, 'CANCEL');
+}
+function drawPassBox(k, u, W, H) {
+  const { px, pw, y } = dialog(k, u, W, H, 'PASSWORD', 26 * u + 60 * u);
+  k.text(`${N.joinAsk.name} HAS A PASSWORD`, W / 2, y, { small: true, color: K.text, align: 'center' });
+  field(k, u, 'jpass', px + 8 * u, y + 10 * u, pw - 16 * u, 16 * u, N.joinPass, N.edit === 'jpass');
+  const bw = Math.floor((pw - 22 * u) / 2);
+  k.button('jp-go', px + 8 * u, y + 34 * u, bw, 18 * u, 'JOIN', { kind: 'primary' });
+  k.button('jp-cancel', px + 14 * u + bw, y + 34 * u, bw, 18 * u, 'CANCEL');
 }
 
 function drawRoom(k, u, W, H) {
@@ -827,9 +905,21 @@ function drawRoom(k, u, W, H) {
     if (host) k.hit('roomname', W / 2 - 120 * u, y, 240 * u, 18 * u);
   }
   y += 22 * u;
-  const status = host ? (k.hover === 'roomname' ? 'CLICK THE NAME TO RENAME THE ROOM' : 'YOUR ROOM - EVERYONE READY, THEN START') : 'WAITING FOR THE HOST TO START';
-  k.text(`${N.server?.name ?? ''}   -   ${status}${!host && N.room?.ping ? `   -   PING ${N.room.ping} MS` : ''}`, W / 2, y, { small: true, color: K.teal, align: 'center' });
-  y += 10 * u;
+  if (host) {
+    // RENAME, and the password (or NONE) - click to set it
+    const pass = N.edit === 'pass', bw = 92 * u, pwid = 128 * u, x0 = W / 2 - (bw + 6 * u + pwid) / 2;
+    k.button('rename', x0, y - u, bw, 12 * u, 'RENAME ROOM', { size: 1 });
+    if (pass) field(k, u, 'pass', x0 + bw + 6 * u, y - u, pwid, 12 * u, N.pass, true);
+    else {
+      k.button('roompass', x0 + bw + 6 * u, y - u, pwid, 12 * u, N.pass ? `PASSWORD: ${N.pass}` : 'PASSWORD: NONE', { size: 1, selected: !!N.pass });
+      if (N.pass) drawLock(k, u, x0 + bw + 10 * u, y + 2 * u);
+    }
+    y += 14 * u;
+  } else {
+    const status = `${N.locked ? 'LOCKED ROOM   -   ' : ''}WAITING FOR THE HOST TO START${N.room?.ping ? `   -   PING ${N.room.ping} MS` : ''}`;
+    k.text(`${N.server?.name ?? ''}   -   ${status}`, W / 2, y, { small: true, color: K.teal, align: 'center' });
+    y += 10 * u;
+  }
   // the slots: two columns of four (BLUE and RED, in TEAMS)
   const colW = Math.floor((pw - 16 * u - gap) / 2), slotH = 18 * u, playing = N.slots.filter((x) => x.k === 'p').length, watch = watchers();
   const sh = 26 * u + (teams ? 16 * u : 0) + 4 * slotH + (watch.length ? 10 * u : 0);
@@ -877,19 +967,20 @@ function drawRoom(k, u, W, H) {
   if (watch.length) k.text(`WATCHING (${watch.length}): ${watch.map((m) => m.name).join(', ')}  -  THEY GET A SLOT WHEN ONE IS OPEN`, px + 10 * u, cy + 4 * slotH + 2 * u, { small: true, color: K.muted });
   y += sh + gap;
   // the room's settings, in two columns (the host changes them)
-  const opts = A.OPTIONS.map((o, i) => [o, i]).filter(([o]) => o[0] !== 'bots'), rows = Math.ceil(opts.length / 2), rowH = 10 * u;
+  const opts = A.OPTIONS.map((o, i) => [o, i]).filter(([o]) => o[0] !== 'bots' && o[0] !== 'myskill'), rows = Math.ceil(opts.length / 2), rowH = 10 * u;
   const oh = 26 * u + rows * rowH;
   cy = k.panel(px, y, pw, oh, { title: 'ROOM SETTINGS', note: host ? 'CLICK A SIDE TO CHANGE' : 'THE HOST SETS THESE' });
   opts.forEach(([[key, label, vals], oi], n) => {
     const c = Math.floor(n / rows), r = n % rows;
-    const shown = vals.find(([v]) => v === settings[key])?.[1] ?? '?';
-    k.stepper(`opt:${oi}`, px + 8 * u + c * (colW + gap), cy + r * rowH, colW, rowH - u, label, shown, { enabled: host });
+    const shown = vals.find(([v]) => v === settings[key])?.[1] ?? '?', ox = px + 8 * u + c * (colW + gap), oy = cy + r * rowH;
+    if (key === 'botskill') k.select('pick-botskill', ox, oy, colW, rowH - u, label, settings.skills ? shown : 'OFF', { enabled: host && !!settings.skills });
+    else k.stepper(`opt:${oi}`, ox, oy, colW, rowH - u, label, shown, { enabled: host });
   });
   y += oh + gap;
   // your skill; ready / start; leave
-  const sk = SKILLS.find(([s]) => s === N.skill)?.[1] ?? 'NO SKILL';
+  const sk = A.skillName(N.skill), info = A.SKILL_INFO.find((x) => x.key === N.skill);
   k.rect(px, y, colW + 8 * u, 18 * u, 'rgba(14, 20, 18, 0.95)');
-  k.stepper('skill', px, y, colW + 8 * u, 18 * u, 'YOUR SKILL (Q)', sk);
+  k.select('pick-skill', px, y, colW + 8 * u, 18 * u, 'YOUR SKILL', settings.skills ? sk : 'SKILLS OFF', { img: settings.skills ? info?.img : null });
   const rx = px + colW + 8 * u + gap, rw = pw - (colW + 8 * u + gap), allReady = seated().every((m) => m.ready), bw = Math.round(rw * 0.64);
   if (host) k.button('start', rx, y, bw, 18 * u, allReady ? 'START' : 'NOT ALL READY', { kind: 'primary', disabled: !allReady });
   else if (seatOf(myId()) < 0) k.button('ready', rx, y, bw, 18 * u, 'WATCHING', { disabled: true });

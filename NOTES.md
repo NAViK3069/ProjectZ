@@ -26,7 +26,16 @@ host opens or closes each one or puts a bot in it - the only bots are the
 ones in slots - and players click an open slot to move to it. A room that's
 playing (or full) can still be joined, to watch (A / D or a click switches
 who); at the end of the match the watchers get the open slots. Hold TAB in a
-match for the scores.
+match for the scores. CREATE ROOM asks for a name and an optional password
+(a padlock in the room list; joining asks for it - only the host checks it).
+The host can rename the room or change the password from the room.
+
+Skills: YOUR SKILL and BOT SKILLS (RANDOM, one of them, or NONE) are picked
+from a list (the setup screen, and the room for online); SKILLS (Q) OFF turns
+them all off. In a match, the box at the bottom right shows your skill and
+whether it's READY, in use, or how long the wait is. Bots use theirs
+(`useSkill` in `src/arena/ai.js`), and with nobody in sight (you're cloaked,
+say) they search where they last saw you, pick things up, roam and hop.
 
 There's no game server: players connect to each other directly (WebRTC),
 introduced through Trystero over public Nostr relays (`src/arena/net.js`; the
