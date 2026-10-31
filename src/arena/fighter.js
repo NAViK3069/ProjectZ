@@ -219,7 +219,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
-      onGround: false, onLadder: false, coyote: 0, jumpBuf: 0, airJumps: 1, dropT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -466,14 +466,15 @@ export class Fighter {
 
     // ladders: grab one by pushing up / down in front of it
     const ladderHere = this.overLadder();
-    if (!this.onLadder && ladderHere && (c.up || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
+    this.ladderCool -= dt;
+    if (!this.onLadder && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
       this.onLadder = true;
       this.x += (ladderHere.x - this.x) * 0.6;
       this.vx = 0;
     }
     if (this.onLadder && (!ladderHere || this.jumpBuf > 0)) {
       this.onLadder = false;
-      if (this.jumpBuf > 0) { this.vy = -JUMP * 0.8; this.jumpBuf = 0; }
+      if (this.jumpBuf > 0) { this.vy = -JUMP * 0.8; this.jumpBuf = 0; this.ladderCool = 0.3; }
     }
 
     // dive roll (costs stamina)
@@ -1737,6 +1738,11 @@ export class Fighter {
     if (this.ladderBelow()) return { x: (cx + 0.5) * T };
     return null;
   }
+  // ladder at the body (to climb up), not only under the feet
+  ladderAt() {
+    const L = this.game.level, cx = Math.floor(this.x / T);
+    return [this.y - 2, this.y - 12].some((y) => L.get(cx, Math.floor(y / T)) === LADDER);
+  }
   ladderBelow() {
     return this.game.level.get(Math.floor(this.x / T), Math.floor((this.y + 2) / T)) === LADDER;
   }
@@ -1758,7 +1764,7 @@ export class Fighter {
     // the damage number that pops up (head / blast / critical / melee / body), training's meter
     this.game.onHurt?.(this, d, head ? 'head' : this.blast ? 'blast' : this.hitHow === 'BACKSTAB' ? 'crit' : this.hitHow ? 'melee' : 'body', from);
     if (this.vanish) return false;   // a shadow clone going up in mist
-    if (this.veil) this.unveil();      // hurt behind a shadow clone: seen (the double fights on)
+    if (this.veil) this.dropDecoy();   // hurt behind a shadow clone: you're seen, and the double goes (never the two of you at once)
     // hurt while cloaked: seen (a stab already going in finishes first)
     if (this.cloak) { if (this.melee.t >= 0) this.cloak.out = true; else this.uncloak(); }
     if (this.immortal) this.hp = Math.max(1, this.hp);   // training: dummies (and you) can't die

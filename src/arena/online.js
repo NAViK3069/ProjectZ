@@ -270,7 +270,7 @@ export function hostFrame(dt) {
   if (N.mode !== 'host' || !N.playing || !N.room) return;
   noted ??= [];
   if ((N.sendT -= dt) > 0) return;
-  N.sendT = SNAP_EVERY;
+  N.sendT = Math.max(0, N.sendT + SNAP_EVERY);   // (what's over carries on: 20 a second whatever the step)
   const s = snapshot();
   if (N.room.peers.size) N.room.snap.send(s);
   if ((N.sizeN = (N.sizeN ?? 0) + 1) % 40 === 1) N.lastSize = JSON.stringify(s).length;

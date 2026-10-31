@@ -189,6 +189,11 @@ export class Bot {
       mode: 'search', wander: null, pauseT: 0, lookT: 0, burstT: 0, spot: null, spotT: 0,
       bias: new Map(), biasT: 0, react: rand(0.35, 0.6) / this.skill,
       skillT: rand(1, 3), lost: null, hopT: rand(1, 3),   // skillT: a beat before it thinks of its skill again; lost: where a foe vanished
+      holdT: 0, dj: false,         // holding a jump down for a full one (and a second in the air, if it has to go higher)
+      tries: null, smash: null,    // tries: the prop in its way and how often it's jumped at it; smash: one it's breaking up
+      skip: new Map(), lootT: 0,   // pickups it couldn't get to (-> till when) and how long it's been after this one
+      flips: 0, flipT: 1, flipX: 0, lastDir: 0, commit: 0, commitDir: 0,   // turning back and forth on the spot, and a way out of it
+      flee: false,                 // cloaked to get away (not to stab)
     });
   }
 
@@ -249,7 +254,7 @@ export class Bot {
     // ---- what to do ----
     const pick = (pred, range) => {
       let best = null, bd = Infinity;
-      for (const p of G.pickups) if (p.ready && pred(p)) {
+      for (const p of G.pickups) if (p.ready && pred(p) && !(this.skip.get(p) > G.time)) {
         const d = Math.hypot(p.x - f.x, p.y - f.y);
         if (d < bd) { bd = d; best = p; }
       }
@@ -330,7 +335,8 @@ export class Bot {
     if (w && !vis && w.ammo < w.magSize * 0.5 && w.reserve > 0) c.reload = true;
 
     // which slot: the best gun with ammo, otherwise the melee weapon / fists
-    c.slot = armed ? f.slotFor(w.def) : 1;
+    const slot = armed ? f.slotFor(w.def) : 1;
+    c.slot = !f.cloak && slot !== f.slot ? slot : 0;
     // no gun: close in and hit them (combos with whatever's in slot 1)
     const reach = f.melee.def.reach + 2;
     if (t && !armed && vis) { goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? goal; key = t; sprint = dist < 200; fight = false; }
@@ -345,14 +351,38 @@ export class Bot {
       this.punchT = rand(0.5, 1.1);
       c.aim = t.x > f.x ? 0 : Math.PI;
     }
+    const k = f.cloak && !f.cloak.out ? f.cloak : null;
+    if (k && t && !this.flee) {
+      // in behind them - their back is a critical - and the stab (a dash in from up to 64 px)
+      const bx = t.x - (t.facing || 1) * 16;
+      goal = nav.nodeBelow(bx, t.y - 4) ?? nav.nodeAt(t.x, t.y, t.onLadder) ?? goal;
+      key = 'stab'; fight = false; sprint = false;
+      c.fire = false;
+      const behind = (f.x - t.x) * (t.facing || 1) < 0;
+      if (!k.used && Math.hypot(t.x - f.x, t.y - f.y) < (behind ? 56 : 30) && G.los(f.x, f.y - 14, t.x, t.y - 14)) {
+        c.fire = true;
+        c.aim = Math.atan2(t.y - 14 - s.y, t.x - s.x);
+      }
+    } else if (k && this.flee && t) {
+      if (!this.spot || this.spotT <= 0 || this.mode !== 'retreat') { this.spot = this.coverFrom(t, true); this.spotT = 2; }
+      goal = this.spot; key = 'retreat'; fight = false; this.mode = 'retreat'; c.fire = false;
+    }
+    if (f.veil && t) {
+      // the double's drawing their fire: unseen, get round behind them - and only then attack (which ends it)
+      const behind = (f.x - t.x) * (t.facing || 1) < 0, there = behind && Math.abs(t.x - f.x) < 140 && Math.abs(t.y - f.y) < 30;
+      if (!there && f.veil.t > 0.4) {
+        c.fire = false; c.melee = false; c.grenade = false;
+        goal = nav.nodeBelow(t.x - (t.facing || 1) * 70, t.y - 4) ?? goal; key = 'flank'; fight = false; sprint = true;
+      }
+    }
     // a grenade at someone in the open, not too close
-    if (vis && f.grenades > 0 && this.nadeT <= 0 && dist > 80 && dist < 230 && f.onGround && Math.random() < 0.5) {
+    if (vis && !k && !f.veil && f.grenades > 0 && this.nadeT <= 0 && dist > 80 && dist < 230 && f.onGround && Math.random() < 0.5) {
       c.grenade = true;
       c.aim = Math.atan2(aimY - s.y - dist * 0.35, t.x - s.x);
       this.nadeT = rand(7, 13);
     }
     // dodge when shot at
-    if (vis && t.lastFireT < 0.15 && this.rollT <= 0 && f.onGround && Math.random() < 0.04) {
+    if (vis && !k && t.lastFireT < 0.15 && this.rollT <= 0 && f.onGround && Math.random() < 0.04) {
       c.roll = true;
       c.move = Math.random() < 0.5 ? -1 : 1;
       this.rollT = rand(2, 4);
@@ -373,12 +403,100 @@ export class Bot {
     }
     if (this.mode === 'search' && f.onGround && c.move && this.hopT <= 0 && !this.path[0]?.edge.kind.match(/drop|climb/)) {
       this.hopT = rand(1.5, 4);
-      if (this.safeAhead(c.move)) { c.jump = true; c.jumpHeld = Math.random() < 0.5; }
+      if (this.safeAhead(c.move)) { c.jump = true; this.holdT = Math.random() < 0.5 ? 0.4 : 0; }
     }
+    if (!fight) { this.obstacles(dt, c); this.unjitter(dt, c); this.reach(dt, c, key); }
     this.airControl(c);
     this.avoidAcid(c);
     this.unstick(dt, c);
+    // a jump it means: held right up (and the second one at the top, if it has to go higher)
+    if (this.holdT > 0) {
+      this.holdT -= dt;
+      c.jumpHeld = true;
+      if (this.dj && !f.onGround && !f.onLadder && f.vy > -40 && f.airJumps > 0) { c.jump = true; this.dj = false; }
+    }
+    if (f.onGround && this.holdT <= 0) this.dj = false;
     return c;
+  }
+
+  // A prop (crate, cabinet, shelf...) standing in its way, at body height, just ahead.
+  propAhead(dir) {
+    const f = this.f;
+    for (const p of this.game.props) {
+      if (p.dead || !p.block) continue;
+      const b = p.box;
+      if (b.t > f.y - 3 || b.b < f.y - 24) continue;   // (not what it's standing on, nor up overhead)
+      const gap = dir > 0 ? b.l - (f.x + 5) : f.x - 5 - b.r;
+      if (gap > -3 && gap < 10) return p;
+    }
+    return null;
+  }
+  // Something in the way: jump it - a full jump, a double one for the tall things - and if
+  // that doesn't get it over (twice), or it's too tall to jump, knock it about till it breaks.
+  obstacles(dt, c) {
+    const f = this.f;
+    const p = this.smash && !this.smash.dead ? this.smash : (c.move && f.onGround ? this.propAhead(Math.sign(c.move)) : null);
+    if (!p) { this.smash = null; return; }
+    const b = p.box, rise = f.y - b.t;
+    if (this.tries?.p !== p) this.tries = { p, n: 0 };
+    if (this.smash === p || rise > 92 || this.tries.n >= 2) {
+      this.smash = p;
+      const dir = Math.sign(p.x - f.x) || f.facing;
+      c.move = Math.abs(p.x - f.x) > p.w / 2 + 9 ? dir : 0;   // right up to it
+      c.jump = false;
+      if (this.punchT <= 0 && Math.abs(p.x - f.x) < p.w / 2 + 16) {
+        c.melee = true;
+        c.aim = Math.atan2(Math.max(b.t + 6, f.y - 22) - (f.y - 14), p.x - f.x);
+        this.punchT = 0.28;
+      }
+      return;
+    }
+    if (!c.jump && f.onGround) {
+      if (this.tries.jumped) this.tries.n++;
+      c.jump = true;
+      this.holdT = 0.45;
+      this.dj = rise > 46;
+      this.tries.jumped = true;
+    }
+  }
+  // Turning back and forth over the same spot (on top of a crate, round a pickup it can't
+  // quite get at): pick a way and keep going that way a moment, off whatever it's stuck on.
+  unjitter(dt, c) {
+    const f = this.f, dir = Math.sign(c.move);
+    if (this.commit > 0) { this.commit -= dt; c.move = this.commitDir; return; }
+    if (dir && this.lastDir && dir !== this.lastDir) this.flips++;
+    if (dir) this.lastDir = dir;
+    if ((this.flipT -= dt) > 0) return;
+    const stuck = this.flips >= 3 && Math.abs(f.x - this.flipX) < 28;
+    this.flipT = 1;
+    this.flips = 0;
+    this.flipX = f.x;
+    if (!stuck) return;
+    // standing on a prop: off its nearer edge; otherwise the other way to the one it keeps trying
+    const under = this.game.props.find((p) => !p.dead && p.block && Math.abs(p.box.t - f.y) < 3 && f.x > p.box.l - 4 && f.x < p.box.r + 4);
+    this.commitDir = under ? (f.x < under.x ? -1 : 1) : -this.lastDir || 1;
+    this.commit = 0.6;
+    this.repath = 0;
+    if (under && this.tries) this.tries.n = 2;   // (and break it, if it's what's in the way)
+  }
+  // After a pickup: close to it but not getting it (up on a crate, say) - jump for it if it's
+  // above, break what's on it or in front of it, and give up on it a while if none of that works.
+  reach(dt, c, key) {
+    const f = this.f, G = this.game;
+    if (!key || key.kind === undefined || !G.pickups.includes(key)) { this.lootT = 0; return; }
+    this.lootT += dt;
+    const dx = key.x - f.x, dy = key.y - f.y;
+    // up on something (a crate, a shelf): jump up onto it, going its way
+    if (Math.abs(dx) < 48 && dy < -14) {
+      c.move = Math.sign(dx) || c.move;
+      if (f.onGround && !c.jump && Math.abs(dx) < 40) { c.jump = true; this.holdT = 0.45; this.dj = dy < -50; }
+      this.smash = null;
+    } else if (Math.abs(dx) < 22) {
+      // under a prop, or inside one's shape (one sat on top of it): break it open
+      const over = G.props.find((p) => !p.dead && p.block && key.x > p.box.l - 4 && key.x < p.box.r + 4 && key.y > p.box.t + 4 && key.y < p.box.b + 6);
+      if (over && this.lootT > 1) this.smash = over;
+    }
+    if (this.lootT > 7) { this.skip.set(key, G.time + 12); this.lootT = 0; this.repath = 0; }
   }
 
   // Q, when it's worth it - each skill has its moment. (Not while one's still going:
@@ -393,10 +511,11 @@ export class Bot {
     let go = false;
     switch (k) {
       case 'cloak':      // to slip away when it's losing, or to creep up for a stab
-        go = (vis && hpK < 0.4) || (!!t && !vis && dist < 420 && Math.random() < 0.5) || (vis && dist < 160 && Math.random() < 0.25);
+        go = (vis && hpK < 0.35) || (!!t && dist < 360 && hpK >= 0.35 && Math.random() < 0.6);
+        this.flee = hpK < 0.35;
         break;
-      case 'decoy':      // a double to take the heat in a fight
-        go = vis && (hpK < 0.6 || dist < 220) && Math.random() < 0.6;
+      case 'decoy':      // a double to take the heat in a fight (then round behind them, unseen)
+        go = vis && dist < 260 && Math.random() < 0.6;
         break;
       case 'archery':    // the more in reach the better
         go = near.length >= 2 || (near.length === 1 && (vis || Math.random() < 0.3));
@@ -469,7 +588,7 @@ export class Bot {
       const x = (this.spot.cx + 0.5) * T;
       if (!c.roll) c.move = Math.abs(x - f.x) > 3 && this.burstT <= 0 ? Math.sign(x - f.x) : 0;
     }
-    if (f.onGround && Math.random() < 0.006 && this.safeAhead(c.move || f.facing)) { c.jump = true; c.jumpHeld = true; }
+    if (f.onGround && Math.random() < 0.006 && this.safeAhead(c.move || f.facing)) { c.jump = true; this.holdT = 0.4; }
   }
 
   // Is there floor (not acid) under the next step that way?
@@ -646,7 +765,7 @@ export class Bot {
         return;
       }
       c.jump = true;
-      c.jumpHeld = true;
+      this.holdT = 0.45;
       this.repath = 0;
     }
   }

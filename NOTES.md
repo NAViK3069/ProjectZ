@@ -48,9 +48,11 @@ should see each other in its lobby).
 
 The host's browser runs the game; the others send their controls and draw
 the state the host sends 20 times a second - only what changed - plus the
-effects that went off (`src/arena/online.js`). So the host's tab has to stay
-in front (a hidden tab is slowed right down by the browser), and the host
-leaving ends the room. Some networks (strict NATs, some mobile data) can't
+effects that went off (`src/arena/online.js`). A hidden tab gets no frames,
+so online a worker keeps time instead (`backupClock` in `src/arena/main.js`)
+and the game runs on at full speed with the host's tab in the background or
+minimised; and however slowly frames come, the game makes up the time in
+1/30 s steps (`runFor`). The host leaving ends the room. Some networks (strict NATs, some mobile data) can't
 connect directly; that would need a TURN relay, which isn't set up.
 
 ## The 2.5D top-down game is shelved, not deleted

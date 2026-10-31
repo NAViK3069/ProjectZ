@@ -600,12 +600,12 @@ function running() {
 }
 
 function playerControl() {
-  const f = player, ladder = f.overLadder();
+  const f = player, ladder = f.ladderAt();   // (W jumps, except with a ladder at the body to climb - standing on top of one, it's a jump)
   const c = {
     move: (input.down('KeyD', 'ArrowRight') ? 1 : 0) - (input.down('KeyA', 'ArrowLeft') ? 1 : 0),
     up: input.down('KeyW', 'ArrowUp'),
     down: input.down('KeyS', 'ArrowDown'),
-    jump: input.wasPressed('Space') || (input.wasPressed('KeyW', 'ArrowUp') && !ladder && !f.onLadder),
+    jump: input.wasPressed('Space') || (input.wasPressed('KeyW', 'ArrowUp') && !ladder),
     jumpHeld: input.down('Space', 'KeyW', 'ArrowUp'),
     fire: input.mouse.down,
     aim: null,
@@ -1702,7 +1702,7 @@ function drawHud() {
   if (online.isScreen(state)) { drawNetScreen(ctx, u, W, H); return drawPicker(); }
 
   // everyone's card in a row along the top (Superfighters style)
-  drawHurt(ctx, W, H, player);
+  if (!online.watching) drawHurt(ctx, W, H, player);
   const cardsBottom = drawCards(ctx, u, W);
   if (!locker && !paused && state !== 'match') drawSkillBox(u, W, H, player);
   if (state === 'training') {
@@ -2735,6 +2735,7 @@ function frame(now) {
   requestAnimationFrame(frame);   // (asked for first: a frame that goes wrong doesn't stop the game)
   try {
     if (frozen) { drawWorld(); drawHud(); }
+    else if (online.active) runFor((now - last) / 1000, true);
     else tick(Math.min(1 / 30, (now - last) / 1000));
   } catch (e) {
     if (!frame.errors || frame.errors < 5) console.error(e);
@@ -2742,6 +2743,23 @@ function frame(now) {
     input.endFrame();
   }
   last = now;
+}
+// Online, a hidden tab (another tab in front, the window minimised) gets no frames - and the
+// host's game is everyone's, so it would stop for all of them. So a worker keeps time too (the
+// browser doesn't hold a worker's clock back the way it does the page's): when no frame has come
+// for a moment, its ticks run the game instead - everything but the drawing.
+const backupClock = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 1000 / 30);'], { type: 'text/javascript' })));
+backupClock.onmessage = () => {
+  const now = performance.now();
+  if (frozen || !online.active || now - last < 100) return;
+  try { runFor((now - last) / 1000, false); } catch (e) { console.error(e); input.endFrame(); }
+  last = now;
+};
+// Online the game keeps to real time, however slowly the frames come (a tab in the background
+// gets a few a second): the time since the last, in steps of 1/30 s - up to a quarter of a second of it.
+function runFor(sec, draw) {
+  for (let n = 0; sec > 1 / 30 + 1e-6 && n < 8; n++) { tick(1 / 30, false); sec -= 1 / 30; }
+  tick(Math.min(1 / 30, sec), draw);
 }
 
 function tick(realDt, draw = true) {
