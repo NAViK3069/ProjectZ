@@ -7,10 +7,29 @@ The game is now **ARENA**: the side-view brawler in the research lab
 `start.bat` opens it.
 
 It opens on a main menu: STORY, SINGLE PLAYER, MULTIPLAYER, TRAINING and the
-GUN EDITOR. SINGLE PLAYER (you against bots, after the room setup) and
-TRAINING (every gun, melee weapon and skill from the cabinets or TAB, dummies
-to try them on) are built; STORY and MULTIPLAYER show a "coming soon" page
-describing what each will be (`MODES` in `src/arena/main.js`).
+GUN EDITOR. SINGLE PLAYER (you against bots, after the room setup),
+MULTIPLAYER (online rooms, below) and TRAINING (every gun, melee weapon and
+skill from the cabinets or TAB, dummies to try them on) are built; STORY shows
+a "coming soon" page (`MODES` in `src/arena/main.js`).
+
+## Playing online
+
+It's on GitHub Pages: https://navik3069.github.io/ProjectZ/ (the repo's `main`
+branch, served as it is - there's no build step; `.nojekyll` keeps Pages from
+touching it). Push to `main` and it's live a minute later.
+
+MULTIPLAYER: choose a server, then make a room or join one from the list, set
+it up, everyone READY, the host STARTs. There's no game server: players
+connect to each other directly (WebRTC), introduced through Trystero over
+public Nostr relays (`src/arena/net.js`; the library comes from jsDelivr,
+pinned). A "server" is just a channel everyone on it meets in.
+
+The host's browser runs the game; the others send their controls and draw
+the state the host sends 20 times a second - only what changed - plus the
+effects that went off (`src/arena/online.js`). So the host's tab has to stay
+in front (a hidden tab is slowed right down by the browser), and the host
+leaving ends the room. Some networks (strict NATs, some mobile data) can't
+connect directly; that would need a TURN relay, which isn't set up.
 
 ## The 2.5D top-down game is shelved, not deleted
 

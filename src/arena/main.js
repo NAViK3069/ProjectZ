@@ -22,6 +22,7 @@ import { drawBolts, drawVoidHole } from './void.js';
 import { drawBlast } from './flame.js';
 import { drawCircle, drawHole, drawBoom } from './galaxy.js';
 import { drawDemon, drawFist, drawSummonCircle, drawPunch } from './demon.js';
+import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (l) => l[(Math.random() * l.length) | 0];
@@ -1665,6 +1666,7 @@ function drawHud() {
   if (state === 'menu') return drawMainMenu(ctx, u, W, H);
   if (state === 'soon') return drawSoon(ctx, u, W, H);
   if (state === 'title') return drawTitle(ctx, u, W, H);
+  if (online.isScreen(state)) { hintEl.classList.add('fade'); return drawNetScreen(ctx, u, W, H); }
 
   // everyone's card in a row along the top (Superfighters style)
   drawHurt(ctx, W, H, player);
@@ -1710,6 +1712,7 @@ function drawHud() {
   if (state === 'match') drawMatch(ctx, u, W, H);
   if (paused) drawPause(ctx, u, W, H);
   drawCrosshair(ctx, u);
+  if (online.active) drawNetOverlay(ctx, u, W, H);
 }
 
 function drawBanner(ctx, u, H) {
@@ -1935,7 +1938,7 @@ function drawMatch(ctx, u, W, H) {
   const rows = [...game.fighters].sort((a, b) => b.wins - a.wins || b.kills - a.kills);
   centerText(ctx, 'NAME      ROUNDS   KILLS', y + 36 * u, 1, '#5a6a60', u);
   rows.forEach((o, i) => centerText(ctx, `${o.name.padEnd(8)}  ${String(o.wins).padStart(4)}   ${String(o.kills).padStart(5)}`, y + 48 * u + i * 11 * u, 1, tagColor(o), u));
-  if (Math.floor(game.time * 2) % 2 === 0) centerText(ctx, 'CLICK OR ENTER - REMATCH      S - ROOM SETUP      ESC - MAIN MENU', y + 110 * u, 1, '#ffd25a', u);
+  if (!online.active && Math.floor(game.time * 2) % 2 === 0) centerText(ctx, 'CLICK OR ENTER - REMATCH      S - ROOM SETUP      ESC - MAIN MENU', y + 110 * u, 1, '#ffd25a', u);
 }
 
 // ---------- training ----------
@@ -2347,24 +2350,26 @@ function drawMeter(ctx, u, W) {
 }
 
 // ---------- the main menu ----------
-// The way into everything. Only SINGLE PLAYER (you against bots, set up the
-// room first) is built so far; the other modes show what they'll be.
+// The way into everything: SINGLE PLAYER (you against bots, set up the room
+// first), MULTIPLAYER (online rooms - see online.js), TRAINING and the gun
+// editor; STORY shows what it'll be.
 
 const MODES = [
   { key: 'story', name: 'STORY', desc: 'FIGHT YOUR WAY OUT OF THE LAB', soon: ['A CAMPAIGN THROUGH THE RESEARCH FACILITY:', 'LEVEL AFTER LEVEL OF GUARDS, BOSSES AND WHAT GOT OUT OF THE TANKS,', 'WITH A STORY TOLD BETWEEN THE FIGHTS'] },
   { key: 'single', name: 'SINGLE PLAYER', desc: 'YOU AGAINST BOTS - SET UP THE ROOM AND FIGHT' },
-  { key: 'multi', name: 'MULTIPLAYER', desc: 'FIGHT YOUR FRIENDS', soon: ['PLAY WITH FRIENDS:', 'ON ONE KEYBOARD OR OVER THE NETWORK,', 'FREE FOR ALL OR IN TEAMS, BOTS TO FILL THE ROOM'] },
+  { key: 'multi', name: 'MULTIPLAYER', desc: 'ONLINE - PICK A SERVER, MAKE OR JOIN A ROOM WITH FRIENDS' },
   { key: 'training', name: 'TRAINING', desc: 'EVERY WEAPON AND SKILL - A RANGE, A COURSE, A GRAPPLE SHAFT' },
   { key: 'editor', name: 'GUN EDITOR', desc: 'DRAW YOUR OWN GUNS' },
 ];
 let modeSel = 1, soonMode = null;
 const modeRows = [];
-const onMenu = () => state === 'menu' || state === 'soon' || state === 'title';
+const onMenu = () => state === 'menu' || state === 'soon' || state === 'title' || online.isScreen(state);
 
 function pickMode(m) {
   if (m.key === 'single') { state = 'title'; menuSel = OPTIONS.length; return; }
   if (m.key === 'editor') { location.href = 'editor.html'; return; }
   if (m.key === 'training') { startTraining(); return; }
+  if (m.key === 'multi') { openOnline(); return; }
   soonMode = m;
   state = 'soon';
 }
@@ -2419,6 +2424,51 @@ function drawSoon(ctx, u, W, H) {
   centerText(ctx, 'ESC / ENTER / CLICK - BACK', y + 98 * u, 1, '#5a6a60', u);
 }
 
+// ---------- online ----------
+// (see online.js) A match over the network: everyone's fighters made from the
+// host's list - the players, then bots - on the host's map; the host runs it,
+// the others only draw it.
+function startNetMatch(roster, mapKey, me, host) {
+  loadMap(mapKey);
+  game.fighters = roster.map((r, i) => {
+    const f = new Fighter(game, images, r);
+    f.nid = i + 1;
+    f.team = r.team ?? i;
+    f.peer = r.peer ?? null;
+    return f;
+  });
+  player = game.fighters.find((f) => f.peer === me) ?? game.fighters[0];
+  bots = host ? game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.85 + i * 0.12) * settings.skill)) : [];
+  round = 0;
+  champion = null;
+  locker = null;
+  paused = false;
+  startRound();
+  hintEl.classList.remove('fade');
+  setTimeout(() => hintEl.classList.add('fade'), 9000);
+}
+// a room setting changed in an online room (no backdrop to redo, as on the setup screen)
+function changeNetSetting(i, dir) {
+  const [k, , vals] = OPTIONS[i];
+  const at = vals.findIndex(([v]) => v === settings[k]);
+  settings[k] = vals[(at + dir + vals.length) % vals.length][0];
+  saveSettings();
+}
+initOnline({
+  game, settings, OPTIONS, input, renderer, images, IDLE, MAP_KEYS, pick, weapons: WEAPONS, iconOf,
+  drawText, textWidth, centerText, panel, playerControl, startNetMatch, changeNetSetting,
+  get state() { return state; }, set state(v) { state = v; },
+  get player() { return player; }, set player(v) { player = v; },
+  get stateT() { return stateT; }, set stateT(v) { stateT = v; },
+  get round() { return round; }, set round(v) { round = v; },
+  get roundT() { return roundT; }, set roundT(v) { roundT = v; },
+  get overtime() { return overtime; }, set overtime(v) { overtime = v; },
+  get slow() { return slow; }, set slow(v) { slow = v; },
+  get banner() { return banner; }, set banner(v) { banner = v; },
+  get winner() { return winner; }, set winner(v) { winner = v; },
+  get champion() { return champion; }, set champion(v) { champion = v; },
+});
+
 // ---------- the loop ----------
 
 makeFighters();
@@ -2435,10 +2485,13 @@ function frame(now) {
 }
 
 function tick(realDt, draw = true) {
+  netUpdate(realDt);
   // menus
   if (state === 'menu') mainMenuInput();
   else if (state === 'soon') { if (input.wasPressed('Escape', 'Enter', 'Mouse0', 'Space')) state = 'menu'; }
   else if (state === 'title') titleInput();
+  else if (online.isScreen(state)) netScreenInput();
+  else if (online.active) netGameInput();   // (online, ESC doesn't pause: it's a menu over the game, which goes on)
   else if (state === 'match') {
     if (stateT > 1 && input.wasPressed('Enter', 'Mouse0')) startMatch();
     else if (stateT > 1 && input.wasPressed('KeyS')) { state = 'title'; banner = null; }
@@ -2450,7 +2503,13 @@ function tick(realDt, draw = true) {
     if (input.wasPressed('KeyS')) { paused = false; state = 'title'; banner = null; }
   }
 
-  if (!paused) {
+  if (online.isClient && !onMenu()) {
+    // in someone else's game: what the host sends is drawn, our controls go to it (see online.js)
+    clientFrame(realDt);
+    for (const k of game.feed) k.t -= realDt;
+    renderer.update(realDt);
+    updateCamera(realDt);
+  } else if (!paused) {
     const dt = realDt * slow;
     game.time += dt;
     if (!onMenu()) updateRounds(dt, realDt);
@@ -2459,13 +2518,14 @@ function tick(realDt, draw = true) {
     const live = state === 'fight' || state === 'end' || state === 'training';
     const cabinetOpen = !!locker;   // (the E that shuts it doesn't open it again)
     if (locker) lockerInput(realDt);
-    let pc = live && !cabinetOpen ? (testControl ? { ...IDLE, ...testControl } : playerControl()) : IDLE;
+    let pc = live && !cabinetOpen && !online.menuOpen ? (testControl ? { ...IDLE, ...testControl } : playerControl()) : IDLE;
     // E at a cabinet opens it (rather than reaching for what's on the floor)
     if (pc.pickup && cabinetNear()) { openLocker(cabinetNear()); pc = IDLE; }
     // TAB in training: everything, wherever you are
     else if (state === 'training' && !cabinetOpen && player.alive && input.wasPressed('Tab')) { openLocker({ use: 'all' }); pc = IDLE; }
     if (pc.pickup) player.pickupPressed = true;
     player.update(dt, pc);
+    updateRemotes(dt, live);   // (hosting online: the other players' fighters, by their controls)
     for (const b of bots) b.f.update(dt, live ? b.control(dt) : IDLE);
     updateDecoys(dt, live);
     updateBullets(dt);
@@ -2497,9 +2557,10 @@ function tick(realDt, draw = true) {
     game.feed = game.feed.filter((k) => k.t > 0);
     renderer.update(realDt);
     updateCamera(realDt);
+    hostFrame(realDt);   // (hosting online: the state of the game out to everyone)
   }
   // the system cursor on the menus (setup, results, pause); in a fight the crosshair takes its place
-  const cursor = onMenu() || state === 'match' || paused || locker ? 'default' : 'none';
+  const cursor = onMenu() || state === 'match' || paused || locker || online.menuOpen ? 'default' : 'none';
   if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor;
   if (draw) {
     drawWorld();
