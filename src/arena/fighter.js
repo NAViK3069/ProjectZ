@@ -201,6 +201,10 @@ function tinted(images, hue, sat = 1) {
   return out;
 }
 
+// A game as a fighter sees it, but with no effects or flashes of its own (see coast).
+const QUIET = new Proxy({}, { get: () => () => {} });
+const quietGame = (g) => (g.quiet ??= Object.create(g, { fx: { value: QUIET }, lights: { value: QUIET }, kick: { value: () => {} } }));
+
 export class Fighter {
   // opts: { name, color, hue, sat, bot }
   constructor(game, images, opts) {
@@ -1932,6 +1936,50 @@ export class Fighter {
     } else {
       pose.body += Math.max(-1, Math.round(s * 0.5));
       pose.head += Math.max(-2, Math.round(s));
+    }
+  }
+
+  // ---------- online: the others' screens ----------
+  // Between one state of the game from the host and the next, what only moves with time carried on
+  // here - the limbs and the bounce, the gun's kick and flash and the motion of a reload, a swing, a
+  // skill building up - so it moves at the screen's own rate, not twenty times a second. Nothing the
+  // host decides changes: ammo, health, what's in hand, whether a reload is done. (limbs: false - our
+  // own fighter, whose limbs come from its stand-in; see online.js)
+  coast(dt, limbs = true) {
+    const game = this.game;
+    this.game = quietGame(game);   // (no dust of its own: the host's effects come with its state)
+    try {
+      this.hurtT += dt;
+      this.lastFireT += dt;
+      this.flash -= dt;
+      if (!this.alive) return;
+      if (limbs) this.animate(dt);
+      if (this.slot === 1) {
+        const m = this.melee;
+        m.update(dt);
+        this.tilt += (m.raising * RAISE_TILT - this.tilt) * Math.min(1, dt * 16);
+      } else if (this.weapon) {
+        const w = this.weapon, keep = { ammo: w.ammo, reserve: w._reserve, reloading: w.reloading, reload: w.reload };
+        w.update(dt);
+        w.ammo = keep.ammo;
+        w._reserve = keep.reserve;
+        if (keep.reloading && !w.reloading) w.reload = keep.reload;   // (done when the host says so - reloading is its progress, -1 when not)
+        let tilt = !w.reloading ? 0
+          : w.def.reload === 'shells' ? SHELL_TILT
+          : w.def.reload === 'steps' ? (w.openAngle / w.def.openAngle) * STEP_TILT
+          : Math.sin(Math.PI * Math.min(1, w.reload * 1.15)) * RELOAD_TILT;
+        tilt += w.raising * RAISE_TILT;
+        this.tilt += (tilt - this.tilt) * Math.min(1, dt * 16);
+      }
+      for (const sl of this.slashes) sl.t += dt;
+      for (const c of this.cuts) c.t += dt;
+      for (const k of ['bow', 'mura', 'gal', 'summon']) if (this[k] && typeof this[k].t === 'number') this[k].t += dt;
+      if (this.blaze?.phase === 'charge') this.blaze.t += dt;
+      if (this.cloak && !this.cloak.out) { this.cloak.t -= dt; this.cloak.flick -= dt; }
+      if (this.veil) this.veil.t -= dt;
+      if (this.roll && limbs) this.roll.t = Math.min(0.99, this.roll.t + dt / ROLL_TIME);
+    } finally {
+      this.game = game;
     }
   }
 

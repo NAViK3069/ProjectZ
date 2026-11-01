@@ -34,6 +34,10 @@ const BOT_NAMES = ['VEX', 'KORA', 'DUKE', 'ROOK', 'NYX', 'ZED', 'IVO', 'MOX'];
 // (the others) everyone else is drawn a moment behind the latest from the host, eased between its states - smooth,
 // however unevenly they come in. How far behind goes with how far apart they've been coming (the longest gap lately, and a bit).
 const DELAY_MIN = 0.08, DELAY_MAX = 0.3;
+// worked out on each screen for itself, every frame (see Fighter.coast): not taken from the host's states
+const LOOKS_HERE = ['pose', 'animT', 'frame', 'state', 'sq', 'sqV', 'settle', 'tilt'];
+// our own gun's kick, flash and cycling - from the shots fired here, at once (see predict), not the host's later copy of them
+const OUR_GUN = ['flash', 'recoil', 'climb', 'cooldown', 'cycleT', 'heat', 'acting', 'actDelay', 'spent', 'burstLeft', 'reloadQueued'];
 const delay = () => Math.max(DELAY_MIN, Math.min(DELAY_MAX, (N.gap ?? 0.05) * 1.3 + 0.03));
 const teamOf = (i) => (i < SLOTS / 2 ? 0 : 1);
 const TEAM_LOOKS = [{ color: '#6ad8ff', hue: 210, sat: 1.2 }, { color: '#ff6a5a', hue: 8, sat: 1.7 }];   // in TEAMS everyone wears their side's colour: BLUE, RED (the art's own hair is red)
@@ -215,8 +219,20 @@ function applySnapshot(s) {
   if (N.lastRt !== undefined) N.gap = Math.max(s.rt - N.lastRt, (N.gap ?? 0.05) * 0.985);
   N.lastRt = s.rt;
   for (const e of s.f) {
-    const f = N.fighters.get(e.n), ox = f.x, oy = f.y, had = f._seen;
+    const f = N.fighters.get(e.n), ox = f.x, oy = f.y, had = f._seen, aim = f.aim;
+    if (had) for (const k of LOOKS_HERE) delete e.s[k];
+    const ours = had && f.peer === myId() && !N.watching && N.ghost?.synced, gun = ours ? f.weapon : null, gunWas = gun && Object.fromEntries([...OUR_GUN, 'ammo', 'reloading', 'reload'].map((k) => [k, gun[k]]));
     assign(f, e.s);
+    if (gun && f.weapon === gun) {
+      const now = performance.now() / 1000, { ammo, reloading, reload } = gunWas;
+      for (const k of OUR_GUN) gun[k] = gunWas[k];
+      // a shot or a reload just done here: the host's copy may not have it yet (its state set off before
+      // our controls got there) - ours stands till it can have
+      if (now < N.gunHold && gun.ammo > ammo) gun.ammo = ammo;
+      if (now < N.reloadHold && reloading && !gun.reloading) gun.reload = reload;   // (reloading: its progress, -1 when not)
+    }
+    // the aim: eased to (see clientFrame) - our own, it's where our mouse is
+    if (e.s.aim !== undefined) { f._aim = f.aim; if (had) f.aim = aim; }
     // where it is now by the host, kept with the time - drawn from these (see clientFrame), not jumped to
     if (f.peer === myId() && e.s.hurtT !== undefined && f.hurtT < 0.15 && (e.s.vx !== undefined || e.s.vy !== undefined)) N.knock = { vx: f.vx, vy: f.vy };
     if (e.s.x !== undefined || f._sx === undefined) f._sx = f.x;
@@ -332,6 +348,10 @@ export function clientFrame(dt) {
   const mine = N.watching ? null : g.fighters.find((f) => f.peer === myId());
   const predicted = mine && live && predict(mine, c, dt);
   for (const f of g.fighters) {
+    f.coast(dt, f !== predicted);
+    if (f !== predicted && f._aim !== undefined) f.aim += Math.atan2(Math.sin(f._aim - f.aim), Math.cos(f._aim - f.aim)) * Math.min(1, dt * 18);
+  }
+  for (const f of g.fighters) {
     const h = f._h;
     if (!h?.length || f === predicted) continue;
     if (f.peer === myId() && !N.watching) {
@@ -437,6 +457,21 @@ function predict(f, c, dt) {
   const mc = { ...A.IDLE };
   for (const k of MOVE_KEYS) mc[k] = c[k];
   gh.update(dt, mc);
+  // our gun, at once: a shot (kick, flash, the round gone - the host fires the real one and sends it),
+  // a reload started. (The host's copies of these come a trip later, and aren't taken: see applySnapshot.)
+  const w = f.slot === 1 ? null : f.weapon;
+  if (w && f.alive) {
+    // (the host's word on these waits a trip there and back - and a bit)
+    const hold = performance.now() / 1000 + Math.max(0.2, Math.min(0.6, ((N.room?.ping ?? 60) * 2) / 1000 + 0.15));
+    if (c.reload && w.startReload() !== false) N.reloadHold = hold;
+    const pull = c.fire && !f.onLadder && !f.roll && (((w.def.auto && !w.def.burst) || !N.trigger) || w.burstLeft > 0);
+    if (pull) {
+      const r = w.tryFire();
+      if (r === 'fired') N.gunHold = hold;
+      else if (r === 'empty' && w.reloading) N.reloadHold = hold;
+    }
+  }
+  N.trigger = !!c.fire;
   // drawn where the stand-in is, as it is
   for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'roll', 'pose', 'sq', 'sqV', 'settle', 'state', 'animT', 'frame', 'climbT', 'sprinting', 'tilt']) f[k] = gh[k];
   if (c.aim !== null && c.aim !== undefined) f.aim = c.aim;
@@ -648,6 +683,9 @@ function hookRoom() {
     if (!e) N.ctl.set(from, (e = { held: {}, pressed: {}, at: 0 }));
     e.at = performance.now();
     for (const k of PRESSED) if (c[k]) e.pressed[k] = true;
+    // the trigger pulled: kept till a frame here has seen it (a quick click - down and up before this
+    // end's next frame - was lost: a flash on their screen, no shot)
+    if (c.fire && !e.held.fire) e.pressed.fire = true;
     if (c.slot) e.pressed.slot = c.slot;
     if (c.cycle) e.pressed.cycle = c.cycle;
     const held = { ...c };

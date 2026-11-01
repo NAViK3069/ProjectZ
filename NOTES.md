@@ -73,6 +73,12 @@ minimised; and however slowly frames come, the game makes up the time in
 1/30 s steps (`runFor`). The host leaving ends the room (HOST hands it over
 first). Our own shots come in from the host already on their way; each is
 drawn coming out of the gun and catching up in 0.12 s (`N.shots`).
+Between the host's states, each screen carries on what only moves with
+time - limbs, the gun's kick and flash, a reload's motion, a swing, a
+skill building up (`Fighter.coast`) - and eases the others' aim, so it all
+moves at the screen's rate. A player's own gun fires and starts reloading on
+their screen at once (the host fires the real shot); for a moment after,
+their ammo and reload stand over the host's not-yet-updated copy.
 
 ## The 2.5D top-down game is shelved, not deleted
 
