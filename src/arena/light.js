@@ -14,9 +14,12 @@ import { makeCanvas } from '../engine/pixel.js';
 import { T, SOLID, PLAT, ACID, LOW } from './level.js';
 
 const AMBIENT = '#7a8494';   // bright enough to see the whole lab by, lamps or not
+const AMBIENT_LIFT = 0.35;   // every map's ambient, this much of the way up to white: lamps shot out, it's still a place you can see in
 const REACH = 220;             // px: how far a lamp's light carries before it's gone
 const CONE = 0.78, SOFT = 0.5;  // half-angle of the beam (rad) and how wide its edge fades
 const WARM = [255, 238, 210];
+
+const lifted = (hex) => '#' + [1, 3, 5].map((i) => { const v = parseInt(hex.slice(i, i + 2), 16); return Math.round(v + (255 - v) * AMBIENT_LIFT).toString(16).padStart(2, '0'); }).join('');
 
 const smoothstep = (a, b, x) => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -59,7 +62,9 @@ export class Lights {
     [this.c, this.g] = makeCanvas(1, 1);
     this.flashes = [];   // short lights: { x, y, r, color, t, max }
     // each lamp shines down to the first thing under it
-    this.ambient = level.ambient ?? AMBIENT;
+    this.ambient = lifted(level.ambient ?? AMBIENT);
+    // (the darker maps' own colours are too dark for the ambient alone to help: the whole scene's brought up by this first - see apply)
+    this.boost = level.theme?.boost ?? 1;
     this.lamps = level.lamps.map((l) => {
       // hanging under a ceiling, or (outdoors) up on a pole standing on the floor below its cell
       const x = (l.cx + 0.5) * T, y = l.pole ? (l.cy - 2) * T + 4 : l.cy * T + 9;
@@ -155,6 +160,12 @@ export class Lights {
     for (const e of extra) radial(e.x, e.y, e.r, e.rgb, e.k);
     // over the scene
     ctx.save();
+    if (this.boost > 1) {
+      const v = Math.round(255 * (1 - 1 / this.boost));
+      ctx.globalCompositeOperation = 'color-dodge';
+      ctx.fillStyle = `rgb(${v}, ${v}, ${v})`;
+      ctx.fillRect(ox, oy, w, h);
+    }
     ctx.globalCompositeOperation = 'multiply';
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.c, ox, oy);

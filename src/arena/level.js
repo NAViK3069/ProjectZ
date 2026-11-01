@@ -24,16 +24,16 @@ const hash = (x, y, s = 0) => {
 // What each theme looks like: the back wall, the blocks' faces and walkable
 // tops, the catwalks; the light (ambient: how bright it is away from lamps).
 export const THEMES = {
-  lab: { ambient: '#7a8494', back: 'lab', solid: ['#2b3a37', '#253331', '#a9b8ae', '#d6e0d6', '#6e7f76'], plat: ['#d2b048', '#7a6526', '#55625b'] },
-  range: { ambient: '#8a94a0', back: 'lab', solid: ['#2e3a3e', '#283336', '#b0bcc0', '#e0e8ea', '#74828a'], plat: ['#d2b048', '#7a6526', '#55625b'] },
-  warehouse: { ambient: '#8a8478', back: 'tin', solid: ['#4a4640', '#3e3a35', '#8d8676', '#bdb4a0', '#6a645a'], plat: ['#c8a23a', '#6e5a22', '#5a5850'] },
-  office: { ambient: '#9a968c', back: 'office', solid: ['#4e4a52', '#423e46', '#7a6a5e', '#a08c7a', '#5e5048'], plat: ['#9aa0a8', '#5a6068', '#6a7078'] },
-  roof: { ambient: '#7c88a8', back: 'sky', sky: ['#0d1430', '#2a2350', '#5a3a62'], night: true, solid: ['#5a3a30', '#4a302a', '#7e7a72', '#a8a49a', '#5a5650'], plat: ['#7a8288', '#3a4046', '#4a5056'] },
+  lab: { boost: 1.35, ambient: '#7a8494', back: 'lab', solid: ['#2b3a37', '#253331', '#a9b8ae', '#d6e0d6', '#6e7f76'], plat: ['#d2b048', '#7a6526', '#55625b'] },
+  range: { boost: 1.2, ambient: '#8a94a0', back: 'lab', solid: ['#2e3a3e', '#283336', '#b0bcc0', '#e0e8ea', '#74828a'], plat: ['#d2b048', '#7a6526', '#55625b'] },
+  warehouse: { boost: 1.3, ambient: '#8a8478', back: 'tin', solid: ['#4a4640', '#3e3a35', '#8d8676', '#bdb4a0', '#6a645a'], plat: ['#c8a23a', '#6e5a22', '#5a5850'] },
+  office: { boost: 1.1, ambient: '#9a968c', back: 'office', solid: ['#4e4a52', '#423e46', '#7a6a5e', '#a08c7a', '#5e5048'], plat: ['#9aa0a8', '#5a6068', '#6a7078'] },
+  roof: { boost: 1.3, ambient: '#7c88a8', back: 'sky', sky: ['#0d1430', '#2a2350', '#5a3a62'], night: true, solid: ['#5a3a30', '#4a302a', '#7e7a72', '#a8a49a', '#5a5650'], plat: ['#7a8288', '#3a4046', '#4a5056'] },
   site: { ambient: '#c8b8a4', back: 'sky', sky: ['#3a5a8a', '#c87a5a', '#f2b070'], night: false, solid: ['#9a3a2a', '#7a2e22', '#b84a36', '#e06a4a', '#6a2a20'], plat: ['#b8864a', '#6a4a26', '#8a6a42'], ground: ['#6a5238', '#5a4430', '#8a6e4a', '#a8885a', '#4a3a28'] },
-  metro: { ambient: '#8e9298', back: 'tile', solid: ['#3c4248', '#32383e', '#8c9298', '#c4c8cc', '#5c6268'], plat: ['#c8a23a', '#6e5a22', '#5a5850'] },
-  mine: { ambient: '#6a6258', back: 'rock', solid: ['#3e342a', '#342b22', '#6e5e48', '#8e7c60', '#4e4234'], plat: ['#8a6a42', '#4a3620', '#5a4630'] },
+  metro: { boost: 1.15, ambient: '#8e9298', back: 'tile', solid: ['#3c4248', '#32383e', '#8c9298', '#c4c8cc', '#5c6268'], plat: ['#c8a23a', '#6e5a22', '#5a5850'] },
+  mine: { boost: 1.4, ambient: '#6a6258', back: 'rock', solid: ['#3e342a', '#342b22', '#6e5e48', '#8e7c60', '#4e4234'], plat: ['#8a6a42', '#4a3620', '#5a4630'] },
   sand: { ambient: '#d0bc9c', back: 'sky', sky: ['#4a86b8', '#a8c8d0', '#f0d8a8'], night: false, brick: '#6a553c', solid: ['#a88a5e', '#927650', '#c8aa78', '#e4cc9c', '#7e6644'], plat: ['#8a6a42', '#4a3620', '#6a5030'], ground: ['#b89a68', '#a88a5a', '#d8bc84', '#ecd6a4', '#8e744c'] },
-  harbor: { ambient: '#7c88a8', back: 'sky', sky: ['#0a1228', '#1a2648', '#34466a'], night: true, sea: '#12304a', brick: '#2a3038', solid: ['#2a3a4e', '#223040', '#6a7a88', '#94a4b0', '#4a5a68'], plat: ['#c8783a', '#6a3e20', '#4a4640'] },
+  harbor: { boost: 1.35, ambient: '#7c88a8', back: 'sky', sky: ['#0a1228', '#1a2648', '#34466a'], night: true, sea: '#12304a', brick: '#2a3038', solid: ['#2a3a4e', '#223040', '#6a7a88', '#94a4b0', '#4a5a68'], plat: ['#c8783a', '#6a3e20', '#4a4640'] },
 };
 
 export class Level {

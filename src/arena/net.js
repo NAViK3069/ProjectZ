@@ -12,7 +12,7 @@
 // src/vendor (it loads when you first go online).
 
 const SDK = new URL('../vendor/photon-realtime.js', import.meta.url).href;
-const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-8';   // (players on different versions don't meet)
+const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-9';   // (players on different versions don't meet)
 const PROPS = ['n', 'm', 'mp', 's', 'mx', 'w', 'p', 'l', 'md', 'h'];   // a room's properties the lobby sees (name, mode, map, seated, max, watchers, playing, locked, made, host)
 const EV = { msg: 1, snap: 2, ctl: 3, rtc: 4 };
 const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];   // (only to find our own address: nothing of the game goes through these)

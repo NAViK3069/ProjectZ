@@ -306,7 +306,7 @@ export const MAPS = {
   // A mine dug out of solid rock: three galleries each side of a great cavern, acid in its floor, scaffolds across it -
   // and, for those who know, a crawlway under the acid from one side to the other.
   mine: {
-    name: 'THE MINE', w: 92, h: 36, theme: 'mine', desc: 'GALLERIES, A CAVERN AND A CRAWLWAY UNDER THE ACID',
+    name: 'THE MINE', w: 92, h: 36, theme: 'mine', desc: 'GALLERIES, A CAVERN, A CRAWLWAY UNDER ACID',
     build(L) {
       L.fill(0, 0, 91, 35, SOLID);
       for (const [x0, y0, x1, y1] of [[27, 4, 64, 31], [3, 5, 26, 11], [3, 15, 27, 21], [3, 25, 28, 31], [65, 5, 88, 11], [64, 15, 88, 21], [63, 25, 88, 31]]) L.fill(x0, y0, x1, y1, EMPTY);
@@ -336,7 +336,7 @@ export const MAPS = {
 
   // A sandstone arena under the sun: the stands stepping down to the sand, a passage running inside them, the gates at the top.
   colosseum: {
-    name: 'COLOSSEUM', w: 88, h: 30, theme: 'sand', desc: 'OUTDOORS - THE STANDS, THE SAND, THE PASSAGE BENEATH',
+    name: 'COLOSSEUM', w: 88, h: 30, theme: 'sand', desc: 'OUTDOORS - STANDS, SAND, A PASSAGE BENEATH',
     build(L) {
       L.fill(0, 28, 87, 29, SOLID);
       L.fill(0, 0, 0, 27, SOLID); L.fill(87, 0, 87, 27, SOLID);
@@ -361,7 +361,7 @@ export const MAPS = {
   // A cargo ship at the quay by night: a pier each side, gangways to the deck, a hold to drop into, the bridge at the stern -
   // and the water under the gangways: fall in and you're gone.
   harbor: {
-    name: 'CARGO SHIP', w: 104, h: 30, theme: 'harbor', openBottom: true, desc: 'OUTDOORS AT NIGHT - THE DECK, THE HOLD, THE WATER',
+    name: 'CARGO SHIP', w: 104, h: 30, theme: 'harbor', openBottom: true, desc: 'OUTDOORS AT NIGHT - DECK, HOLD AND WATER',
     build(L) {
       L.fill(0, 24, 14, 29, SOLID); L.fill(89, 24, 103, 29, SOLID);                // the piers
       L.fill(24, 22, 79, 29, SOLID);                                               // the hull

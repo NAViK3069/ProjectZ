@@ -81,7 +81,7 @@ const RED_BLUE = 0.42, MERGE = 0.74, MURA_CHARGE = 1.1, MURA_CD = 18;
 const BLAZE_CHARGE = 0.7, BLAZE_SPEED = 560, BLAZE_RANGE = 180, BLAZE_RECOVER = 0.3, BLAZE_DMG = 150, BLAZE_CD = 9;
 // galaxy (skill, Q): the cast (at a point this far off at most - where you aim), the wait after; how far short of a wall it opens
 const GAL_CAST = 0.8, GAL_RANGE = 240, GAL_CD = 16, GAL_WALL = 8;
-// the abyss fists (skill, Q): the calling-up, the wait once they're all gone (the fists themselves: see main.js)
+// the flying swords (skill, Q): the calling-up, the wait once they're all gone (the swords themselves: see main.js)
 const SUM_CAST = 0.6, SUM_CD = 15;
 export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD };
 export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST };
@@ -253,7 +253,7 @@ export class Fighter {
   reset(x, y) {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
-      padT: 0, flipT: -1, flipDir: 1, exposeT: 0, fistsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
+      padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
       onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
@@ -1597,18 +1597,16 @@ export class Fighter {
     ctx.globalAlpha = 1;
   }
 
-  // ---------- summon (skill, Q) ----------
-  // Q (standing on something): weapons away, both hands thrown up - a summoning
-  // circle opens on the floor in front of you, light streaming down into it from
-  // your hands (slowed right down, no attacking or rolling) - and out of it come
-  // four great fists of black fire, to circle you and strike at whoever's near,
-  // one blow each (see main.js). The wait starts when the last of them has gone.
+  // ---------- flying swords (skill, Q) ----------
+  // Q: weapons away, both hands thrown up - a magic circle opens upright behind you (slowed right down, no
+  // attacking or rolling) - and out of it come five swords of light, to hang in a fan behind you and go for
+  // whoever comes near, one blow each (see main.js). The wait starts when the last of them has gone.
 
   updateSummon(dt, c) {
     const m = this.summon;
     if (!m) {
-      if (c.skill && this.skillCD <= 0 && !this.fistsOut && this.onGround && !this.onLadder && !this.roll && this.alive) {
-        this.summon = { t: 0, x: this.x + this.facing * 26, y: this.y, seed: Math.random() * 100 };
+      if (c.skill && this.skillCD <= 0 && !this.swordsOut && !this.onLadder && !this.roll && this.alive) {
+        this.summon = { t: 0, seed: Math.random() * 100 };
         if (this.weapon?.reloading) this.weapon.cancelReload();
         this.hook = null;
       }
@@ -1616,9 +1614,9 @@ export class Fighter {
     }
     m.t += dt;
     if (m.t >= SUM_CAST) {
-      this.game.summonDemon?.(this, m.x, m.y, m.seed);
+      this.game.summonSwords?.(this, m.seed);
       this.summon = null;
-      this.fistsOut = true;
+      this.swordsOut = true;
     }
   }
   // both hands thrown up overhead, open, trembling with it
@@ -1627,16 +1625,16 @@ export class Fighter {
     drawHand(ctx, 'open', Math.round(this.x - this.facing * 3) + sh(), y - 27 + sh());
     drawHand(ctx, 'open', Math.round(this.x + this.facing * 5) + sh(), y - 28 + sh());
   }
-  // After the lighting: violet light streaming down from your hands into the circle (the circle: see main.js).
+  // After the lighting: ice-blue light streaming up from your hands and round into the circle (the circle: see main.js).
   drawSumCast(ctx) {
     const m = this.summon;
     if (!m || !this.alive) return;
-    const t = this.game.time, hx = this.x + this.facing, hy = this.y + this.pose.body - 29;
+    const t = this.game.time, hx = this.x + this.facing, hy = this.y + this.pose.body - 29, cy = this.y - 17;
     for (let i = 0; i < 16; i++) {
-      const ph = (t * 1.6 + i / 16) % 1, w = Math.sin(ph * Math.PI * 2 + i) * 4;
+      const ph = (t * 1.6 + i / 16) % 1, a = (i / 16) * Math.PI * 2 + t * 2, tx = this.x + Math.cos(a) * 24, ty = cy + Math.sin(a) * 24;
       ctx.globalAlpha = Math.sin(ph * Math.PI) * Math.min(1, m.t * 5);
-      ctx.fillStyle = i % 3 ? '#a24ef0' : '#d49cff';
-      ctx.fillRect(Math.round(hx + (m.x - hx) * ph + w), Math.round(hy + (m.y - 2 - hy) * ph), 1, 1);
+      ctx.fillStyle = i % 3 ? '#8fe0ff' : '#ffffff';
+      ctx.fillRect(Math.round(hx + (tx - hx) * ph), Math.round(hy + (ty - hy) * ph), 1, 1);
     }
     ctx.globalAlpha = 1;
   }

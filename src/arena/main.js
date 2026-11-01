@@ -22,7 +22,7 @@ import { Nav, Bot, gunTier } from './ai.js';
 import { drawBolts, drawVoidHole } from './void.js';
 import { drawBlast } from './flame.js';
 import { drawCircle, drawHole, drawBoom } from './galaxy.js';
-import { drawFist, drawSummonCircle, drawPunch } from './demon.js';
+import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
 import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -74,8 +74,8 @@ const OPTIONS = [
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
-  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS FISTS'], [null, 'NO SKILL']]],
-  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS FISTS'], [null, 'NONE']]],
+  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], [null, 'NO SKILL']]],
+  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -138,7 +138,7 @@ const FIST_ICON = sprite(9, 7, (g) => g.drawImage(HANDS.open.img, 1, 0, HANDS.op
 // ---------- the game ----------
 
 const game = {
-  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], demons: [], punches: [],
+  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [],
   get gunDamage() { return settings.dmg; },
   get regen() { return !overtime; },   // out of a fight for a while, you heal (not once the lab's venting)
   get viewer() { return player; },
@@ -147,7 +147,7 @@ const game = {
   kick: (dx, dy) => renderer.kick(dx, dy),
   loose: (f, targets, point) => loose(f, targets, point),
   flameFist: (f, x, y, a, v) => flameFist(f, x, y, a, v),
-  summonDemon: (f, x, y, seed) => summonDemon(f, x, y, seed),
+  summonSwords: (f, seed) => summonSwords(f, seed),
   galaxy: (f, x, y, seed) => game.galaxies.push({ owner: f, x, y, seed, t: 0, boomed: false, burn: new Map() }),
   hollowPurple: (f, x, y, a) => game.voids.push({ owner: f, x, y, x0: x, y0: y, a, sp: 120, dist: 0, t: 0, hit: new Set(), done: -1 }),   // whose eyes the screen is (a cloaked fighter shows only to itself)
   // what everyone starts a round with
@@ -431,7 +431,7 @@ function startRound() {
   game.voids = [];
   game.fists = [];
   game.galaxies = [];
-  game.demons = [];
+  game.swordSets = [];
   game.punches = [];
   game.numbers = [];
   game.fx = new Fx(level);
@@ -1040,7 +1040,7 @@ function updateGalaxies(dt) {
   }
   game.galaxies = game.galaxies.filter((o) => o.t < GAL_HOLE + GAL_BOOM);
 }
-// After the lighting: the hole, then the blast - and the summoned demons -
+// After the lighting: the hole, then the blast - and the flying swords' circle and the swords hanging there -
 // behind the fighters and everything else in the world - drawn on a layer of their own with every
 // fighter, crate, drum, gun lying about, grenade and thrown weapon cut out of
 // it, so they show in front of it (the glow round each goes straight on the
@@ -1048,8 +1048,8 @@ function updateGalaxies(dt) {
 // on top of it all, as before.
 let galaxyLayer = null;
 function drawGalaxies(ctx) {
-  const casting = game.fighters.filter((f) => f.alive && f.gal);
-  if (!game.galaxies.length && !casting.length) return;
+  const casting = game.fighters.filter((f) => f.alive && f.gal), calling = game.fighters.filter((f) => f.alive && f.summon);
+  if (!game.galaxies.length && !casting.length && !calling.length && !game.swordSets.length) return;
   const cv = ctx.canvas;
   if (!galaxyLayer || galaxyLayer[0].width !== cv.width || galaxyLayer[0].height !== cv.height) galaxyLayer = makeCanvas(cv.width, cv.height);
   const [c, g] = galaxyLayer;
@@ -1063,6 +1063,8 @@ function drawGalaxies(ctx) {
     if (o.t < GAL_HOLE) drawHole(g, ctx, o.x, o.y, GAL_R, o.t / GAL_HOLE, game.time, o.seed);
     else drawBoom(g, ctx, o.x, o.y, GAL_R, (o.t - GAL_HOLE) / GAL_BOOM, game.time, o.seed);
   }
+  for (const f of calling) drawSwordCircle(g, ctx, f.x, f.y - 17, f.summon.t / SKILL_TIME.demon, game.time);
+  drawSwordsHanging(g, ctx);
   g.globalCompositeOperation = 'destination-out';
   for (const p of game.props) p.draw(g);
   drawThrown(g);
@@ -1078,113 +1080,153 @@ function drawGalaxies(ctx) {
   for (const o of game.galaxies) if (o.t < 0.5) drawCircle(ctx, ctx, o.x, o.y, 20, 1, game.time, 1 - o.t / 0.5);
 }
 
-// ---------- summon ----------
-// The abyss fists, called up by the summon skill: four great fists of black fire come
-// up out of the circle and go round their summoner. Each strikes once - at the nearest
-// foe that can be seen, one after another - goes off in a burst of violet fire
-// where it lands, and it's gone. One that misses is spent too. The skill's wait starts
-// when the last has gone, or they burn out unused. The look of it: demon.js.
-
-const DEMON_LIFE = 12, DEMON_FISTS = 4;   // how long they last unused, how many
-const DEMON_RANGE = 230, DEMON_EVERY = 0.35, DEMON_PUNCH = 38;   // how far they strike, one this often, how hard
-const FIST_SPEED = 470, FIST_REACH = 300, FIST_R_X = 26, FIST_R_Y = 20;   // a fist out, how far it goes at most; the ring they go round in
-const PUNCH_LIFE = 0.45;   // how long the burst where one lands shows
-function summonDemon(f, x, y, seed) {
-  const d = { owner: f, x: f.x, y: f.y - 14, t: 0, life: DEMON_LIFE, seed, cd: 0.25, circle: { x, y } };
-  d.fists = Array.from({ length: DEMON_FISTS }, (_, i) => ({ i, state: 'rest', x: x, y: y - 6, vx: 0, vy: 0, dist: 0, target: null }));
-  game.demons.push(d);
-  game.fx.sparks(x, y - 4, 26, 0, -1, '#d49cff');
-  game.fx.smoke(x, y - 6, 8, true);
-  game.lights.flash(x, y - 20, 120, '150, 100, 255', 0.3);
+// ---------- flying swords ----------
+// Called up by the skill: five swords of light come out of the circle behind their summoner and hang there in a
+// fan, not going round. With a foe in reach and in sight they all turn to point at them; then, one at a time, one
+// draws back and flies straight in to stab them - steering after them a little, stopped by a wall, one blow each.
+// The skill's wait starts when the last has gone, or they burn out unused. The look of it: swords.js.
+const SWORD_LIFE = 12, SWORD_COUNT = 5;   // how long they last unused, how many
+const SWORD_RANGE = 230, SWORD_EVERY = 0.35, SWORD_HIT = 32, SWORD_AIM = 0.16;   // how far they strike, one this often, how hard, the drawing back
+const SWORD_SPEED = 580, SWORD_REACH = 320, SWORD_TURN = 6, SWORD_COME = 0.75;   // one in flight, how far it goes at most, how sharply it steers; when they're all out
+const STAB_LIFE = 0.45;   // how long the burst where one lands shows
+// where they hang, from the summoner's feet, and which way from straight up they point
+const SWORD_REST = [{ x: 0, y: -46, a: 0 }, { x: -16, y: -38, a: -0.14 }, { x: 16, y: -38, a: 0.14 }, { x: -21, y: -17, a: -0.42 }, { x: 21, y: -17, a: 0.42 }];
+function summonSwords(f, seed) {
+  const swords = SWORD_REST.map((r, i) => ({ i, state: 'rest', ang: -Math.PI / 2 + r.a, _a: -Math.PI / 2 + r.a, x: f.x, y: f.y, vx: 0, vy: 0, dist: 0, aimT: 0, target: null }));
+  game.swordSets.push({ owner: f, x: f.x, y: f.y - 17, t: 0, life: SWORD_LIFE, seed, cd: SWORD_COME, lock: null, swords });
+  game.fx.sparks(f.x, f.y - 17, 26, 0, -1, '#8fe0ff');
+  game.fx.motes(f.x, f.y - 17, 16, ['#ffffff', '#8fe0ff', '#43a6ff']);
+  game.lights.flash(f.x, f.y - 17, 130, '120, 200, 255', 0.3);
 }
-// where a fist is while it waits: going round its summoner
-function fistRest(d, fi) {
-  const o = d.owner, a = game.time * 1.8 + (fi.i / DEMON_FISTS) * Math.PI * 2;
-  return { x: (o?.x ?? d.x) + Math.cos(a) * FIST_R_X, y: (o?.y ?? d.y + 14) - 14 + Math.sin(a) * FIST_R_Y, a };
+// where a sword hangs: from its summoner as they stand, bobbing a little
+function swordRest(d, s) {
+  const o = d.owner, r = SWORD_REST[s.i];
+  return { x: (o?.x ?? d.x) + r.x, y: (o?.y ?? d.y + 17) + r.y + Math.sin(game.time * 2.2 + s.i * 1.3) * 1.2, a: -Math.PI / 2 + r.a };
 }
-function fistGone(fi, d) {
-  fi.state = 'done';
-  game.fx.sparks(fi.x, fi.y, 8, 0, -1, '#a24ef0');
+// ... and drawing back to go
+function swordDrawn(d, s) {
+  const p = swordRest(d, s), k = s.state === 'aim' ? Math.min(1, s.aimT / SWORD_AIM) : 0;
+  return { x: p.x - Math.cos(s.ang) * 5 * k, y: p.y - Math.sin(s.ang) * 5 * k };
 }
-function updateDemons(dt) {
-  for (const d of game.demons) {
+const turnTo = (a, to, by) => a + Math.max(-by, Math.min(by, Math.atan2(Math.sin(to - a), Math.cos(to - a))));
+function swordGone(s) {
+  s.state = 'done';
+  game.fx.motes(s.x, s.y, 8, ['#ffffff', '#8fe0ff', '#43a6ff']);
+}
+function updateSwords(dt) {
+  for (const d of game.swordSets) {
     const o = d.owner;
     d.t += dt;
     d.x = o.x;
-    d.y = o.y - 14;
+    d.y = o.y - 17;
     d.life -= dt;
     const over = d.life <= 0 || !o.alive;
     // the nearest foe that can be seen within reach
-    let tgt = null, best = DEMON_RANGE;
+    let tgt = null, best = SWORD_RANGE;
     if (!over) for (const v of game.fighters) {
       if (!v.alive || v.vanish || !game.foes(o, v) || (v.hidden && !v.glimpsed)) continue;
       const dd = Math.hypot(v.x - d.x, v.y - 14 - d.y);
       if (dd < best && game.los(d.x, d.y, v.x, v.y - 14)) { best = dd; tgt = v; }
     }
+    // (someone new in sight: a moment to see them all turn on them)
+    if (tgt && tgt !== d.lock) d.cd = Math.max(d.cd, 0.22);
+    d.lock = tgt;
     d.cd -= dt;
     if (tgt && d.cd <= 0) {
-      const fi = d.fists.filter((q) => q.state === 'rest').sort((a, b) => Math.hypot(a.x - tgt.x, a.y - tgt.y) - Math.hypot(b.x - tgt.x, b.y - tgt.y))[0];
-      if (fi) {
-        fi.state = 'out';
-        fi.target = tgt;
-        fi.dist = 0;
-        d.cd = DEMON_EVERY;
-        game.fx.sparks(fi.x, fi.y, 6, Math.sign(tgt.x - fi.x), 0, '#d49cff');
+      const s = d.swords.filter((q) => q.state === 'rest').sort((a, b) => Math.hypot(swordRest(d, a).x - tgt.x, swordRest(d, a).y - tgt.y) - Math.hypot(swordRest(d, b).x - tgt.x, swordRest(d, b).y - tgt.y))[0];
+      if (s) {
+        s.state = 'aim';
+        s.aimT = 0;
+        s.target = tgt;
+        d.cd = SWORD_EVERY;
       }
     }
-    for (const fi of d.fists) {
-      if (fi.state === 'rest') {
-        const r = fistRest(d, fi), k = Math.min(1, dt * 10);
-        fi.vx = -Math.sin(r.a) * 40;
-        fi.vy = Math.cos(r.a) * 40;
-        fi.x += (r.x - fi.x) * k;
-        fi.y += (r.y - fi.y) * k;
-        if (over) fistGone(fi, d);
+    for (const s of d.swords) {
+      if (s.state === 'rest' || s.state === 'aim') {
+        const p = swordRest(d, s), v = s.state === 'aim' ? s.target : tgt;
+        if (over) { s.x = p.x; s.y = p.y; swordGone(s); continue; }
+        if (s.state === 'aim' && !v?.alive) { s.state = 'rest'; continue; }
+        const want = v ? Math.atan2(v.y - 14 - p.y, v.x - p.x) : p.a;
+        s._a = turnTo(s._a ?? s.ang, want, 14 * dt);
+        s.ang = Math.round(s._a / 0.05) * 0.05;   // (online: a few words, not a stream)
+        if (s.state === 'aim' && (s.aimT += dt) >= SWORD_AIM) {
+          const from = swordDrawn(d, s);
+          s.state = 'out';
+          s.x = from.x;
+          s.y = from.y;
+          s._a = want;
+          s.ang = want;
+          s.dist = 0;
+          game.fx.sparks(s.x, s.y, 6, Math.cos(want), Math.sin(want), '#d6f6ff');
+        }
         continue;
       }
-      const v = fi.target;
-      if (!v?.alive || v.vanish) { fistGone(fi, d); continue; }
-      const dx = v.x - fi.x, dy = v.y - 14 - fi.y, dd = Math.hypot(dx, dy) || 1;
-      fi.vx = (dx / dd) * FIST_SPEED;
-      fi.vy = (dy / dd) * FIST_SPEED;
-      fi.x += fi.vx * dt;
-      fi.y += fi.vy * dt;
-      fi.dist += FIST_SPEED * dt;
-      if (dd < 9) {
-        v.hitHow = 'ABYSS FISTS';
-        v.hurt(DEMON_PUNCH, o, (dx / dd) * 300, -150 + (dy / dd) * 80);
-        game.punches.push({ x: fi.x, y: fi.y, ax: dx / dd, ay: dy / dd, t: 0, seed: Math.random() * 100 });
-        game.fx.sparks(fi.x, fi.y, 10, dx / dd, dy / dd, '#d49cff');
-        game.lights.flash(fi.x, fi.y, 70, '150, 110, 255', 0.15);
-        if (Math.hypot(player.x - fi.x, player.y - fi.y) < 180) renderer.kick((dx / dd) * 5, (dy / dd) * 4);
-        fi.state = 'done';
-      } else if (fi.dist > FIST_REACH) fistGone(fi, d);
+      // in flight, a few short steps at a time: steering after them, into whoever's in the way, stopped by a wall
+      const v = s.target, n = 3;
+      if (v?.alive && !v.vanish) s._a = turnTo(s._a ?? s.ang, Math.atan2(v.y - 14 - s.y, v.x - s.x), SWORD_TURN * dt);
+      s.ang = s._a ?? s.ang;
+      const ux = Math.cos(s.ang), uy = Math.sin(s.ang);
+      s.vx = ux * SWORD_SPEED;
+      s.vy = uy * SWORD_SPEED;
+      for (let i = 0; i < n && s.state === 'out'; i++) {
+        s.x += (s.vx * dt) / n;
+        s.y += (s.vy * dt) / n;
+        s.dist += (SWORD_SPEED * dt) / n;
+        const tipX = s.x + ux * 12, tipY = s.y + uy * 12;
+        if (level.solidAt(tipX, tipY)) {
+          game.punches.push({ x: tipX, y: tipY, ax: ux, ay: uy, t: 0, seed: Math.random() * 100 });
+          game.fx.sparks(tipX, tipY, 8, -ux, -uy, '#8fe0ff');
+          s.state = 'done';
+          break;
+        }
+        const h = game.fighters.find((q) => q.alive && !q.vanish && (!q.hidden || q.glimpsed) && game.foes(o, q) && (q.hitPart(tipX, tipY) || Math.hypot(q.x - tipX, q.y - 14 - tipY) < 9));
+        if (h) {
+          h.hitHow = 'FLYING SWORDS';
+          h.hurt(SWORD_HIT, o, ux * 260, -110 + uy * 60);
+          game.punches.push({ x: tipX, y: tipY, ax: ux, ay: uy, t: 0, seed: Math.random() * 100 });
+          game.fx.sparks(tipX, tipY, 10, ux, uy, '#d6f6ff');
+          game.lights.flash(tipX, tipY, 70, '120, 200, 255', 0.15);
+          if (Math.hypot(player.x - tipX, player.y - tipY) < 180) renderer.kick(ux * 5, uy * 4);
+          s.state = 'done';
+        }
+      }
+      if (s.state === 'out' && s.dist > SWORD_REACH) swordGone(s);
     }
-    d.fists = d.fists.filter((q) => q.state !== 'done');
+    d.swords = d.swords.filter((q) => q.state !== 'done');
     // the last of them gone: now the wait starts
-    if (!d.fists.length) {
+    if (!d.swords.length) {
       d.over = true;
-      o.fistsOut = false;
+      o.swordsOut = false;
       if (o.alive) o.skillCD = SKILL_CD.demon;
     }
   }
-  game.demons = game.demons.filter((d) => !d.over);
+  game.swordSets = game.swordSets.filter((d) => !d.over);
   for (const p of game.punches) p.t += dt;
-  game.punches = game.punches.filter((p) => p.t < PUNCH_LIFE);
+  game.punches = game.punches.filter((p) => p.t < STAB_LIFE);
 }
-// After the lighting, over everything: the circles being called up out of (and fading as
-// the fists come up), the fists going round and flying, and the bursts where they land.
-function drawDemonsOnTop(ctx) {
-  for (const f of game.fighters) if (f.alive && f.summon) drawSummonCircle(ctx, ctx, f.summon.x, f.summon.y, f.summon.t / SKILL_TIME.demon, game.time);
-  for (const d of game.demons) {
-    if (d.t < 0.5) drawSummonCircle(ctx, ctx, d.circle.x, d.circle.y, 1, game.time, 1 - d.t / 0.5);
-    for (const fi of d.fists) {
-      // (going round: from where its summoner is as drawn, so online it keeps up with them between the host's words)
-      const r = fi.state === 'rest' && d.t > 0.2 ? fistRest(d, fi) : fi;
-      drawFist(ctx, ctx, r.x, r.y, fi.vx || 1, fi.vy, game.time, d.seed + fi.i, fi.state === 'rest' ? 3 : 7);
+// On the layer behind the fighters: the circle fading as they come out, and the swords hanging there - coming out
+// of the heart of it one after the other, and drawing back to go.
+function drawSwordsHanging(g, gl) {
+  for (const d of game.swordSets) {
+    const o = d.owner;
+    if (!o) continue;
+    if (d.t < 0.6) drawSwordCircle(g, gl, o.x, o.y - 17, 1, game.time, 1 - d.t / 0.6);
+    for (const s of d.swords) {
+      if (s.state !== 'rest' && s.state !== 'aim') continue;
+      const p = swordDrawn(d, s), k = Math.max(0, Math.min(1, (d.t - s.i * 0.08) / 0.32)), e = 1 - Math.pow(1 - k, 3);
+      const x = o.x + (p.x - o.x) * e, y = o.y - 17 + (p.y - (o.y - 17)) * e;
+      drawSword(g, gl, x, y, s.ang, game.time, d.seed + s.i, k < 1 ? { scale: 0.45 + 0.55 * e, alpha: Math.min(1, k * 2), hot: 1 - k } : { hot: s.state === 'aim' ? 0.8 : 0 });
     }
   }
-  for (const p of game.punches) drawPunch(ctx, ctx, p.x, p.y, p.t / PUNCH_LIFE, game.time, p.seed, p.ax, p.ay);
+}
+// After the lighting, over everything: the swords in flight and the bursts where they land.
+function drawSwordsOnTop(ctx) {
+  for (const d of game.swordSets) for (const s of d.swords) {
+    if (s.state !== 'out') continue;
+    drawSwordTrail(ctx, s.x, s.y, s.ang);
+    drawSword(ctx, ctx, s.x, s.y, s.ang, game.time, d.seed + s.i, { hot: 0.5 });
+  }
+  for (const p of game.punches) drawStab(ctx, ctx, p.x, p.y, p.t / STAB_LIFE, game.time, p.seed, p.ax, p.ay);
 }
 
 // ---------- world updates ----------
@@ -1555,7 +1597,7 @@ function drawWorld() {
   for (const f of game.fighters) if (f.alive && f.fade && !(f.fade.secret && f !== player)) extra.push({ x: f.x, y: f.y - 14, r: 38, rgb: f.fade.rgb ?? '150, 110, 255', k: 0.5 * (1 - f.fade.t / f.fade.dur) });
   // the grapple's claw lights up what it's stuck in
   for (const f of game.fighters) if (f.hook && f.hook.state !== 'back') extra.push({ x: f.hook.x, y: f.hook.y, r: 22, rgb: '120, 210, 255', k: 0.4 });
-  for (const d of game.demons) extra.push({ x: d.owner?.x ?? d.x, y: (d.owner?.y ?? d.y) - 14, r: 50, rgb: '140, 100, 255', k: 0.35 });
+  for (const d of game.swordSets) extra.push({ x: d.owner?.x ?? d.x, y: (d.owner?.y ?? d.y) - 30, r: 56, rgb: '110, 190, 255', k: 0.35 });
   for (const p of game.pickups) if (p.ready) extra.push({ x: p.x, y: p.y - 6, r: 26, rgb: p.kind === 'health' ? '255, 120, 110' : '170, 240, 255', k: 0.3 });
   for (const g of game.grenades) if (Math.sin(g.t * (g.t < 0.6 ? 40 : 14)) > 0) extra.push({ x: g.x, y: g.y - 3, r: 16, rgb: '255, 80, 60', k: 0.6 });
   if (overtime) extra.push({ x: renderer.camera.x, y: renderer.camera.y, r: 600, rgb: '120, 20, 10', k: 0.15 + 0.08 * Math.sin(time * 5) });
@@ -1596,7 +1638,7 @@ function drawWorld() {
   drawArrows(ctx);
   drawVoids(ctx);
   drawFists(ctx);
-  drawDemonsOnTop(ctx);
+  drawSwordsOnTop(ctx);
   for (const b of game.bullets) drawBullet(ctx, b);
   for (const f of game.fighters) f.drawFlash(ctx);
   drawNumbers(ctx);
@@ -1868,7 +1910,7 @@ function drawCards(ctx, u, W) {
       const k = f.skill === 'grapple' && f.charges > 0 ? 1 : Math.max(0, Math.min(1, 1 - f.skillCD / SKILL_CD[f.skill])), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
-      if (on) { const left = Math.max(0, f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (game.demons.find((d) => d.owner === f)?.fists.length ?? 0) / DEMON_FISTS) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.skill === 'demon' ? '#6a22b0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
+      if (on) { const left = Math.max(0, f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (game.swordSets.find((d) => d.owner === f)?.swords.length ?? 0) / SWORD_COUNT) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
       else if (!ready) px(x + 16, y + 18 + 7 * (1 - k), 8, 7 * k, '#22343a');
       text('Q', x + 19, y + 19, on ? '#d8c8ff' : ready ? '#8ff0ff' : '#4a5a5c');
     }
@@ -1930,7 +1972,7 @@ function drawCards(ctx, u, W) {
   return (y + CH + 1) * u;
 }
 // A skill going (cast, out, or what it called up still about).
-const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || game.demons.some((d) => d.owner === f) || !!f.fistsOut;
+const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
 
 // Your skill, bottom right: its picture and name, Q, and how it stands - READY (lit, with a
 // flash the moment it comes ready), going, or the wait left as a bar filling back up.
@@ -2144,6 +2186,9 @@ function drawTitle(ctx, u, W, H) {
     if (k === 'myskill' || k === 'botskill') {
       if (menuSel === i) kit.rect(ox, oy, colW, rowH - u, KC.row);
       kit.select(`pick:${k}`, ox, oy, colW, rowH - u, label, settings.skills ? shown : 'OFF', { enabled: !!settings.skills, img: settings.skills ? SKILL_INFO.find((s) => s.key === settings[k])?.img : null });
+    } else if (k === 'map') {
+      if (menuSel === i) kit.rect(ox, oy, colW, rowH - u, KC.row);
+      kit.select('pick:map', ox, oy, colW, rowH - u, label, shown);
     } else kit.stepper(`opt:${i}`, ox, oy, colW, rowH - u, label, shown, { selected: menuSel === i });
   });
   y += ph + 8 * u;
@@ -2168,6 +2213,37 @@ function pickSkillSetting(k) {
     saveSettings();
     if (state === 'title') { makeFighters(); startRound(); round = 0; state = 'title'; banner = null; }
   });
+}
+
+// The maps' pictures: made the first time they're asked for, from the map itself, without the headroom over it.
+const mapThumbs = new Map();
+function mapThumb(key) {
+  if (!mapThumbs.has(key)) {
+    const L = new Level(MAPS[key]), sy = L.pad * T, sh = (L.h - L.pad) * T, sw = L.w * T, k = Math.min(1, 320 / sw), [c, g] = makeCanvas(Math.round(sw * k), Math.round(sh * k));
+    g.imageSmoothingEnabled = true;
+    g.drawImage(L.back, 0, sy, sw, sh, 0, 0, c.width, c.height);
+    g.fillStyle = '#7fe03a';   // (the acid's drawn live in the game: here, just where it lies)
+    for (let cy = L.pad; cy < L.h; cy++) for (let cx = 0; cx < L.w; cx++) if (L.get(cx, cy) === ACID) g.fillRect(cx * T * k, (cy - L.pad) * T * k, T * k + 0.5, T * k + 0.5);
+    g.drawImage(L.front, 0, sy, sw, sh, 0, 0, c.width, c.height);
+    mapThumbs.set(key, c);
+  }
+  return mapThumbs.get(key);
+}
+// The pop-up of the maps; the pick goes to apply(key).
+function pickMap(apply) {
+  const items = [...MAP_KEYS.map((key) => ({ key, label: MAPS[key].name, desc: MAPS[key].desc, thumb: mapThumbs.get(key), maps: true })), { key: 'random', label: 'RANDOM', desc: 'A DIFFERENT ONE EVERY MATCH' }];
+  openPicker('pk-map', 'MAP', items, settings.map, apply);
+  picker.maps = true;
+}
+function setMap(key) {
+  settings.map = key;
+  saveSettings();
+  loadMap(key === 'random' ? 'lab' : key);
+  makeFighters();
+  startRound();
+  round = 0;
+  state = 'title';
+  banner = null;
 }
 
 // Step a setting one way or the other.
@@ -2198,6 +2274,7 @@ function titleInput() {
     menuSel = +i;
     return changeSetting(+i, +dir);
   }
+  if (c === 'pick:map') return pickMap(setMap);
   if (c?.startsWith('pick:')) return pickSkillSetting(c.slice(5));
   if (c === 'start' || input.wasPressed('Enter') || (menuSel === OPTIONS.length && input.wasPressed('Space'))) return startMatch();
   if (c === 'back' || input.wasPressed('Escape')) state = 'menu';   // back to the main menu
@@ -2206,11 +2283,11 @@ function titleInput() {
 // The match over: who won, everyone's rounds and kills, what next.
 function drawMatch(ctx, u, W, H) {
   kit.shade(0.74);
-  const c = champion, rows = game.fighters.filter((f) => !f.isDecoy).sort((a, b) => b.wins - a.wins || b.kills - a.kills);
+  const c = champion, rows = [...new Set([...game.fighters, ...(game.leftMatch ?? [])])].filter((f) => !f.isDecoy).sort((a, b) => b.wins - a.wins || b.kills - a.kills);
   const pw = Math.min(W - 16 * u, 320 * u), rowH = 11 * u, ph = 26 * u + 24 * u + 12 * u + rows.length * rowH + 30 * u;
   const px = Math.round(W / 2 - pw / 2), py = Math.max(8 * u, Math.round(H / 2 - ph / 2));
   let y = kit.panel(px, py, pw, ph, { title: 'MATCH OVER' });
-  const head = teamMode() ? `${TEAMS[c.team].name} TEAM WINS` : c === player ? 'YOU WIN!' : `${c.name} WINS`;
+  const head = game.walkover ? 'VICTORY!' : teamMode() ? `${TEAMS[c.team].name} TEAM WINS` : c === player ? 'YOU WIN!' : `${c.name} WINS`;
   kit.text(head, W / 2, y, { size: 2, color: tagColor(c), align: 'center' });
   y += 24 * u;
   const colR = px + pw - 70 * u, colK = px + pw - 12 * u;
@@ -2274,7 +2351,7 @@ function startTraining() {
   paused = false;
   banner = { text: 'TRAINING', sub: 'TAB (OR E AT A CABINET) FOR GUNS, SKILLS AND MEDKITS - ESC FOR THE MENU', t: 2.4, color: '#8ff0ff' };
   locker = null;
-  game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.demons = []; game.punches = [];
+  game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = [];
   stats.reset();
   player = new Fighter(game, images, ROSTER[0]);
   player.team = 0;
@@ -2415,13 +2492,12 @@ const GALAXY_ICON = sprite(13, 11, (g) => {
   }
   for (let i = 0; i < 13; i++) { const j = Math.round(8 - i * 0.55); rect(g, i > 3 && i < 9 ? '#ffffff' : '#c8fbff', i, j, 1, 1); }
 });
-const DEMON_ICON = sprite(11, 12, (g) => {
-  // the golem's horned obsidian skull, white-hot eyes, a glowing maw, dark fire behind it
+const SWORDS_ICON = sprite(11, 12, (g) => {
+  // three blades of light, in a fan, pointing up
   for (const [c, x, y, w, h] of [
-    ['#6a22b0', 4, 0, 3, 3], ['#a24ef0', 5, 1, 1, 2], ['#2e1052', 0, 0, 2, 2], ['#2e1052', 9, 0, 2, 2], ['#2e1052', 1, 2, 2, 2], ['#2e1052', 8, 2, 2, 2],
-    ['#0c0612', 1, 3, 9, 9], ['#2e1052', 2, 4, 7, 7], ['#4a1c80', 2, 4, 7, 1],
-    ['#0c0612', 2, 6, 7, 1], ['#ffffff', 3, 6, 2, 1], ['#ffffff', 6, 6, 2, 1], ['#a24ef0', 2, 6, 1, 1], ['#a24ef0', 8, 6, 1, 1],
-    ['#6a22b0', 3, 8, 5, 2], ['#d49cff', 3, 8, 1, 1], ['#d49cff', 5, 8, 1, 1], ['#d49cff', 7, 8, 1, 1],
+    ['#43a6ff', 0, 3, 2, 5], ['#d6f6ff', 1, 2, 1, 5], ['#43a6ff', 9, 3, 2, 5], ['#d6f6ff', 9, 2, 1, 5],
+    ['#43a6ff', 4, 1, 3, 7], ['#8fe0ff', 4, 2, 3, 6], ['#ffffff', 5, 0, 1, 8],
+    ['#d6f6ff', 3, 8, 5, 1], ['#ffffff', 5, 8, 1, 1], ['#1f62dc', 5, 9, 1, 2], ['#d6f6ff', 5, 11, 1, 1],
   ]) rect(g, c, x, y, w, h);
 });
 const NO_SKILL = sprite(9, 9, (g) => {
@@ -2438,7 +2514,7 @@ const SKILL_INFO = [
   { key: 'murasaki', name: 'MURASAKI', img: VOID_ICON, color: '#c07aff', desc: 'RED AND BLUE MADE ONE: A PURPLE THAT ERASES ALL IN ITS LINE' },
   { key: 'blaze', name: 'FLAME FIST', img: FIST_FIRE_ICON, color: '#ff9a4a', desc: 'FISTS ALIGHT, THEN A DASH AND A PUNCH THE WAY YOU AIM' },
   { key: 'galaxy', name: 'GALAXY', img: GALAXY_ICON, color: '#7af0ff', desc: 'A BLACK HOLE WHERE YOU AIM: DRAGS THEM IN, THEN GOES OFF' },
-  { key: 'demon', name: 'ABYSS FISTS', img: DEMON_ICON, color: '#b06aff', desc: 'FOUR FISTS OF BLACK FIRE CIRCLE YOU, ONE BLOW EACH' },
+  { key: 'demon', name: 'FLYING SWORDS', img: SWORDS_ICON, color: '#8fe0ff', desc: 'FIVE SWORDS OF LIGHT HANG BEHIND YOU, THEN FLY AT WHOEVER COMES NEAR' },
 ];
 // the choices for a pick list: each skill (with its wait), then none - and for the bots, RANDOM first
 function skillItems(forBots = false) {
@@ -2455,7 +2531,7 @@ function openPicker(id, title, items, current, apply) {
   picker = { id, title, items, current, apply, sel: Math.max(0, items.findIndex((it) => it.key === current)) };
 }
 function pickerInput() {
-  const c = kit.click, P = picker, n = P.items.length, cols = renderer.width >= 440 * hudScale() ? 3 : 2;
+  const c = kit.click, P = picker, n = P.items.length, cols = P.cols ?? (renderer.width >= 440 * hudScale() ? 3 : 2);
   if (input.wasPressed('KeyA', 'ArrowLeft')) P.sel = (P.sel + n - 1) % n;
   if (input.wasPressed('KeyD', 'ArrowRight')) P.sel = (P.sel + 1) % n;
   if (input.wasPressed('KeyW', 'ArrowUp')) P.sel = (P.sel - cols + n) % n;
@@ -2468,7 +2544,14 @@ function pickerInput() {
     if (it) P.apply(it.key);
   }
 }
-const drawPicker = () => { if (picker) kit.choices(picker.id, picker.title, picker.items, picker.current, picker.sel); };
+const drawPicker = () => {
+  if (!picker) return;
+  if (!picker.maps) return kit.choices(picker.id, picker.title, picker.items, picker.current, picker.sel);
+  // (the maps' pictures: one a frame, the one wanted first if it's still to come)
+  const next = picker.items[picker.sel]?.maps && !picker.items[picker.sel].thumb ? picker.items[picker.sel] : picker.items.find((it) => it.maps && !it.thumb);
+  if (next) next.thumb = mapThumb(next.key);
+  picker.cols = kit.mapChoices(picker.id, picker.title, picker.items, picker.current, picker.sel);
+};
 
 const gunItem = (d) => ({ kind: 'gun', key: d.key, name: d.name, img: iconOf(d.key), def: d });
 const LOCKERS = {
@@ -2766,6 +2849,8 @@ function startNetMatch(roster, mapKey, me, host) {
   bots = host ? game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.85 + i * 0.12) * settings.skill)) : [];
   round = 0;
   champion = null;
+  game.walkover = false;
+  game.leftMatch = [];
   locker = null;
   paused = false;
   startRound();
@@ -2790,7 +2875,7 @@ function changeNetSetting(i, dir) {
 initOnline({
   game, settings, OPTIONS, input, renderer, images, IDLE, MAP_KEYS, pick, weapons: WEAPONS, iconOf,
   drawText, textWidth, centerText, panel, playerControl, startNetMatch, addNetFighter, changeNetSetting, kit, tagColor,
-  skillItems, skillName, openPicker, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
+  skillItems, skillName, openPicker, pickMap, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
   get state() { return state; }, set state(v) { state = v; },
   get player() { return player; }, set player(v) { player = v; },
   get stateT() { return stateT; }, set stateT(v) { stateT = v; },
@@ -2848,7 +2933,7 @@ function menuBackdrop(dt) {
   if (game.fighters.length) {
     game.fighters = [];
     bots = [];
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'demons', 'blasts', 'punches', 'fists', 'numbers', 'feed']) game[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'fists', 'numbers', 'feed']) game[name] = [];
   }
   const picked = state === 'title' && settings.map !== 'random' ? settings.map : null;
   backdropT -= dt;
@@ -2917,7 +3002,7 @@ function tick(realDt, draw = true) {
     updateVoids(dt);
     updateFists(dt);
     updateGalaxies(dt);
-    updateDemons(dt);
+    updateSwords(dt);
     updatePickups(dt);
     updateTraining(dt);
     for (const n of game.numbers) n.t += dt;

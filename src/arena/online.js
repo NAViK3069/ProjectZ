@@ -66,7 +66,7 @@ const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost thei
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
-  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS FISTS'], [null, 'NO SKILL'],
+  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], [null, 'NO SKILL'],
 ];
 
 const N = {
@@ -293,7 +293,7 @@ function handDelta(f, out) {
   N.sent.set(f, last);
 }
 // Lists sent whole, while there's anything in them and it's changed (things few and short-lived)
-const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'demons']];
+const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets']];
 // Things that happen once and run their course on each screen: sent the once
 const ONCE = [['nu', 'numbers'], ['bl', 'blasts'], ['pu', 'punches'], ['fi', 'fists'], ['fe', 'feed']];
 const LIFE = { numbers: 0.9, blasts: 0.35, punches: 0.45, fists: 0.6 };
@@ -480,7 +480,7 @@ function applyHeader(h) {
     N.later = [];
     N.pickups.clear();
     N.trk.clear();
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'demons', 'numbers', 'blasts', 'punches', 'fists', 'feed']) g[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'numbers', 'blasts', 'punches', 'fists', 'feed']) g[name] = [];
   }
   if ('st' in h) A.state = h.st;
   if ('sT' in h) A.stateT = h.sT;
@@ -503,7 +503,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'fistsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'hook', 'skillCD'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
@@ -657,14 +657,21 @@ export function hostFrame(dt) {
       f._goneAt = 0;
       f.alive = false;
       N.benched.set(f.peer, f);
+      (A.game.leftMatch ??= []).push(f);   // (still on the results at the end)
       return false;
     });
   }
-  // nobody left on the field but us, and nobody on their way: that's the match. Everyone back to the room
+  // nobody left on the field but us, and nobody on their way: that's the match, and ours. The results, then back to the room
   if (!N.joiners.size && A.state !== 'match' && !A.game.fighters.some((f) => f.peer !== myId() && !f.isDecoy && !f._goneAt)) {
-    backToRoom();
-    say('EVERYONE LEFT - THE MATCH IS OVER', 3);
-    return;
+    const me = A.game.fighters.find((f) => f.peer === myId()) ?? A.player;
+    me.wins = Math.max(me.wins, A.settings.wins);
+    A.champion = me;
+    A.game.walkover = true;
+    A.state = 'match';
+    A.stateT = 0;
+    A.banner = null;
+    A.slow = 1;
+    N.menu = false;
   }
   N.sendT -= dt;
   // (not a burst of them, catching up after a hold-up here: only the latest's any use)
@@ -818,6 +825,8 @@ function stepShot(b, dt) {
 const FALLS = { grenades: 700, thrown: 800 };
 function carryThings(dt, then, hostNow, self) {
   const g = A.game, k = Math.min(1, dt * 30);
+  // (a flying sword: on the way it was going, between the host's words)
+  for (const d of g.swordSets) for (const s of d.swords ?? []) if (s.state === 'out') { s.x += s.vx * dt; s.y += s.vy * dt; }
   for (const name of ['grenades', 'thrown', 'arrows', 'voids']) for (const o of g[name]) {
     if (!o || o._hx === undefined) continue;
     const vx = o.vx ?? (o.sp !== undefined && o.done < 0 ? Math.cos(o.a) * o.sp : 0), vy = o.vy ?? (o.sp !== undefined && o.done < 0 ? Math.sin(o.a) * o.sp : 0);
@@ -848,7 +857,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonDemon', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)
@@ -1056,7 +1065,7 @@ function resetOwn() {
 // What a screen that was only drawing the game has in the air: it isn't the real thing, and can't be run as if it was
 function clearAir() {
   const g = A.game;
-  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'demons', 'blasts', 'punches', 'fists', 'numbers']) g[name] = [];
+  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'fists', 'numbers']) g[name] = [];
   N.shots = [];
   N.local = [];
   N.later = [];
@@ -1736,7 +1745,8 @@ export function netScreenInput() {
       const [, i, dir] = click.split(':');
       A.changeNetSetting(+i, +dir);
       shareRoom();
-    } else if (click === 'pick-skill') A.openPicker('pk-skill', 'YOUR SKILL', A.skillItems(false), N.skill, setMySkill);
+    } else if (click === 'pick-map' && host) A.pickMap((key) => { A.setSetting('map', key); shareRoom(); });
+    else if (click === 'pick-skill') A.openPicker('pk-skill', 'YOUR SKILL', A.skillItems(false), N.skill, setMySkill);
     else if (click === 'pick-botskill' && host) A.openPicker('pk-botskill', 'BOT SKILLS', A.skillItems(true), A.settings.botskill, (key) => { A.setSetting('botskill', key); shareRoom(); });
     else if (I.wasPressed('KeyQ')) {
       const at = SKILLS.findIndex(([k]) => k === N.skill);
@@ -2083,6 +2093,7 @@ function drawRoom(k, u, W, H) {
     const c = Math.floor(n / rows), r = n % rows;
     const shown = vals.find(([v]) => v === settings[key])?.[1] ?? '?', ox = px + 8 * u + c * (colW + gap), oy = cy + r * rowH;
     if (key === 'botskill') k.select('pick-botskill', ox, oy, colW, rowH - u, label, settings.skills ? shown : 'OFF', { enabled: host && !!settings.skills });
+    else if (key === 'map') k.select('pick-map', ox, oy, colW, rowH - u, label, shown, { enabled: host });
     else k.stepper(`opt:${oi}`, ox, oy, colW, rowH - u, label, shown, { enabled: host });
   });
   y += oh + gap;

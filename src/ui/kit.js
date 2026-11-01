@@ -201,6 +201,48 @@ export class Kit {
     for (const c of cards) this.hit(...c);
     this.hit(`${id}:close`, 0, 0, W, H);   // (after the cards: the first hit under the mouse is the one that counts)
   }
+  // The same, for the maps: a card for each with a picture of it (it.thumb, a canvas, when it's ready), its name and a
+  // line about it, as many across as fit the screen. Gives back how many across, for the arrow keys.
+  mapChoices(id, title, items, current, sel = -1) {
+    const { u, W, H, ctx } = this;
+    this.shade(0.6);
+    this.hits = [];
+    // (as many across as make the pictures biggest, on this shape of screen)
+    const gap = 5 * u, TEXT = 31 * u;
+    let best = null;
+    for (let n = 2; n <= 6; n++) {
+      const r = Math.ceil(items.length / n), w = Math.min(180 * u, Math.floor((W - 28 * u - gap * (n - 1)) / n)), h = Math.min(Math.round(w / 2.3) + TEXT, Math.floor((H - 42 * u) / r) - gap);
+      const size = Math.min(w - 4 * u, (h - TEXT) * 2.6);
+      if (!best || size > best.size) best = { cols: n, rows: r, cw: w, ch: h, size };
+    }
+    const { cols, rows, cw, ch } = best;
+    const pw = cols * cw + (cols - 1) * gap + 16 * u, ph = 26 * u + rows * (ch + gap) + 4 * u;
+    const px = Math.round(W / 2 - pw / 2), py = Math.max(6 * u, Math.round(H / 2 - ph / 2));
+    const y0 = this.panel(px, py, pw, ph, { title, note: 'CLICK ONE  -  ESC TO CLOSE' });
+    const cards = [];
+    items.forEach((it, i) => {
+      const x = px + 8 * u + (i % cols) * (cw + gap), y = y0 + Math.floor(i / cols) * (ch + gap), hid = `${id}:${i}`;
+      const on = it.key === current, hot = this.hover === hid || sel === i, tw = cw - 4 * u, th = ch - TEXT;
+      this.rect(x - u, y - u, cw + 2 * u, ch + 2 * u, K.ink);
+      this.rect(x, y, cw, ch, on ? K.gold : hot ? K.teal : K.edge);
+      this.rect(x + u, y + u, cw - 2 * u, ch - 2 * u, on ? '#3a3212' : hot ? '#1f3a36' : '#141c19');
+      // the picture: the whole map, as big as it goes in its box
+      this.rect(x + 2 * u, y + 2 * u, tw, th, '#0b100e');
+      if (it.thumb) {
+        const sc = Math.min(tw / it.thumb.width, th / it.thumb.height), dw = Math.round(it.thumb.width * sc), dh = Math.round(it.thumb.height * sc);
+        const smooth = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(it.thumb, Math.round(x + 2 * u + (tw - dw) / 2), Math.round(y + 2 * u + (th - dh) / 2), dw, dh);
+        ctx.imageSmoothingEnabled = smooth;
+      } else if (it.key === 'random') this.text('?', x + cw / 2, y + 2 * u + (th - 14 * u) / 2, { size: 2, color: K.gold, align: 'center' });
+      this.text(it.label, x + 4 * u, y + th + 5 * u, { color: on ? K.gold : hot ? '#ffffff' : K.text });
+      this.wrap(it.desc ?? '', cw - 8 * u).slice(0, 2).forEach((l, j) => this.text(l, x + 4 * u, y + th + 15 * u + j * 7 * u, { small: true, color: K.muted }));
+      cards.push([hid, x, y, cw, ch]);
+    });
+    for (const c of cards) this.hit(...c);
+    this.hit(`${id}:close`, 0, 0, W, H);
+    return cols;
+  }
   // the keys at the bottom of the screen
   hints(s) {
     const { u, W, H } = this;
