@@ -3,152 +3,231 @@
 // break), and where everyone spawns - eight spots, four each side (in TEAMS,
 // BLUE starts on the left, RED on the right). Rows count down from the top; a prop
 // "on row r" stands on the floor whose top is row r.
+//
+// Made for up to eight, and to get about in: a jump gets you up 3 rows (a double jump, 6), so floors are
+// joined by ladders and by catwalks 3 rows apart, several ways round each. A jump pad (L.pad) throws you up
+// about 8 rows. The props stand mostly by the walls, not across the way.
 
 import { SOLID, PLAT, ACID, EMPTY, LOW } from './level.js';
 
 export const MAPS = {
-  // Three floors of labs over an acid vat.
+  // Four floors of labs round an acid vat, big enough for eight. Each floor can be reached several ways:
+  // a ladder at each end and in the middle of each wing, hops up the catwalks over the vat, a jump pad.
   lab: {
-    name: 'THE LAB', w: 48, h: 27, theme: 'lab', desc: 'THREE FLOORS OVER AN ACID VAT',
+    name: 'THE LAB', w: 84, h: 34, theme: 'lab', desc: 'FOUR FLOORS ROUND AN ACID VAT',
     build(L) {
       L.shell();
-      L.row(7, 1, 46); L.row(7, 14, 17, PLAT); L.row(7, 22, 25, EMPTY); L.row(7, 30, 33, PLAT);
-      L.row(8, 1, 3); L.row(8, 44, 46);
-      L.row(13, 1, 46); L.row(13, 19, 28, PLAT); L.row(13, 3, 4, EMPTY); L.row(13, 43, 44, EMPTY);
-      L.row(19, 1, 16); L.row(19, 31, 46); L.row(19, 19, 28, PLAT);
-      L.row(25, 1, 16); L.row(25, 31, 46); L.row(24, 16, 16); L.row(24, 31, 31); L.row(25, 17, 30, ACID);
-      L.row(4, 5, 9, PLAT); L.row(4, 38, 42, PLAT);
-      L.row(10, 15, 18, PLAT); L.row(10, 29, 32, PLAT);
-      L.row(16, 4, 8, PLAT); L.row(16, 39, 43, PLAT);
-      L.row(22, 20, 27, PLAT); L.row(22, 6, 10, PLAT); L.row(22, 37, 41, PLAT);
-      L.fill(23, 10, 24, 12, SOLID); L.fill(11, 2, 11, 3, SOLID); L.fill(36, 2, 36, 3, SOLID);
-      L.ladder(6, 7, 12); L.ladder(41, 7, 12); L.ladder(11, 13, 18); L.ladder(36, 13, 18); L.ladder(7, 19, 24); L.ladder(40, 19, 24); L.ladder(2, 1, 6);
-      for (const [x, y] of [[9, 1], [24, 1], [39, 1], [10, 8], [19, 8], [28, 8], [37, 8], [6, 14], [15, 14], [24, 14], [32, 14], [41, 14], [11, 20], [22, 20], [36, 20]]) L.lamp(x, y);
+      L.fill(1, 30, 82, 32, SOLID);                                                // the ground
+      L.fill(30, 30, 53, 31, EMPTY); L.row(31, 30, 53, ACID);                      // the vat
+      L.row(27, 32, 38, PLAT); L.row(27, 45, 51, PLAT); L.row(24, 39, 44, PLAT);   // catwalks over it
+      L.row(21, 35, 37, PLAT); L.row(21, 46, 48, PLAT); L.row(18, 33, 50, PLAT);   // on up to the bridge
+      L.row(23, 1, 24); L.row(23, 59, 82); L.row(23, 26, 31, PLAT); L.row(23, 52, 57, PLAT);   // second floor
+      L.row(16, 1, 29); L.row(16, 54, 82);                                         // third floor
+      L.row(13, 30, 33, PLAT); L.row(13, 50, 53, PLAT);                            // (ledges off it)
+      L.row(9, 1, 5); L.row(9, 8, 26); L.row(9, 36, 47); L.row(9, 57, 75); L.row(9, 78, 82);   // the top floor
+      L.row(5, 28, 34, PLAT); L.row(5, 49, 55, PLAT);
+      for (const x of [10, 22, 61, 73]) L.ladder(x, 23, 29);
+      for (const x of [6, 20, 63, 77]) L.ladder(x, 16, 22);
+      for (const x of [3, 12, 22, 61, 71, 80]) L.ladder(x, 9, 15);
+      L.ladder(41, 9, 17); L.ladder(31, 5, 12); L.ladder(52, 5, 12);
+      L.fill(15, 28, 16, 29, SOLID); L.fill(67, 28, 68, 29, SOLID);                // something to hide behind
+      L.fill(14, 21, 15, 22, SOLID); L.fill(68, 21, 69, 22, SOLID);
+      L.fill(25, 14, 26, 15, SOLID); L.fill(57, 14, 58, 15, SOLID);
+      L.fill(16, 7, 17, 8, SOLID); L.fill(66, 7, 67, 8, SOLID);
+      L.pad(28, 30); L.pad(55, 30); L.pad(28, 16); L.pad(55, 16);
+      for (const [x, y] of [[8, 1], [24, 1], [42, 1], [60, 1], [75, 1], [10, 10], [25, 10], [41, 10], [60, 10], [74, 10], [8, 17], [24, 17], [59, 17], [75, 17], [12, 24], [26, 24], [57, 24], [71, 24], [41, 19]]) L.lamp(x, y);
       L.deco.push(
-        { kind: 'monitors', x: 13, y: 2 }, { kind: 'monitors', x: 29, y: 2 }, { kind: 'server', x: 44, y: 1 }, { kind: 'server', x: 3, y: 9 },
-        { kind: 'tank', x: 19, y: 14 }, { kind: 'tank', x: 26, y: 14 }, { kind: 'tank', x: 2, y: 20 }, { kind: 'tank', x: 44, y: 20 },
-        { kind: 'reactor', x: 21, y: 1 }, { kind: 'sign', x: 17, y: 9, text: 'LAB-07' }, { kind: 'sign', x: 34, y: 9, text: 'BIOHAZARD' },
-        { kind: 'vent', x: 8, y: 9 }, { kind: 'vent', x: 38, y: 15 }, { kind: 'vent', x: 30, y: 4 },
-        { kind: 'window', x: 13, y: 20 }, { kind: 'window', x: 31, y: 20 }, { kind: 'door', x: 45, y: 10 }, { kind: 'door', x: 1, y: 14 },
-        { kind: 'pipes', y: 1 }, { kind: 'pipes', y: 14 },
+        { kind: 'monitors', x: 11, y: 5.2 }, { kind: 'monitors', x: 68, y: 5.2 }, { kind: 'reactor', x: 38, y: 3.5 },
+        { kind: 'server', x: 1.5, y: 10.4 }, { kind: 'server', x: 81, y: 10.4 }, { kind: 'server', x: 27, y: 10.4 },
+        { kind: 'tank', x: 8, y: 18.5 }, { kind: 'tank', x: 17, y: 18.5 }, { kind: 'tank', x: 66, y: 18.5 }, { kind: 'tank', x: 74, y: 18.5 },
+        { kind: 'window', x: 3, y: 25 }, { kind: 'window', x: 76, y: 25 }, { kind: 'door', x: 25, y: 26.2 }, { kind: 'door', x: 57, y: 26.2 },
+        { kind: 'sign', x: 18, y: 25, text: 'LAB-07' }, { kind: 'sign', x: 62, y: 25, text: 'BIOHAZARD' }, { kind: 'sign', x: 38, y: 14.5, text: 'CORE ACCESS' },
+        { kind: 'vent', x: 13, y: 11 }, { kind: 'vent', x: 67, y: 11 }, { kind: 'pipes', y: 1 }, { kind: 'pipes', y: 17 },
       );
-      for (const [k, x, y] of [['crate', 4, 7], ['crate', 43, 7], ['barrel', 27, 7], ['table', 20, 7], ['chair', 18, 7], ['crate', 2, 13], ['barrel', 9, 13], ['locker', 46, 13], ['table', 33, 13], ['chair', 35, 13], ['wcrate', 13, 13],
-        ['barrel', 13, 19], ['crate', 14, 19], ['table', 34, 19], ['barrel', 45, 19], ['wcrate', 4, 25], ['barrel', 12, 25], ['crate', 42, 25], ['wcrate', 35, 25], ['cabinet', 9, 25], ['chair', 38, 25]]) L.prop(k, x, y);
-      L.spawn(4, 7); L.spawn(7, 13); L.spawn(3, 19); L.spawn(5, 25);        // the west side (BLUE in TEAMS)
-      L.spawn(43, 7); L.spawn(40, 13); L.spawn(44, 19); L.spawn(42, 25);    // the east side (RED)
+      for (const [k, x, y] of [['crate', 3, 30], ['wcrate', 4, 30], ['barrel', 24, 30], ['barrel', 59, 30], ['crate', 79, 30], ['wcrate', 80, 30], ['cabinet', 18, 30], ['cabinet', 64, 30],
+        ['table', 8, 23], ['chair', 11, 23], ['barrel', 23, 23], ['barrel', 60, 23], ['table', 75, 23], ['chair', 72, 23],
+        ['crate', 2, 16], ['locker', 9, 16], ['table', 14, 16], ['barrel', 23, 16], ['barrel', 60, 16], ['table', 68, 16], ['locker', 74, 16], ['crate', 81, 16],
+        ['wcrate', 9, 9], ['table', 19, 9], ['crate', 37, 9], ['crate', 46, 9], ['table', 62, 9], ['wcrate', 74, 9]]) L.prop(k, x, y);
+      L.spawn(4, 9); L.spawn(7, 16); L.spawn(5, 23); L.spawn(7, 30);
+      L.spawn(79, 9); L.spawn(76, 16); L.spawn(78, 23); L.spawn(76, 30);
     },
   },
 
-  // A warehouse: a wide floor stacked with crates and shelving, mezzanines, high catwalks.
+  // A warehouse: containers to hop along the floor, a mezzanine each side, long catwalks, ledges by the roof.
   warehouse: {
-    name: 'WAREHOUSE', w: 52, h: 24, theme: 'warehouse', desc: 'CRATES, SHELVES AND HIGH CATWALKS',
+    name: 'WAREHOUSE', w: 88, h: 32, theme: 'warehouse', desc: 'CONTAINERS, MEZZANINES AND LONG CATWALKS',
     build(L) {
       L.shell();
-      L.row(22, 1, 50);
-      L.row(14, 1, 14); L.row(14, 37, 50);                       // mezzanines
-      L.row(8, 10, 17, PLAT); L.row(8, 20, 31, PLAT); L.row(8, 34, 41, PLAT);   // high catwalks
-      L.row(17, 20, 31, PLAT);                                    // the top of the big shelving unit
-      L.row(5, 1, 6, PLAT); L.row(5, 45, 50, PLAT);               // ledges up by the roof
-      L.ladder(12, 14, 21); L.ladder(39, 14, 21); L.ladder(11, 8, 13); L.ladder(40, 8, 13); L.ladder(3, 5, 13); L.ladder(48, 5, 13); L.ladder(25, 17, 21);
-      for (const x of [8, 18, 26, 34, 44]) L.lamp(x, 1);
-      L.lamp(5, 15); L.lamp(46, 15); L.lamp(25, 9);
+      L.fill(1, 29, 86, 30, SOLID);
+      L.fill(26, 26, 31, 28, SOLID); L.fill(56, 26, 61, 28, SOLID);                // containers
+      L.row(26, 35, 37, PLAT); L.row(26, 50, 52, PLAT); L.row(23, 38, 49, PLAT);   // the big shelving unit
+      L.row(22, 1, 18); L.row(22, 69, 86);                                         // mezzanines
+      L.row(19, 20, 23, PLAT); L.row(19, 64, 67, PLAT); L.row(20, 28, 31, PLAT); L.row(20, 56, 59, PLAT);
+      L.row(16, 8, 26, PLAT); L.row(16, 30, 57, PLAT); L.row(16, 61, 79, PLAT);    // the long catwalks
+      L.row(10, 1, 14, PLAT); L.row(10, 30, 57, PLAT); L.row(10, 73, 86, PLAT);    // up by the roof
+      for (const [x, a, b] of [[12, 22, 28], [75, 22, 28], [12, 16, 21], [75, 16, 21], [5, 10, 21], [82, 10, 21], [43, 16, 22], [35, 10, 15], [52, 10, 15]]) L.ladder(x, a, b);
+      L.pad(22, 29); L.pad(65, 29); L.pad(28, 16 + 4);
+      for (const x of [10, 24, 44, 63, 78]) L.lamp(x, 1);
+      for (const [x, y] of [[6, 11], [81, 11], [18, 17], [44, 17], [70, 17], [5, 23], [82, 23]]) L.lamp(x, y);
       L.deco.push(
-        { kind: 'shelves', x: 20, y: 17, w: 12, h: 5 }, { kind: 'shelves', x: 2, y: 9, w: 4, h: 5 }, { kind: 'shelves', x: 44, y: 9, w: 5, h: 5 },
-        { kind: 'rollup', x: 15, y: 19 }, { kind: 'rollup', x: 33, y: 19 }, { kind: 'forklift', x: 41, y: 20.25 },
-        { kind: 'sign', x: 22, y: 11, text: 'LOADING BAY' }, { kind: 'sign', x: 7, y: 16, text: 'NO SMOKING' }, { kind: 'vent', x: 28, y: 3 },
+        { kind: 'shelves', x: 38, y: 24, w: 12, h: 5 }, { kind: 'shelves', x: 2, y: 17, w: 5, h: 5 }, { kind: 'shelves', x: 81, y: 17, w: 5, h: 5 },
+        { kind: 'rollup', x: 18, y: 26 }, { kind: 'rollup', x: 66, y: 26 }, { kind: 'forklift', x: 8, y: 27.25 }, { kind: 'forklift', x: 77, y: 27.25 },
+        { kind: 'sign', x: 40, y: 20, text: 'LOADING BAY' }, { kind: 'sign', x: 8, y: 19, text: 'NO SMOKING' }, { kind: 'sign', x: 70, y: 19, text: 'BAY 2' }, { kind: 'vent', x: 44, y: 5 }, { kind: 'vent', x: 20, y: 5 }, { kind: 'vent', x: 66, y: 5 },
       );
-      // crates everywhere, stacked
       for (const [k, x, y, lift] of [
-        ['wcrate', 2, 22], ['wcrate', 3, 22], ['wcrate', 2, 22, 14], ['pallet', 6, 22], ['wcrate', 6, 22, 3], ['barrel', 9, 22], ['barrel', 10, 22],
-        ['wcrate', 18, 22], ['wcrate', 19, 22], ['wcrate', 18, 22, 14], ['crate', 29, 22], ['wcrate', 31, 22], ['wcrate', 31, 22, 14], ['wcrate', 31, 22, 28],
-        ['barrel', 35, 22], ['pallet', 45, 22], ['wcrate', 45, 22, 3], ['wcrate', 48, 22], ['wcrate', 49, 22],
-        ['wcrate', 4, 14], ['crate', 8, 14], ['barrel', 13, 14], ['wcrate', 38, 14], ['crate', 43, 14], ['wcrate', 47, 14], ['wcrate', 47, 14, 14],
-        ['wcrate', 23, 17], ['barrel', 28, 17], ['wcrate', 14, 8], ['wcrate', 37, 8], ['barrel', 26, 8],
+        ['wcrate', 2, 29], ['wcrate', 3, 29], ['wcrate', 2, 29, 14], ['pallet', 33, 29], ['barrel', 40, 29], ['wcrate', 46, 29], ['pallet', 53, 29], ['wcrate', 84, 29], ['wcrate', 85, 29], ['wcrate', 85, 29, 14],
+        ['crate', 28, 26], ['barrel', 59, 26], ['wcrate', 2, 22], ['crate', 15, 22], ['barrel', 17, 22], ['barrel', 70, 22], ['crate', 72, 22], ['wcrate', 85, 22],
+        ['wcrate', 15, 16], ['wcrate', 40, 16], ['barrel', 48, 16], ['wcrate', 72, 16], ['crate', 3, 10], ['crate', 84, 10], ['wcrate', 44, 10],
       ]) L.prop(k, x, y, 0, lift ?? 0);
-      L.spawn(5, 5); L.spawn(5, 14); L.spawn(16, 8); L.spawn(14, 22);
-      L.spawn(46, 5); L.spawn(46, 14); L.spawn(35, 8); L.spawn(38, 22);
+      L.spawn(6, 10); L.spawn(7, 22); L.spawn(15, 16); L.spawn(6, 29);
+      L.spawn(81, 10); L.spawn(80, 22); L.spawn(72, 16); L.spawn(81, 29);
     },
   },
 
-  // An office block, three floors with a lift shaft down the middle.
+  // An office block, four storeys round an atrium: desks and cubicles to fight over, a ladder well at each end.
   office: {
-    name: 'OFFICE', w: 50, h: 25, theme: 'office', desc: 'DESKS, CUBICLES AND A LIFT SHAFT',
+    name: 'OFFICE', w: 84, h: 34, theme: 'office', desc: 'FOUR STOREYS ROUND AN ATRIUM',
     build(L) {
       L.shell();
-      L.row(7, 1, 48); L.row(7, 23, 25, EMPTY);
-      L.row(15, 1, 48); L.row(15, 23, 25, EMPTY);
-      L.row(23, 1, 48);
+      L.row(32, 1, 82);
+      for (const y of [25, 17, 9]) { L.row(y, 1, 35); L.row(y, 48, 82); }
+      L.row(29, 38, 45, PLAT); L.row(21, 38, 45, PLAT); L.row(13, 38, 45, PLAT);   // gratings across the atrium
+      L.row(26, 36, 37, PLAT); L.row(26, 46, 47, PLAT); L.row(18, 36, 37, PLAT); L.row(18, 46, 47, PLAT); L.row(10, 36, 37, PLAT); L.row(10, 46, 47, PLAT);
+      for (const x of [8, 30, 53, 75]) { L.ladder(x, 25, 31); L.ladder(x, 9, 16); }
+      for (const x of [18, 33, 50, 65]) L.ladder(x, 17, 24);
       // low cubicle walls to jump over or hide behind
-      L.fill(15, 5, 15, 6, SOLID); L.fill(34, 5, 34, 6, SOLID);
-      L.fill(12, 13, 12, 14, SOLID); L.fill(37, 13, 37, 14, SOLID);
-      L.fill(18, 21, 18, 22, SOLID); L.fill(31, 21, 31, 22, SOLID);
-      L.row(11, 23, 25, PLAT); L.row(19, 23, 25, PLAT);            // gratings across the shaft
-      L.ladder(4, 7, 14); L.ladder(46, 7, 14); L.ladder(8, 15, 22); L.ladder(41, 15, 22);
-      for (const x of [7, 17, 32, 42]) { L.lamp(x, 1); L.lamp(x, 8); L.lamp(x, 16); }
+      for (const [x, y] of [[16, 30], [67, 30], [24, 23], [59, 23], [11, 23], [72, 23], [14, 15], [69, 15], [26, 15], [57, 15], [18, 7], [64, 7]]) L.fill(x, y, x, y + 1, SOLID);
+      L.pad(41, 32);
+      for (const x of [6, 22, 41, 60, 76]) { L.lamp(x, 1); L.lamp(x, 18); }
+      for (const x of [10, 26, 56, 72]) { L.lamp(x, 10); L.lamp(x, 26); }
       L.deco.push(
-        { kind: 'citywindow', x: 6, y: 2, w: 6, h: 2 }, { kind: 'citywindow', x: 37, y: 2, w: 6, h: 2 }, { kind: 'citywindow', x: 18, y: 9, w: 4, h: 2 },
-        { kind: 'citywindow', x: 27, y: 9, w: 4, h: 2 }, { kind: 'citywindow', x: 10, y: 17, w: 5, h: 2 }, { kind: 'citywindow', x: 34, y: 17, w: 5, h: 2 },
-        { kind: 'elevator', x: 22.5, y: 4.95 }, { kind: 'whiteboard', x: 27, y: 3 }, { kind: 'whiteboard', x: 2, y: 10 }, { kind: 'clock', x: 20, y: 2 },
-        { kind: 'plantpot', x: 1, y: 4.95 }, { kind: 'plantpot', x: 47, y: 12.95 }, { kind: 'plantpot', x: 47, y: 20.95 }, { kind: 'sign', x: 43, y: 18, text: 'EXIT' },
+        { kind: 'citywindow', x: 4, y: 3, w: 6, h: 2 }, { kind: 'citywindow', x: 25, y: 3, w: 6, h: 2 }, { kind: 'citywindow', x: 53, y: 3, w: 6, h: 2 }, { kind: 'citywindow', x: 74, y: 3, w: 6, h: 2 },
+        { kind: 'citywindow', x: 20, y: 11, w: 5, h: 2 }, { kind: 'citywindow', x: 59, y: 11, w: 5, h: 2 }, { kind: 'citywindow', x: 3, y: 19, w: 6, h: 2 }, { kind: 'citywindow', x: 75, y: 19, w: 6, h: 2 },
+        { kind: 'citywindow', x: 21, y: 27, w: 6, h: 2 }, { kind: 'citywindow', x: 57, y: 27, w: 6, h: 2 },
+        { kind: 'whiteboard', x: 13, y: 4 }, { kind: 'whiteboard', x: 68, y: 12 }, { kind: 'whiteboard', x: 25, y: 20 }, { kind: 'clock', x: 41, y: 3 }, { kind: 'clock', x: 28, y: 11 },
+        { kind: 'elevator', x: 40, y: 29.95 }, { kind: 'plantpot', x: 2, y: 6.95 }, { kind: 'plantpot', x: 80, y: 14.95 }, { kind: 'plantpot', x: 2, y: 22.95 }, { kind: 'plantpot', x: 80, y: 29.95 }, { kind: 'sign', x: 37, y: 24, text: 'ATRIUM' }, { kind: 'sign', x: 70, y: 28, text: 'EXIT' },
       );
       for (const [k, x, y] of [
-        ['desk', 8, 7], ['chair', 10, 7], ['monitor', 8, 7], ['desk', 19, 7], ['chair', 21, 7], ['monitor', 19, 7], ['cabinet', 29, 7], ['desk', 39, 7], ['monitor', 39, 7], ['chair', 41, 7], ['cooler', 2, 7],
-        ['desk', 6, 15], ['monitor', 6, 15], ['chair', 4, 15], ['bookshelf', 15, 15], ['desk', 30, 15], ['monitor', 30, 15], ['chair', 32, 15], ['cabinet', 44, 15], ['cooler', 20, 15],
-        ['desk', 13, 23], ['monitor', 13, 23], ['chair', 15, 23], ['bookshelf', 22, 23], ['desk', 36, 23], ['monitor', 36, 23], ['chair', 34, 23], ['cabinet', 3, 23], ['wcrate', 46, 23], ['barrel', 26, 23],
+        ['desk', 11, 9], ['chair', 14, 9], ['monitor', 11, 9], ['desk', 26, 9], ['monitor', 26, 9], ['desk', 56, 9], ['monitor', 56, 9], ['desk', 70, 9], ['chair', 73, 9], ['monitor', 70, 9], ['cooler', 34, 9], ['cooler', 49, 9],
+        ['desk', 4, 17], ['monitor', 4, 17], ['bookshelf', 22, 17], ['cabinet', 28, 17], ['cabinet', 55, 17], ['bookshelf', 62, 17], ['desk', 77, 17], ['monitor', 77, 17],
+        ['desk', 4, 25], ['chair', 7, 25], ['monitor', 4, 25], ['desk', 20, 25], ['monitor', 20, 25], ['cooler', 28, 25], ['cooler', 55, 25], ['desk', 62, 25], ['monitor', 62, 25], ['desk', 76, 25], ['monitor', 76, 25],
+        ['cabinet', 3, 32], ['desk', 11, 32], ['monitor', 11, 32], ['bookshelf', 24, 32], ['barrel', 35, 32], ['barrel', 48, 32], ['bookshelf', 59, 32], ['desk', 71, 32], ['monitor', 71, 32], ['wcrate', 80, 32],
       ]) L.prop(k, x, y);
-      L.spawn(3, 7); L.spawn(13, 7); L.spawn(3, 15); L.spawn(5, 23);
-      L.spawn(46, 7); L.spawn(36, 7); L.spawn(46, 15); L.spawn(44, 23);
+      L.spawn(4, 9); L.spawn(7, 17); L.spawn(13, 25); L.spawn(5, 32);
+      L.spawn(79, 9); L.spawn(76, 17); L.spawn(70, 25); L.spawn(78, 32);
     },
   },
 
-  // Rooftops at night: four buildings with gaps between - fall and you're gone.
+  // Rooftops at night: five buildings with planks over the gaps - fall and you're gone.
   rooftops: {
-    name: 'ROOFTOPS', w: 60, h: 26, theme: 'roof', openBottom: true, desc: 'OUTDOORS AT NIGHT - MIND THE GAPS',
+    name: 'ROOFTOPS', w: 96, h: 30, theme: 'roof', openBottom: true, desc: 'OUTDOORS AT NIGHT - MIND THE GAPS',
     build(L) {
-      L.fill(0, 12, 14, 25, SOLID);                               // A
-      L.fill(19, 9, 30, 25, SOLID);                               // B (tallest)
-      L.fill(35, 14, 44, 25, SOLID);                              // C
-      L.fill(49, 11, 59, 25, SOLID);                              // D
-      L.row(12, 15, 17, PLAT); L.ladder(18, 9, 11);               // a plank over to B and up its side
-      L.row(11, 31, 33, PLAT);                                    // an AC duct off B
-      L.row(13, 45, 47, PLAT);                                    // a fire-escape landing off D
-      L.fill(4, 9, 5, 11, SOLID); L.fill(55, 8, 56, 10, SOLID);  // chimneys
-      L.fill(23, 6, 26, 8, SOLID);                                // the stair hut on B
-      L.row(5, 22, 27, PLAT); L.ladder(21, 5, 8);                 // the water tower's walkway
-      L.row(6, 51, 57, PLAT); L.ladder(50, 6, 10);                // the billboard's catwalk
-      L.row(8, 7, 11, PLAT); L.ladder(8, 8, 11);                  // a scaffold on A
-      for (const [x, y] of [[2, 11], [13, 11], [28, 8], [37, 13], [43, 13], [58, 10]]) L.lamp(x, y, true);
+      L.fill(0, 16, 18, 29, SOLID);    // A
+      L.fill(23, 13, 38, 29, SOLID);   // B (tallest)
+      L.fill(43, 17, 54, 29, SOLID);   // C
+      L.fill(59, 14, 74, 29, SOLID);   // D
+      L.fill(79, 17, 95, 29, SOLID);   // E
+      L.row(16, 19, 22, PLAT); L.row(17, 39, 42, PLAT); L.row(17, 55, 58, PLAT); L.row(17, 75, 78, PLAT);   // planks over the gaps
+      L.ladder(39, 12, 16); L.ladder(58, 13, 16);                                  // (and up the taller side)
+      L.fill(27, 10, 32, 12, SOLID);                                               // the stair hut on B
+      L.row(7, 25, 34, PLAT); L.ladder(24, 7, 12);                                 // the water tower's walkway
+      L.row(8, 61, 72, PLAT); L.ladder(60, 8, 13);                                 // the billboard's catwalk
+      L.row(11, 6, 12, PLAT); L.ladder(5, 11, 15);                                 // a scaffold on A
+      L.row(12, 84, 90, PLAT); L.ladder(83, 12, 16);                               // and one on E
+      L.row(14, 46, 50, PLAT);                                                     // an AC duct on C
+      L.fill(14, 14, 15, 15, SOLID); L.fill(68, 12, 69, 13, SOLID);                // chimneys
+      L.pad(52, 17); L.pad(2, 16); L.pad(93, 17);
+      for (const [x, y] of [[3, 15], [16, 15], [36, 12], [45, 16], [53, 16], [62, 13], [73, 13], [81, 16], [93, 16]]) L.lamp(x, y, true);
       L.deco.push(
-        { kind: 'watertower', x: 22, y: 1 }, { kind: 'billboard', x: 51, y: 1.1 }, { kind: 'antenna', x: 40, y: 10, h: 4 }, { kind: 'antenna', x: 10, y: 4, h: 4 },
-        { kind: 'sign', x: 36, y: 15, text: 'HOTEL' },
+        { kind: 'watertower', x: 27, y: 0.5 }, { kind: 'billboard', x: 62, y: 1.1 }, { kind: 'antenna', x: 90, y: 13, h: 4 }, { kind: 'antenna', x: 10, y: 7, h: 4 },
+        { kind: 'antenna', x: 48, y: 13, h: 4 }, { kind: 'sign', x: 44, y: 19, text: 'HOTEL' }, { kind: 'sign', x: 60, y: 16, text: 'CITY BANK' },
       );
-      for (const [k, x, y] of [['ac', 2, 12], ['wcrate', 12, 12], ['barrel', 6, 12], ['ac', 28, 9], ['wcrate', 20, 9], ['barrel', 29, 9], ['ac', 39, 14], ['wcrate', 42, 14], ['barrel', 36, 14], ['ac', 53, 11], ['wcrate', 58, 11], ['pallet', 51, 11], ['wcrate', 9, 8]]) L.prop(k, x, y);
-      L.spawn(7, 12); L.spawn(10, 8); L.spawn(22, 9); L.spawn(24, 5);      // buildings A and B
-      L.spawn(38, 14); L.spawn(41, 14); L.spawn(53, 11); L.spawn(54, 6);   // C and D
+      for (const [k, x, y] of [['ac', 8, 16], ['wcrate', 12, 16], ['barrel', 17, 16], ['ac', 34, 13], ['wcrate', 25, 13], ['barrel', 37, 13], ['wcrate', 30, 10], ['ac', 49, 17], ['wcrate', 45, 17], ['ac', 64, 14], ['wcrate', 72, 14], ['pallet', 62, 14], ['barrel', 73, 14], ['ac', 86, 17], ['wcrate', 81, 17], ['wcrate', 9, 11], ['wcrate', 88, 12]]) L.prop(k, x, y);
+      L.spawn(6, 16); L.spawn(10, 11); L.spawn(27, 13); L.spawn(30, 7);
+      L.spawn(89, 17); L.spawn(86, 12); L.spawn(70, 14); L.spawn(66, 8);
     },
   },
 
-  // A building site at sunset: girders and scaffolding over open ground.
+  // A building site at sunset: the half-built block in the middle, scaffolds either side, open ground round it.
   site: {
-    name: 'BUILDING SITE', w: 56, h: 26, theme: 'site', desc: 'OUTDOORS - GIRDERS AND SCAFFOLDING',
+    name: 'BUILDING SITE', w: 92, h: 32, theme: 'site', desc: 'OUTDOORS - GIRDERS AND SCAFFOLDING',
     build(L) {
-      L.fill(0, 24, 55, 25, SOLID);                               // the ground
-      L.fill(0, 0, 0, 23, SOLID); L.fill(55, 0, 55, 23, SOLID);   // site fences either end
-      L.wall(12, 6, 43, 23);                                      // the half-built block (brick behind its frame)
-      L.row(18, 12, 43); L.row(18, 26, 29, PLAT);                 // first floor girders
-      L.row(12, 16, 39); L.row(12, 24, 25, EMPTY);                // second floor
-      L.row(6, 20, 35, PLAT);                                     // the top beams
-      L.row(20, 2, 8, PLAT); L.row(20, 47, 53, PLAT);             // scaffolds outside
-      L.row(14, 4, 9, PLAT); L.row(14, 46, 51, PLAT);
-      L.ladder(14, 18, 23); L.ladder(41, 18, 23); L.ladder(18, 12, 17); L.ladder(37, 12, 17); L.ladder(22, 6, 11); L.ladder(33, 6, 11); L.ladder(6, 14, 23); L.ladder(49, 14, 23);
-      for (const [x, y] of [[3, 23], [52, 23], [27, 17]]) L.lamp(x, y, true);
-      L.deco.push({ kind: 'crane', x: 50, y: 2, h: 22 }, { kind: 'cones', x: 10, y: 23 }, { kind: 'cones', x: 44, y: 23 }, { kind: 'sign', x: 24, y: 20, text: 'HARD HAT AREA' });
+      L.fill(0, 30, 91, 31, SOLID);                                                // the ground
+      L.fill(0, 0, 0, 29, SOLID); L.fill(91, 0, 91, 29, SOLID);                    // the fences
+      L.wall(16, 8, 75, 29);                                                       // the block (brick behind its frame)
+      L.row(23, 16, 75); L.row(23, 44, 47, PLAT);                                  // first floor
+      L.row(16, 22, 69); L.row(16, 44, 47, EMPTY);                                 // second floor
+      L.row(19, 44, 47, PLAT);
+      L.row(9, 30, 61, PLAT);                                                      // the top beams
+      L.row(26, 3, 10, PLAT); L.row(26, 81, 88, PLAT); L.row(20, 4, 12, PLAT); L.row(20, 79, 87, PLAT); L.row(23, 12, 15, PLAT); L.row(23, 76, 79, PLAT);   // scaffolds
+      L.row(13, 8, 17, PLAT); L.row(13, 74, 83, PLAT); L.row(16, 18, 21, PLAT); L.row(16, 70, 73, PLAT);
+      for (const [x, a, b] of [[8, 20, 29], [83, 20, 29], [10, 13, 19], [81, 13, 19], [18, 23, 29], [73, 23, 29], [34, 23, 29], [57, 23, 29], [26, 16, 22], [65, 16, 22], [40, 16, 22], [51, 16, 22], [34, 9, 15], [57, 9, 15]]) L.ladder(x, a, b);
+      L.fill(24, 28, 25, 29, SOLID); L.fill(66, 28, 67, 29, SOLID); L.fill(44, 28, 47, 29, SOLID);
+      L.fill(30, 21, 31, 22, SOLID); L.fill(60, 21, 61, 22, SOLID); L.fill(32, 14, 33, 15, SOLID); L.fill(58, 14, 59, 15, SOLID);
+      L.pad(13, 30); L.pad(78, 30); L.pad(42, 23);
+      for (const [x, y] of [[3, 29], [14, 29], [40, 29], [52, 29], [77, 29], [88, 29], [24, 22], [46, 22], [68, 22]]) L.lamp(x, y, true);
+      L.deco.push({ kind: 'crane', x: 86, y: 2, h: 28 }, { kind: 'cones', x: 20, y: 29 }, { kind: 'cones', x: 71, y: 29 }, { kind: 'cones', x: 42, y: 29 }, { kind: 'sign', x: 40, y: 26, text: 'HARD HAT AREA' }, { kind: 'sign', x: 28, y: 19, text: 'DANGER' });
       for (const [k, x, y, lift] of [
-        ['wcrate', 3, 24], ['pallet', 9, 24], ['sandbags', 9, 24, 3], ['barrel', 16, 24], ['pipes', 22, 24], ['wcrate', 30, 24], ['wcrate', 31, 24], ['wcrate', 30, 24, 14], ['barrel', 36, 24], ['sandbags', 45, 24], ['wcrate', 52, 24],
-        ['wcrate', 20, 18], ['barrel', 33, 18], ['pallet', 38, 18], ['toolbox', 15, 18], ['wcrate', 28, 12], ['sandbags', 19, 12], ['barrel', 35, 12], ['wcrate', 4, 20], ['wcrate', 51, 20], ['toolbox', 30, 6],
+        ['wcrate', 3, 30], ['pallet', 6, 30], ['sandbags', 21, 30], ['barrel', 28, 30], ['pipes', 37, 30], ['wcrate', 50, 30], ['wcrate', 51, 30], ['wcrate', 50, 30, 14], ['barrel', 62, 30], ['sandbags', 70, 30], ['pallet', 85, 30], ['wcrate', 88, 30],
+        ['wcrate', 20, 23], ['barrel', 38, 23], ['pallet', 52, 23], ['toolbox', 56, 23], ['wcrate', 71, 23], ['wcrate', 28, 16], ['sandbags', 38, 16], ['barrel', 53, 16], ['wcrate', 63, 16], ['wcrate', 5, 20], ['wcrate', 85, 20], ['toolbox', 44, 9], ['sandbags', 12, 13], ['sandbags', 79, 13],
       ]) L.prop(k, x, y, 0, lift ?? 0);
-      L.spawn(4, 24); L.spawn(5, 14); L.spawn(16, 18); L.spawn(20, 12);
-      L.spawn(51, 24); L.spawn(50, 14); L.spawn(39, 18); L.spawn(35, 12);
+      L.spawn(5, 30); L.spawn(6, 20); L.spawn(20, 23); L.spawn(24, 16);
+      L.spawn(86, 30); L.spawn(84, 20); L.spawn(71, 23); L.spawn(67, 16);
+    },
+  },
+
+  // The reactor hall: a great shaft with the core down its middle and acid under it, galleries stepping up each side.
+  reactor: {
+    name: 'REACTOR', w: 80, h: 36, theme: 'lab', desc: 'GALLERIES ROUND THE CORE, ACID BELOW',
+    build(L) {
+      L.shell();
+      L.fill(1, 33, 78, 34, SOLID); L.fill(25, 33, 54, 33, EMPTY); L.row(34, 25, 54, ACID);   // the floor, the pool
+      L.fill(36, 31, 43, 33, SOLID);                                               // the core's foot, an island in the pool
+      L.row(31, 27, 31, PLAT); L.row(31, 48, 52, PLAT);
+      L.row(26, 1, 22); L.row(26, 57, 78); L.row(28, 24, 26, PLAT); L.row(28, 53, 55, PLAT);
+      L.row(24, 30, 49, PLAT); L.row(27, 32, 34, PLAT); L.row(27, 45, 47, PLAT);   // the ring round the core
+      L.row(19, 8, 28); L.row(19, 51, 71); L.row(21, 30, 31, PLAT); L.row(21, 48, 49, PLAT);
+      L.row(18, 34, 45); L.row(12, 1, 18); L.row(12, 61, 78);
+      L.row(15, 20, 24, PLAT); L.row(15, 55, 59, PLAT); L.row(11, 26, 53, PLAT);   // the gantry over it all
+      for (const [x, a, b] of [[8, 26, 32], [20, 26, 32], [59, 26, 32], [71, 26, 32], [12, 19, 25], [24, 19, 25], [55, 19, 25], [67, 19, 25], [5, 12, 25], [74, 12, 25], [14, 12, 18], [65, 12, 18], [39, 18, 23], [39, 11, 17]]) L.ladder(x, a, b);
+      L.fill(15, 24, 16, 25, SOLID); L.fill(63, 24, 64, 25, SOLID); L.fill(19, 17, 20, 18, SOLID); L.fill(59, 17, 60, 18, SOLID);
+      L.pad(3, 33); L.pad(76, 33); L.pad(25, 19);L.pad(54, 19);
+      for (const [x, y] of [[8, 1], [24, 1], [40, 1], [56, 1], [72, 1], [6, 13], [15, 13], [64, 13], [73, 13], [12, 20], [24, 20], [55, 20], [67, 20], [8, 27], [20, 27], [59, 27], [71, 27], [31, 25], [48, 25]]) L.lamp(x, y);
+      L.deco.push(
+        { kind: 'reactor', x: 37, y: 3 }, { kind: 'reactor', x: 37, y: 25.2 }, { kind: 'tank', x: 10, y: 7.3 }, { kind: 'tank', x: 67, y: 7.3 }, { kind: 'tank', x: 3, y: 21.3 }, { kind: 'tank', x: 75, y: 21.3 },
+        { kind: 'server', x: 26, y: 13.4 }, { kind: 'server', x: 52, y: 13.4 }, { kind: 'monitors', x: 16, y: 15 }, { kind: 'monitors', x: 60, y: 15 },
+        { kind: 'sign', x: 34, y: 15, text: 'CORE - KEEP OUT' }, { kind: 'sign', x: 9, y: 22, text: 'GALLERY A' }, { kind: 'sign', x: 62, y: 22, text: 'GALLERY B' }, { kind: 'vent', x: 28, y: 6 }, { kind: 'vent', x: 50, y: 6 }, { kind: 'pipes', y: 20 },
+      );
+      for (const [k, x, y] of [['crate', 12, 33], ['wcrate', 17, 33], ['barrel', 23, 33], ['barrel', 56, 33], ['wcrate', 62, 33], ['crate', 67, 33], ['crate', 2, 26], ['table', 17, 26], ['table', 61, 26], ['crate', 77, 26],
+        ['barrel', 10, 19], ['locker', 16, 19], ['locker', 63, 19], ['barrel', 69, 19], ['wcrate', 37, 18], ['wcrate', 42, 18], ['crate', 2, 12], ['table', 9, 12], ['table', 69, 12], ['crate', 77, 12], ['barrel', 33, 11], ['barrel', 46, 11]]) L.prop(k, x, y);
+      L.spawn(4, 12); L.spawn(10, 19); L.spawn(5, 26); L.spawn(6, 33);
+      L.spawn(75, 12); L.spawn(69, 19); L.spawn(74, 26); L.spawn(73, 33);
+    },
+  },
+
+  // A freight yard at dusk: rows of containers to climb, a loading gantry the length of it overhead.
+  yard: {
+    name: 'FREIGHT YARD', w: 100, h: 30, theme: 'site', desc: 'OUTDOORS - CONTAINERS UNDER A GANTRY',
+    build(L) {
+      L.fill(0, 28, 99, 29, SOLID);
+      L.fill(0, 0, 0, 27, SOLID); L.fill(99, 0, 99, 27, SOLID);
+      // containers, one and two high: three rows each, so one jump gets up a level
+      for (const [x0, x1, top] of [[8, 14, 25], [18, 26, 25], [18, 22, 22], [34, 40, 25], [46, 53, 25], [46, 49, 22], [59, 65, 25], [73, 81, 25], [77, 81, 22], [85, 91, 25]]) L.fill(x0, top, x1, top + 2, SOLID);
+      L.row(16, 2, 97, PLAT);                                                      // the gantry
+      L.row(19, 28, 32, PLAT); L.row(19, 67, 71, PLAT); L.row(19, 42, 44, PLAT); L.row(19, 55, 57, PLAT); L.row(22, 28, 31, PLAT); L.row(22, 68, 71, PLAT);
+      L.row(10, 20, 34, PLAT); L.row(10, 65, 79, PLAT); L.row(10, 44, 55, PLAT);   // the crane rails
+      for (const [x, a, b] of [[4, 16, 27], [95, 16, 27], [33, 16, 27], [66, 16, 27], [50, 16, 24], [22, 10, 15], [77, 10, 15], [50, 10, 15]]) L.ladder(x, a, b);
+      L.pad(16, 28); L.pad(83, 28); L.pad(43, 28); L.pad(56, 28);
+      for (const [x, y] of [[2, 27], [15, 27], [31, 27], [42, 27], [56, 27], [70, 27], [84, 27], [97, 27]]) L.lamp(x, y, true);
+      L.deco.push(
+        { kind: 'crane', x: 12, y: 2, h: 26 }, { kind: 'crane', x: 86, y: 2, h: 26 }, { kind: 'cones', x: 29, y: 27 }, { kind: 'cones', x: 69, y: 27 }, { kind: 'cones', x: 41, y: 27 },
+        { kind: 'sign', x: 46, y: 13, text: 'FREIGHT YARD 3' }, { kind: 'sign', x: 9, y: 26, text: 'HEAVY LOAD' }, { kind: 'sign', x: 74, y: 26, text: 'BAY 7' },
+      );
+      for (const [k, x, y, lift] of [['wcrate', 2, 28], ['pallet', 6, 28], ['barrel', 29, 28], ['sandbags', 31, 28], ['wcrate', 38, 28], ['pipes', 61, 28], ['barrel', 68, 28], ['sandbags', 70, 28], ['pallet', 93, 28], ['wcrate', 97, 28],
+        ['wcrate', 10, 25], ['barrel', 24, 25], ['crate', 38, 25], ['barrel', 52, 25], ['crate', 62, 25], ['wcrate', 75, 25], ['wcrate', 89, 25], ['wcrate', 20, 22], ['wcrate', 47, 22], ['barrel', 79, 22],
+        ['wcrate', 12, 16], ['barrel', 40, 16], ['wcrate', 60, 16], ['barrel', 88, 16], ['wcrate', 28, 10], ['wcrate', 72, 10]]) L.prop(k, x, y, 0, lift ?? 0);
+      L.spawn(6, 16); L.spawn(11, 25); L.spawn(20, 22); L.spawn(6, 28);
+      L.spawn(93, 16); L.spawn(88, 25); L.spawn(79, 22); L.spawn(93, 28);
     },
   },
 
@@ -219,4 +298,4 @@ export const MAPS = {
   },
 };
 
-export const MAP_KEYS = ['lab', 'warehouse', 'office', 'rooftops', 'site'];
+export const MAP_KEYS = ['lab', 'warehouse', 'office', 'rooftops', 'site', 'reactor', 'yard'];

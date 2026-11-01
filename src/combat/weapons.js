@@ -190,6 +190,17 @@ export class Weapon {
     return this.reload >= 0;
   }
 
+  // The wait till it can fire again: the cooldown, or the bolt or pump being worked, whichever's longer.
+  get waitLeft() {
+    return Math.max(this.cooldown, this.acting > 0 ? Math.max(0, this.actDelay) + this.acting : 0);
+  }
+  // How far through that wait it is, 0..1, for a meter - or null for a wait too short to be worth showing
+  // (anything that fires at about the rate you can click, or a stream).
+  get waitShown() {
+    if (!(this.waitTotal >= 0.2) || this.waitLeft <= 0) return null;
+    return Math.max(0, Math.min(1, 1 - this.waitLeft / this.waitTotal));
+  }
+
   // How far along the reload is, for a meter, 0..1. A shell at a time: the mag filling up (a shell's only
   // counted in the ammo part way through its cycle, so that part's taken back off, or the meter goes on a
   // shell ahead and back again); as many as there are to load, if that's not a full mag.
@@ -368,6 +379,7 @@ export class Weapon {
     }
     this.ammo--;
     this.cooldown = this.def.fireInterval;
+    this.waitTotal = 0;
     if (this.def.burst) {
       // burst guns fire a few rounds per pull, then pause
       this.burstLeft = this.burstLeft > 0 ? this.burstLeft - 1 : this.def.burst - 1;
@@ -387,6 +399,7 @@ export class Weapon {
     } else {
       this.cycleT = CYCLE_TIME;   // self-loading: the bolt/slide cycles and throws the case
     }
+    this.waitTotal = this.waitLeft;
     return 'fired';
   }
 

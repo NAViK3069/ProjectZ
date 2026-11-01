@@ -12,6 +12,7 @@
 // were last, picks up what's lying around, roams and hops.
 
 import { T, SOLID, PLAT, LADDER, ACID, LOW } from './level.js';
+import { GRAVITY, WALK, AIR_ACCEL, JUMP, JUMP2, PAD_JUMP } from './fighter.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick2 = (l) => l[(Math.random() * l.length) | 0];
@@ -21,12 +22,16 @@ export class Nav {
     // (a low ceiling counts as a wall: no room to stand under it)
     this.L = Object.create(level);
     this.L.get = (x, y) => { const v = level.get(x, y); return v === LOW ? SOLID : v; };
+    this.pads = new Set(level.pads.map((p) => this.id(p.cx, p.cy)));
     this.nodes = new Map();   // id -> { id, cx, cy, ladder, edges: [{ to, kind, cost, dy }] }
     for (let cy = 0; cy < level.h; cy++) for (let cx = 0; cx < level.w; cx++) {
       if (this.stand(cx, cy) || this.ladder(cx, cy)) this.nodes.set(this.id(cx, cy), { id: this.id(cx, cy), cx, cy, ladder: this.ladder(cx, cy) && !this.stand(cx, cy), edges: [] });
     }
     for (const n of this.nodes.values()) this.link(n);
-    this.standable = [...this.nodes.values()].filter((n) => !n.ladder);
+    // (the places to go: those the fighters can get to from where they start - not the top of a fence, say)
+    const start = level.spawns[0] && this.nodeBelow(level.spawns[0].x, level.spawns[0].y - 1), reach = new Set(start ? [start] : []);
+    for (const n of reach) for (const e of n.edges) reach.add(e.to);
+    this.standable = [...this.nodes.values()].filter((n) => !n.ladder && (!start || reach.has(n)));
   }
 
   id(cx, cy) {
@@ -60,6 +65,14 @@ export class Nav {
       const to = this.nodes.get(this.id(tx, ty));
       if (to && to !== n && !n.edges.some((e) => e.to === to)) n.edges.push({ to, kind, cost, dy: ty - cy, dx: tx - cx });
     };
+    // a jump pad: standing on it, it throws you - that's the only way off it
+    if (this.pads.has(n.id)) {
+      for (let dy = -10; dy <= 2; dy++) for (let dx = -9; dx <= 9; dx++) {
+        if (!dx && dy >= 0) continue;
+        if (this.stand(cx + dx, cy + dy) && !this.pads.has(this.id(cx + dx, cy + dy)) && this.arc(cx, cy, cx + dx, cy + dy, true)) add(cx + dx, cy + dy, 'pad', 1 + Math.abs(dx) * 0.3 + Math.max(0, -dy) * 0.3);
+      }
+      return;
+    }
     if (n.ladder || this.ladder(cx, cy)) {
       if (this.nodes.has(this.id(cx, cy - 1))) add(cx, cy - 1, 'climb', 1.2);
       if (this.nodes.has(this.id(cx, cy + 1))) add(cx, cy + 1, 'climb', 1.2);
@@ -70,6 +83,7 @@ export class Nav {
     for (const d of [-1, 1]) {
       const nx = cx + d;
       if (this.stand(nx, cy)) add(nx, cy, 'walk', 1);
+      else if (this.ladder(nx, cy)) add(nx, cy, 'walk', 1.5);   // onto a ladder that passes by
       else if (this.free(nx, cy) && L.get(nx, cy - 1) !== SOLID) {
         const y = this.land(nx, cy);
         if (y !== null && y > cy) add(nx, y, 'fall', 1 + (y - cy) * 0.4);
@@ -80,34 +94,61 @@ export class Nav {
       const y = this.land(cx, cy + 2);
       if (y !== null) add(cx, y, 'drop', 1.2 + (y - cy) * 0.3);
     }
-    // jumps
-    for (let dy = -5; dy <= 3; dy++) for (let dx = -5; dx <= 5; dx++) {
+    // jumps: wherever the real thing gets to
+    for (let dy = -6; dy <= 4; dy++) for (let dx = -7; dx <= 7; dx++) {
       if (!dx && dy >= 0) continue;
-      if (dy < 0 && Math.abs(dx) > 4) continue;
       if (dy >= 0 && Math.abs(dx) < 2) continue;
       const tx = cx + dx, ty = cy + dy;
-      if (!this.stand(tx, ty) || !this.jumpClear(cx, cy, tx, ty)) continue;
+      if (!this.stand(tx, ty)) continue;
       // a level (or downward) jump only where there's something to jump: a gap or an
-      // obstacle on the way - along an unbroken floor it just walks
+      // obstacle on the way (a jump pad's one) - along an unbroken floor it just walks
       if (dy >= 0) {
         let broken = false;
-        for (let x = cx + Math.sign(dx); x !== tx && !broken; x += Math.sign(dx)) if (!this.stand(x, cy)) broken = true;
+        for (let x = cx + Math.sign(dx); x !== tx && !broken; x += Math.sign(dx)) if (!this.stand(x, cy) || this.pads.has(this.id(x, cy))) broken = true;
         if (!broken) continue;
       }
-      // never cheaper than walking the same distance
-      add(tx, ty, 'jump', 2 + Math.abs(dx) * 1.1 + Math.max(0, -dy) * 0.9);
+      if (!this.arc(cx, cy, tx, ty)) continue;
+      // never cheaper than walking the same distance; the high ones (a second jump) dearer still
+      add(tx, ty, 'jump', 2 + Math.abs(dx) * 1.1 + Math.max(0, -dy) * 0.9 + (dy < -3 ? 2 : 0));
     }
   }
 
-  // Rough room check for a jump arc: up the start column, across the top, down onto the target.
-  jumpClear(cx, cy, tx, ty) {
-    const L = this.L, top = Math.min(cy, ty) - 2;
-    const open = (x, y) => L.get(x, y) !== SOLID;
-    for (let y = cy; y >= top; y--) if (!open(cx, y)) return false;
-    const s = Math.sign(tx - cx);
-    for (let x = cx; x !== tx + s; x += s) if (!open(x, top) || !open(x, top + 1)) return false;
-    for (let y = top; y <= ty; y++) if (!open(tx, y)) return false;
-    return true;
+  // Does a jump from (cx, cy) really land on (tx, ty)? Flown as a fighter flies it, pressing what a bot presses (see follow):
+  // up from the front of the spot, over once it's high enough, the second jump when it needs it. What's in the way is in the way.
+  arc(cx, cy, tx, ty, pad = false) {
+    const L = this.L, gx = (tx + 0.5) * T, gy = (ty + 1) * T, dir = Math.sign(tx - cx);
+    const high = ty - cy <= -3, long = Math.abs(tx - cx) >= 3, level = ty >= cy;
+    const blocked = (x, top, bot) => {
+      for (let y = Math.floor(top / T); y <= Math.floor((bot - 0.01) / T); y++) for (let c = Math.floor((x - 5) / T); c <= Math.floor((x + 4.99) / T); c++) if (L.get(c, y) === SOLID) return true;
+      return false;
+    };
+    let x = (cx + 0.5) * T + (pad ? 0 : dir * 4), y = (cy + 1) * T, vx = pad ? 0 : dir * WALK * (long ? 1.4 : 1), vy = pad ? -PAD_JUMP : -JUMP, spare = !pad;
+    const dt = 1 / 30;
+    for (let i = 0; i < 90; i++) {
+      if (spare && vy > -60 && ((high && y > gy) || (long && Math.abs(gx - x) > 24))) { vy = -JUMP2; spare = false; }
+      const above = y < gy + 2, d = gx - x;
+      const steer = Math.abs(d) <= 6 ? 0 : above || level ? Math.sign(d) : Math.abs(d) > 20 ? Math.sign(d) * 0.6 : 0;
+      const want = steer * WALK, a = AIR_ACCEL * dt;
+      vx += Math.max(-a, Math.min(a, want - vx));
+      vy = Math.min(430, vy + GRAVITY * dt);
+      const nx = x + vx * dt;
+      if (blocked(nx, y - 28, y - 0.5)) vx = 0; else x = nx;
+      const ny = y + vy * dt;
+      if (vy < 0) {
+        if (blocked(x, ny - 28, ny - 20)) vy = 0; else y = ny;
+        continue;
+      }
+      // coming down: onto the first thing in the way
+      for (let row = Math.floor(y / T); row <= Math.floor(ny / T); row++) {
+        if (row * T < y - 0.5) continue;
+        let floor = false;
+        for (let c = Math.floor((x - 5) / T); c <= Math.floor((x + 4.99) / T); c++) { const v = L.get(c, row); if (v === SOLID || v === PLAT || v === ACID) floor = true; }
+        if (floor) return row === ty + 1 && Math.abs(x - gx) < T * 0.75;
+      }
+      y = ny;
+      if (y > gy + 3 * T) return false;
+    }
+    return false;
   }
 
   // The node a fighter is at (or next to), or null in mid-air.
@@ -154,13 +195,28 @@ export class Nav {
   path(from, to, bias = null, avoid = null, extra = null) {
     if (!from || !to) return null;
     if (from === to) return [];
-    const open = [from], g = new Map([[from, 0]]), came = new Map(), h = (n) => Math.abs(n.cx - to.cx) + Math.abs(n.cy - to.cy) * 1.2;
-    const f = new Map([[from, h(from)]]), closed = new Set();
-    let guard = 0;
-    while (open.length && guard++ < 4000) {
-      let bi = 0;
-      for (let i = 1; i < open.length; i++) if (f.get(open[i]) < f.get(open[bi])) bi = i;
-      const cur = open.splice(bi, 1)[0];
+    const g = new Map([[from, 0]]), came = new Map(), closed = new Set(), h = (n) => Math.abs(n.cx - to.cx) * 0.9 + Math.abs(n.cy - to.cy);
+    const heap = [[h(from), from]];
+    const push = (e) => { let i = heap.push(e) - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => {
+      const top = heap[0], last = heap.pop();
+      if (heap.length) {
+        heap[0] = last;
+        for (let i = 0; ;) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === i) break;
+          [heap[m], heap[i]] = [heap[i], heap[m]];
+          i = m;
+        }
+      }
+      return top[1];
+    };
+    while (heap.length) {
+      const cur = pop();
+      if (closed.has(cur)) continue;
       if (cur === to) {
         const out = [];
         let c = cur;
@@ -177,12 +233,22 @@ export class Nav {
         const ng = g.get(cur) + e.cost + (bias?.get(e.to) ?? 0) + (extra?.get(e.to) ?? 0) + (avoid?.has(e) ? 60 : 0);
         if (ng >= (g.get(e.to) ?? Infinity)) continue;
         g.set(e.to, ng);
-        f.set(e.to, ng + h(e.to));
         came.set(e.to, [cur, e]);
-        if (!open.includes(e.to)) open.push(e.to);
+        push([ng + h(e.to), e.to]);
       }
     }
     return null;
+  }
+  // The nearest place to `to` that can be got to from `from` (when `to` itself can't).
+  nearest(from, to) {
+    const seen = new Set([from]), list = [from];
+    let best = from, bd = Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i], d = Math.abs(n.cx - to.cx) + Math.abs(n.cy - to.cy) * 1.5;
+      if (d < bd && !n.ladder) { bd = d; best = n; }
+      for (const e of n.edges) if (!seen.has(e.to)) { seen.add(e.to); list.push(e.to); }
+    }
+    return best;
   }
 }
 
@@ -214,6 +280,8 @@ export class Bot {
       flips: 0, flipT: 1, flipX: 0, lastDir: 0, commit: 0, commitDir: 0,   // turning back and forth on the spot, and a way out of it
       flee: false,                 // cloaked to get away (not to stab)
       dropT: 0,                    // (till when) it's just pressed to drop through a catwalk
+      turnT: 0,                    // a moment after turning round before it'll turn back
+      nearGoal: null, nearD: Infinity, noWay: 0, gaveUp: 0,   // how close it's got to where it's going, how long since it got closer
     });
   }
 
@@ -306,15 +374,19 @@ export class Bot {
       const n = nav.nodeAt(k.x, k.y) ?? nav.nodeBelow(k.x, k.y);
       if (n && (Math.abs(k.x - f.x) > 20 || Math.abs(k.y - f.y) > 20)) {
         goal = n; key = t; this.mode = 'hunt';
-        sprint = Math.hypot(k.x - f.x, k.y - f.y) > 240 && this.aggro > 0.6;
+        sprint = Math.hypot(k.x - f.x, k.y - f.y) > 200 && f.stamina > 40;
       } else { this.known.delete(t); this.target = null; }
     }
     if (!goal && !fight) {
       // nothing to go on: roam - round where someone vanished, if someone did, otherwise
       // anywhere - pausing a moment to look about
-      if (this.mode !== 'search' || !this.wander || this.wanderReached()) {
+      if (this.mode !== 'search' || !this.wander || this.wanderReached() || this.gaveUp > 0) {
+        this.gaveUp = 0;
         const L = this.lost, near = (n) => Math.abs((n.cx + 0.5) * T - L.x) < 8 * T && Math.abs((n.cy + 1) * T - L.y) < 5 * T;
-        let spots = nav.standable.filter((n) => Math.abs(n.cx * T - f.x) > 64 && (!L || near(n)));
+        // (with nothing to go on, it tends to drift toward where the fighting is: a big map doesn't leave it wandering alone)
+        const foe = !L && Math.random() < 0.65 ? pick2(G.fighters.filter((o) => o.alive && !o.hidden && G.foes(f, o))) : null;
+        const by = foe && ((n) => Math.abs((n.cx + 0.5) * T - foe.x) < 9 * T && Math.abs((n.cy + 1) * T - foe.y) < 6 * T);
+        let spots = nav.standable.filter((n) => Math.abs(n.cx * T - f.x) > 64 && (!L || near(n)) && (!by || by(n)));
         if (!spots.length) spots = nav.standable.filter((n) => Math.abs(n.cx * T - f.x) > 96);
         this.wander = pick2(spots);
         this.pauseT = L ? rand(0.1, 0.4) : rand(0.3, 0.8);
@@ -322,7 +394,7 @@ export class Bot {
       this.mode = 'search';
       goal = this.wander;
       key = this.wander;
-      sprint = !!this.lost && f.stamina > 60;
+      sprint = (!!this.lost || (this.wander && Math.abs((this.wander.cx + 0.5) * T - f.x) > 200)) && f.stamina > 60;
     }
 
     // ---- aim ----
@@ -336,11 +408,16 @@ export class Bot {
       c.aim = this.aim;
       c.target = { x: s.x + Math.cos(this.aim) * dist, y: s.y + Math.sin(this.aim) * dist };
     } else {
-      // look where it's going; glance back now and then
-      const dir = this.path[0] ? Math.sign((this.path[0].node.cx + 0.5) * T - f.x) || f.facing : f.facing;
-      if (this.lookT <= 0 && Math.random() < dt * 0.3) this.lookT = rand(0.4, 0.9);
-      const look = this.lookT > 0 ? -dir : dir;
-      const want = look > 0 ? 0 : Math.PI;
+      // someone it knows about, seen a moment ago: its gun stays on where they were, ready for when they
+      // show again. Otherwise it looks the way it's going (and only glances back when it's just looking about)
+      const k = t && this.known.get(t), fresh = k && G.time - k.t < 2.5 && Math.hypot(k.x - f.x, k.y - f.y) > 20;
+      let want;
+      if (fresh) want = Math.atan2(k.y - 12 - s.y, k.x - s.x);
+      else {
+        const dir = Math.abs(f.vx) > 20 ? Math.sign(f.vx) : f.facing;   // (by how it's moving: by the next step of the route, it flipped as it passed each one)
+        if (this.mode === 'search' && this.lookT <= 0 && Math.random() < dt * 0.1) this.lookT = rand(0.5, 0.9);
+        want = (this.mode === 'search' && this.lookT > 0 ? -dir : dir) > 0 ? 0 : Math.PI;
+      }
       this.aim += Math.atan2(Math.sin(want - this.aim), Math.cos(want - this.aim)) * Math.min(1, dt * 8);
       c.aim = this.aim;
     }
@@ -365,7 +442,8 @@ export class Bot {
     if (t && !armed && vis) { goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? goal; key = t; sprint = dist < 200; fight = false; }
     if (t && !armed && Math.abs(t.x - f.x) < reach && Math.abs(t.y - f.y) < 18) {
       c.fire = true;
-      c.aim = Math.atan2(t.y - 14 - s.y, t.x - s.x);
+      // (right on top of them: as it's facing - which side of it they're on means nothing that close, a hit's a hit)
+      c.aim = Math.abs(t.x - f.x) < 8 ? (f.facing > 0 ? 0 : Math.PI) : Math.atan2(t.y - 14 - s.y, t.x - s.x);
     }
     // with a gun but someone right up close: a quick melee to knock it out of their hands
     if (t && armed && vis && Math.abs(t.x - f.x) < 18 && Math.abs(t.y - f.y) < 16 && this.punchT <= 0 && (t.lastFireT < 0.5 || Math.random() < 0.3)) {
@@ -421,6 +499,7 @@ export class Bot {
       this.goalKey = key;
       const rolled = c.move;
       this.follow(dt, c, goal);
+      this.progress(dt, c, goal, key);
       if (c.roll) c.move = rolled;
       c.sprint = (sprint || this.runJump) && f.stamina > 30;   // (running at a long jump, too)
       this.runJump = false;
@@ -440,6 +519,16 @@ export class Bot {
       if (this.dj && !f.onGround && !f.onLadder && f.vy > -40 && f.airJumps > 0) { c.jump = true; this.dj = false; }
     }
     if (f.onGround && this.holdT <= 0) this.dj = false;
+    // Turned round just now: it doesn't turn straight back. (Someone right overhead or crossing it had it
+    // flipping from side to side every moment.) It's a beat before it can turn on them and shoot.
+    this.turnT -= dt;
+    if (c.aim !== null && !f.roll) {
+      const side = Math.cos(c.aim);
+      if (Math.abs(side) > 0.15 && Math.sign(side) !== f.facing) {
+        if (this.turnT > 0) { c.aim = Math.PI - c.aim; c.target = null; c.fire = false; }
+        else this.turnT = 0.5;
+      }
+    }
     return c;
   }
 
@@ -675,6 +764,25 @@ export class Bot {
     if (f.airJumps > 0 && f.vy > -40) { c.jump = true; c.jumpHeld = true; }
   }
 
+  // Not getting any closer to where it's going, for a while (whatever the reason): that step of the route's
+  // no good for now, and if it was only roaming or fetching something, somewhere else will do.
+  progress(dt, c, goal, key) {
+    const f = this.f, G = this.game;
+    if (!goal) return;
+    const d = Math.abs((goal.cx + 0.5) * T - f.x) + Math.abs((goal.cy + 1) * T - f.y);
+    if (goal !== this.nearGoal) { this.nearGoal = goal; this.nearD = d; this.noWay = 0; return; }
+    if (d < this.nearD - 10) { this.nearD = d; this.noWay = 0; return; }
+    if ((this.noWay += dt) < 3) return;
+    this.noWay = 0;
+    this.nearD = Infinity;
+    if (this.path[0]) this.failed.set(this.path[0].edge, G.time + 12);
+    this.repath = 0;
+    if (this.mode === 'search') this.gaveUp = 1;
+    else if (key?.kind !== undefined && G.pickups.includes(key)) this.skip.set(key, G.time + 12);
+    else if (this.mode === 'hunt' && this.target) { this.known.delete(this.target); this.target = null; }
+    if (f.onGround && !f.onLadder) { this.commit = 0.4; this.commitDir = Math.random() < 0.5 ? -1 : 1; }
+  }
+
   // Follow the route to a node, pressing whatever each step needs.
   follow(dt, c, goal) {
     const f = this.f, nav = this.game.nav;
@@ -733,7 +841,8 @@ export class Bot {
         extra = new Map(extra);
         for (const e of here.edges) if (Math.sign(e.to.cx - here.cx) === -going) extra.set(e.to, (extra.get(e.to) ?? 0) + 6);
       }
-      this.path = nav.path(here, goal, this.bias, avoid, extra) ?? [];
+      // (no way there at all, from here: as near as it can get)
+      this.path = nav.path(here, goal, this.bias, avoid, extra) ?? (goal && nav.path(here, nav.nearest(here, goal), this.bias, avoid, extra)) ?? [];
     }
     // drop the steps already done
     while (here && this.path.length && this.path[0].node === here) this.path.shift();
@@ -781,6 +890,15 @@ export class Bot {
         if (Math.abs(f.x - tx) > 4) c.move = Math.sign(tx - f.x);
         else if (f.onGround && !(this.dropT > this.game.time)) { c.drop = true; this.dropT = this.game.time + 0.5; }   // through the catwalk - once (held on, it would jump off it instead)
         break;
+      case 'pad': {
+        // onto the middle of it (it does the rest), then over to where it's for
+        if (f.onGround) c.move = Math.abs(sx - f.x) > 3 ? Math.sign(sx - f.x) : 0;
+        else {
+          this.jumping ??= { edge: e, t: this.game.time };
+          c.move = Math.abs(tx - f.x) <= 6 ? 0 : f.y < ty + 2 ? Math.sign(tx - f.x) : Math.abs(tx - f.x) > 20 ? Math.sign(tx - f.x) * 0.6 : 0;
+        }
+        break;
+      }
       case 'jump': {
         const high = e.dy <= -3, long = Math.abs(e.dx) >= 3, dirJ = Math.sign(tx - sx);
         if (f.onGround || f.onLadder) {
@@ -825,7 +943,16 @@ export class Bot {
     const f = this.f, nav = this.game.nav;
     if (!c.move || !f.onGround) return;
     const cx = Math.floor((f.x + Math.sign(c.move) * 9) / T), cy = Math.floor((f.y - 1) / T);
-    if (!nav.stand(cx, cy) && nav.free(cx, cy) && nav.land(cx, cy) === null && !(c.jump && this.path[0]?.edge.kind === 'jump')) c.move = 0;
+    if (nav.stand(cx, cy) || !nav.free(cx, cy) || nav.land(cx, cy) !== null) return;
+    // right on the edge of it. On its way over by a jump: this is as good a place to go from as any (held back
+    // here for a better one, it stood at the edge for ever); otherwise no further.
+    const step = this.path[0];
+    if (step?.edge.kind === 'jump' && Math.sign(step.edge.dx) === Math.sign(c.move)) {
+      c.jump = true;
+      c.jumpHeld = true;
+      this.jumpedFrom = step.from;
+      this.jumping ??= { edge: step.edge, t: this.game.time };
+    } else if (!c.jump || step?.edge.kind !== 'jump') c.move = 0;
   }
 
   // Pushing against something and not moving: hop.

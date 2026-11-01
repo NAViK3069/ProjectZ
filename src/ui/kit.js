@@ -124,7 +124,7 @@ export class Kit {
     const u = this.u, hot = enabled && (selected || this.hover === `${id}:-1` || this.hover === `${id}:1`);
     if (hot) this.rect(x, y, w, h, K.row);
     const ty = y + (h - 7 * u) / 2;
-    this.text(label, x + 4 * u, ty + u, { small: true, color: hot ? K.gold : K.muted });
+    this.text(label, x + 4 * u, ty, { color: hot ? K.gold : K.muted });
     const vw = this.width(value);
     if (enabled) {
       const right = x + w - 4 * u, ax = right - vw - 18 * u;
@@ -141,7 +141,7 @@ export class Kit {
     const u = this.u, hot = enabled && this.hover === id;
     this.rect(x, y, w, h, hot ? K.row : 'rgba(255, 255, 255, 0.03)');
     const ty = y + (h - 7 * u) / 2;
-    this.text(label, x + 4 * u, ty + u, { small: true, color: hot ? K.gold : K.muted });
+    this.text(label, x + 4 * u, ty, { color: hot ? K.gold : K.muted });
     let right = x + w - 4 * u;
     if (enabled) {
       // the arrow: a little triangle pointing down
@@ -206,6 +206,9 @@ export class Kit {
     const { u, W, H } = this;
     this.rect(0, H - 13 * u, W, 13 * u, 'rgba(5, 8, 7, 0.85)');
     this.rect(0, H - 13 * u, W, u, K.edge);
+    // (a narrow screen: closer together, rather than running off both sides)
+    if (this.width(s, { small: true }) > W - 8 * u) s = s.replace(/ {3,}/g, '   ');
+    if (this.width(s, { small: true }) > W - 8 * u) s = s.replace(/ {2,}/g, ' ');
     this.text(s, W / 2, H - 9 * u, { small: true, color: K.muted, align: 'center' });
   }
   // a message, in a box above the hints

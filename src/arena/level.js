@@ -52,6 +52,7 @@ export class Level {
     this.racks = [];      // training: weapons laid out to pick up
     this.dummies = [];    // training: target dummies { x, y, patrol }
     this.signs = [];      // training: tips painted on the wall { x, y, text }
+    this.pads = [];       // jump pads: { cx, cy } (the cell standing on it)
     map.build(this);
     this.padTop(map.pad ?? HEADROOM);
     this.render();
@@ -80,6 +81,7 @@ export class Level {
     for (const d of this.dummies) d.y += pad;
     for (const p of this.props) p.y += pad * T;
     for (const s of this.spawns) s.y += pad * T;
+    for (const p of this.pads) p.cy += pad;
   }
 
   get(x, y) {
@@ -118,6 +120,12 @@ export class Level {
   // a prop standing on the floor whose top is row `floor`, at cell column cx (+ dx px)
   prop(kind, cx, floor, dx = 0, lift = 0) { this.props.push({ kind, x: (cx + 0.5) * T + dx, y: floor * T - lift }); }
   spawn(cx, floor) { this.spawns.push({ x: (cx + 0.5) * T, y: floor * T }); }
+  pad(cx, floor) { this.pads.push({ cx, cy: floor - 1 }); }
+  // is someone with their feet at (px, py) standing on a jump pad?
+  padAt(px, py) {
+    const cx = Math.floor(px / T), cy = Math.floor((py - 1) / T);
+    return this.pads.some((p) => p.cx === cx && p.cy === cy);
+  }
 
   // ---------- art ----------
 
@@ -148,7 +156,20 @@ export class Level {
         rect(ft, '#141c1b', cx * T, cy * T + LOW_H - 2, T, 2);
       }
     }
+    for (const p of this.pads) this.drawPad(ft, p.cx, p.cy);
     this.front = front;
+  }
+
+  // a jump pad: a steel plate on the floor, its lit chevrons pointing up
+  drawPad(g, cx, cy) {
+    const x = cx * T, y = cy * T + T;
+    rect(g, '#0e1413', x, y - 5, T, 5);
+    rect(g, '#4a5a5c', x + 1, y - 4, T - 2, 4);
+    rect(g, '#7ef0e0', x + 2, y - 4, T - 4, 1);
+    for (const dy of [7, 10]) for (let i = 0; i < 4; i++) {
+      rect(g, '#7ef0e0', x + 7 - i, y - dy - 3 + i, 1, 1);
+      rect(g, '#7ef0e0', x + 8 + i, y - dy - 3 + i, 1, 1);
+    }
   }
 
   // Outdoors: the sky (a gradient, stars or clouds, the moon or the sun) and a city skyline far off.

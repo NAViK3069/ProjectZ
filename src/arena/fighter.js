@@ -20,8 +20,9 @@ import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
 import { drawFlame } from './flame.js';
 
 // movement
-const GRAVITY = 720, MAX_FALL = 430, WALK = 86, SPRINT = 1.85, ACCEL = 950, DECEL = 1250, AIR_ACCEL = 650;
-const JUMP = 290, JUMP2 = 250, CLIMB = 75, COYOTE = 0.09, BUFFER = 0.12;
+export const GRAVITY = 720, WALK = 86, AIR_ACCEL = 650, JUMP = 290, JUMP2 = 250, PAD_JUMP = 430;   // (the bots work out their routes by these)
+const MAX_FALL = 430, SPRINT = 1.85, ACCEL = 950, DECEL = 1250;
+const CLIMB = 75, COYOTE = 0.09, BUFFER = 0.12;
 export const MAX_STAMINA = 100;
 const STAMINA_DRAIN = 17, STAMINA_REGEN = 24;   // a full bar runs for about 6 s
 const WINDED_DELAY = 0.75, WINDED_UNTIL = 30;   // run out of stamina: this long before it refills, no running till it's this much
@@ -90,8 +91,16 @@ export const DAMAGE = 0.36;    // guns hit for this much of their main-game dama
 // less of it, or they'd out-damage everything. A shotgun: all its pellets at close range take well over a third of you
 const CLASS_MUL = { sniper: 2, shotgun: 1.7 };
 const GUN_MUL = {
-  vss: 1.1, dragunov: 1.5, m82a1: 1.6, barrett: 1.6,   // (snipers that don't need the bolt working)
-  m1014: 1.4, s12k: 1.4, saiga12: 1.4, aa12: 1.3, usas12: 1.3,   // (shotguns that don't need the pump working)
+  vss: 1.1, dragunov: 1.5, m82a1: 1.5, barrett: 1.5,   // (snipers that don't need the bolt working)
+  m1014: 1.1, s12k: 1.1, saiga12: 1.1, aa12: 1, usas12: 0.95, dbs: 1.4, ks23: 1.2,   // (shotguns that don't need the pump working, and the two with the most in one shot)
+};
+// And these fire too quickly for the fight here: how they handle in this game. (The arena's own: the
+// catalog's for the top-down game as well.) A shotgun at its best, or a .50, comes out near the bolt guns' 120-200 a second.
+export const GUN_HANDLING = {
+  aa12: { fireInterval: 0.3, magSize: 12, spread: 0.26 }, usas12: { fireInterval: 0.32, magSize: 8 },
+  saiga12: { fireInterval: 0.36 }, s12k: { fireInterval: 0.36 }, m1014: { fireInterval: 0.38 },
+  barrett: { fireInterval: 1, magSize: 5, pierce: 2 }, m82a1: { fireInterval: 1, magSize: 5, pierce: 2 },
+  mg42: { fireInterval: 0.07 }, mg3: { fireInterval: 0.07 },
 };
 export const gunMul = (d) => GUN_MUL[d.key] ?? CLASS_MUL[d.cls] ?? 1;
 export const HEAD_MUL = 1.15;
@@ -240,7 +249,7 @@ export class Fighter {
   reset(x, y) {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
-      stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
+      padT: 0, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
       onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
@@ -583,7 +592,7 @@ export class Fighter {
         this.bounce(-75);
         this.game.fx.puff(this.x, this.y - 2);
       }
-      if (!c.jumpHeld && this.vy < -110) this.vy += 1200 * dt;   // let go early: a shorter hop
+      if (!c.jumpHeld && this.vy < -110 && this.padT <= 0) this.vy += 1200 * dt;   // let go early: a shorter hop (a jump pad's throw is the pad's)
     }
     if (this.lunge) {
       // the cloak's dash in to a stab: straight at their body - along the floor,
@@ -623,6 +632,16 @@ export class Fighter {
       if (fall > 250) this.game.fx.dust(this.x, this.y, 5);
     }
     if (this.onGround) { this.airJumps = 1; this.airRoll = true; }
+    // on a jump pad: up you go
+    this.padT -= dt;
+    if (this.onGround && !this.onLadder && !this.roll && L.padAt(this.x, this.y)) {
+      this.vy = -PAD_JUMP;
+      this.onGround = false;
+      this.padT = 0.8;
+      this.bounce(-95);
+      this.game.fx.dust(this.x, this.y, 6);
+      this.game.fx.sparks(this.x, this.y - 2, 5, 0, -1, '#7ef0e0');
+    }
     if (L.get(Math.floor(this.x / T), Math.floor((this.y - 2) / T)) === ACID) this.die(null, 'MELTED', 0, -1);
 
     this.updateCombat(dt, c);

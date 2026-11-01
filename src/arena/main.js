@@ -15,7 +15,7 @@ import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K he
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
-import { Fighter, MAX_STAMINA, DAMAGE, gunMul, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW } from './fighter.js';
+import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier } from './ai.js';
@@ -33,10 +33,11 @@ const canvas = document.getElementById('game');
 const kit = new Kit();   // the menus' look and clicks (ui/kit.js)
 const renderer = new Renderer(canvas, { viewHeight: 290, viewWidth: 500, fit: 'floor' });
 // the HUD's pixel size: the world's on an ordinary screen, a step smaller on a big one
-const hudScale = () => Math.max(2, Math.round(renderer.scale * 0.85));
+// The size of a font pixel on the menus and the HUD: by the screen, so they take up the same share of it on any screen
+// (480 x 295 is what the fullest of them needs), in whole pixels so the pixel art stays sharp.
+for (const [key, over] of Object.entries(GUN_HANDLING)) Object.assign(WEAPONS[key], over);
+const hudScale = () => Math.max(2, Math.floor(Math.min(renderer.width / 480, renderer.height / 295)));
 const input = new Input(canvas);
-const hintEl = document.getElementById('hud');
-hintEl.classList.add('fade');   // shown once a match starts
 // the map being played (the main menu shows the lab behind it)
 let level = new Level(MAPS.lab);
 let PW = level.w * T, PH = level.h * T;
@@ -45,7 +46,7 @@ function loadMap(key) {
   PW = level.w * T;
   PH = level.h * T;
   game.level = level;
-  game.nav = new Nav(level);
+  game._nav = null;
   game.fx = new Fx(level);
   game.lights = new Lights(level);
   game.props = placeProps(level.props, level);
@@ -68,7 +69,7 @@ const images = await loadImages({
 const OPTIONS = [
   ['map', 'MAP', [...MAP_KEYS.map((k) => [k, MAPS[k].name]), ['random', 'RANDOM']]],
   ['mode', 'MODE', [['ffa', 'FREE FOR ALL'], ['teams', 'TEAMS']]],
-  ['bots', 'BOTS', [[1, '1'], [2, '2'], [3, '3']]],
+  ['bots', 'BOTS', [[1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6'], [7, '7']]],
   ['skill', 'BOT SKILL', [[0.7, 'EASY'], [1, 'NORMAL'], [1.35, 'HARD']]],
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
@@ -184,7 +185,8 @@ const game = {
     d.fade = { t: 0, dur: 0.4, out: true, seed: Math.random() * 100, rgb: SHADOW };
     this.fx.mist(d.x, d.y, 22);
   },
-  fx: new Fx(level), lights: new Lights(level), nav: new Nav(level),
+  fx: new Fx(level), lights: new Lights(level), _nav: null,
+  get nav() { return (this._nav ??= new Nav(this.level)); },   // (made when it's first wanted: only the bots and the drops need it)
   // a hit landed on someone: a damage number pops up (white body, yellow head, red melee, orange blast)
   onHurt(v, dmg, kind, from) {
     const color = kind === 'crit' ? '#ff3a2a' : kind === 'head' ? '#ffd84a' : kind === 'blast' ? '#ff8a3c' : kind === 'melee' ? '#ff6a6a' : '#f2f2ea';
@@ -374,16 +376,20 @@ const ROSTER = [
   { name: 'VEX', color: '#ff6a5a', hue: 150, sat: 1.3, bot: true },
   { name: 'KORA', color: '#6ad8ff', hue: 210, sat: 1.2, bot: true },
   { name: 'DUKE', color: '#c8ff5a', hue: 290, sat: 1.1, bot: true },
+  { name: 'ROOK', color: '#ffb84a', hue: 40, sat: 1.2, bot: true },
+  { name: 'NYX', color: '#e07aff', hue: 250, sat: 1.3, bot: true },
+  { name: 'ZED', color: '#7affc8', hue: 100, sat: 1.2, bot: true },
+  { name: 'IVO', color: '#ff9ad8', hue: 320, sat: 1.2, bot: true },
 ];
 let bots = [];
 // the two sides, and what they wear (their shirts recoloured blue or red, so a side's plain to see)
 const TEAMS = [{ name: 'BLUE', color: '#6ad8ff', look: { hue: 210, sat: 1.2 } }, { name: 'RED', color: '#ff6a5a', look: { hue: 8, sat: 1.7 } }];
 
 function makeFighters() {
-  const teams = settings.mode === 'teams', n = teams ? 3 : settings.bots;
+  const teams = settings.mode === 'teams', n = teams ? settings.bots | 1 : settings.bots;   // (teams: even sides, 1 v 1 up to 4 v 4)
   game.fighters = ROSTER.slice(0, n + 1).map((r, i) => {
-    // teams: you and VEX against KORA and DUKE; otherwise everyone for themselves
-    const team = teams ? (i < 2 ? 0 : 1) : i;
+    // teams: the first half (you among them) against the rest; otherwise everyone for themselves
+    const team = teams ? (i < (n + 1) / 2 ? 0 : 1) : i;
     const look = { ...r, skill: r.bot ? botSkill() : settings.myskill };
     const f = new Fighter(game, images, teams ? { ...look, ...TEAMS[team].look } : look);
     f.team = team;
@@ -531,8 +537,6 @@ function startMatch() {
   for (const f of game.fighters) { f.wins = 0; f.kills = 0; f.deaths = 0; }
   champion = null;
   startRound();
-  hintEl.classList.remove('fade');
-  setTimeout(() => hintEl.classList.add('fade'), 9000);
 }
 
 function updateRounds(dt, realDt) {
@@ -1527,7 +1531,7 @@ function drawWorld() {
   for (const f of game.fighters) if (f.alive && f.onGround && seen(f)) ctx.fillRect(Math.round(f.x) - 5, Math.round(f.y) - 1, 11, 1);
   for (const f of game.fighters) if (!f.alive) f.draw(ctx);
   for (const f of game.fighters) if (f.alive && f !== player) f.draw(ctx);
-  if (player.alive) player.draw(ctx);
+  if (player.alive && !onMenu()) player.draw(ctx);   // (the menus' backdrop is the map alone)
   for (const f of game.fighters) f.drawHook(ctx);
   drawGrenades(ctx);
   game.fx.viewer = player;
@@ -1705,11 +1709,13 @@ function centerText(ctx, text, y, size, color, u) {
 
 function drawHud() {
   const ctx = renderer.ctx, u = hudScale(), W = renderer.width, H = renderer.height;
+  // (one map to the next, behind the menus: through black)
+  const dark = onMenu() ? Math.max(backdropFade, state === 'title' ? 0 : 1 - backdropT / 0.6) : 0;
+  if (dark > 0) { ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, dark)})`; ctx.fillRect(0, 0, W, H); }
   renderer.beginScreen();
   kit.begin(ctx, u, W, H);
   renderer.drawVignette();
   // the keys overlay never sits over a menu
-  hintEl.classList.toggle('hide', onMenu() || paused || state === 'match' || online.menuOpen || online.watching);
   if (state === 'menu') return drawMainMenu(ctx, u, W, H);
   if (state === 'soon') return drawSoon(ctx, u, W, H);
   if (state === 'title') return drawTitle(ctx, u, W, H);
@@ -1741,7 +1747,7 @@ function drawHud() {
       for (const [txt, c] of parts) x += kit.text(txt, x, ty, { color: c });
       ty += 11 * u;
     }
-    drawText(ctx, t, Math.round(W / 2 - (textWidth(t) * u) / 2), ty, u, overtime ? '#ff6a5a' : '#9aa49c');
+    kit.text(t, W / 2, ty, { color: overtime ? '#ff6a5a' : '#c8d0c4', align: 'center' });
   }
 
   // kill feed, top right under the cards
@@ -1760,7 +1766,7 @@ function drawHud() {
   }
 
   drawBanner(ctx, u, H);
-  if (state === 'intro' && stateT > 0.5) kit.text(String(Math.max(1, 3 - Math.floor((stateT - 0.5) / 0.37))), W / 2, H * 0.34 + 44 * u, { size: 4, color: KC.gold, align: 'center' });
+  if (state === 'intro' && stateT > 0.5) kit.text(String(Math.max(1, 3 - Math.floor((stateT - 0.5) / 0.37))), W / 2, H * 0.34 + 36 * u, { size: 3, color: KC.gold, align: 'center' });
   if (!player.alive && state === 'fight' && !online.watching) {
     if (player.respawnT > 0) kit.text(`BACK IN ${player.respawnT.toFixed(1)}`, W / 2, H - 48 * u, { size: 2, color: KC.teal, align: 'center' });
     else kit.text(`SPECTATING ${spectating?.name ?? ''}`, W / 2, H - 46 * u, { color: KC.muted, align: 'center' });
@@ -1777,9 +1783,9 @@ function drawBanner(ctx, u, H) {
   if (!banner) return;
   const W = renderer.width;
   ctx.globalAlpha = Math.min(1, banner.t * 3);
-  kit.text(banner.text, W / 2, H * 0.34, { size: kit.width(banner.text, { size: 4 }) < W - 20 * u ? 4 : 3, color: banner.color, align: 'center' });
+  kit.text(banner.text, W / 2, H * 0.34, { size: kit.width(banner.text, { size: 3 }) < W - 20 * u ? 3 : 2, color: banner.color, align: 'center' });
   // (the scores under it: in the big font if they fit, the small one if not)
-  if (banner.sub) kit.text(banner.sub, W / 2, H * 0.34 + 34 * u, { small: kit.width(banner.sub) > W - 20 * u, color: '#dfe4d6', align: 'center' });
+  if (banner.sub) kit.text(banner.sub, W / 2, H * 0.34 + 25 * u, { small: kit.width(banner.sub) > W - 20 * u, color: '#dfe4d6', align: 'center' });
   ctx.globalAlpha = 1;
 }
 
@@ -1859,7 +1865,10 @@ function drawCards(ctx, u, W) {
     }
     // name, rounds won
     const name = me ? 'YOU' : f.name;
-    text(name, x + 27, y + 4, f.alive ? tagColor(f) : '#4a5450');
+    // (the big font, if it fits beside the rounds won)
+    const roomForName = (CW - 31 - (state !== 'training' ? settings.wins * 4 : 0)) * u;
+    if (kit.width(name) <= roomForName) kit.text(name, (x + 27) * u, (y + 2) * u, { color: f.alive ? tagColor(f) : '#4a5450' });
+    else text(name, x + 27, y + 4, f.alive ? tagColor(f) : '#4a5450');
     if (state !== 'training') for (let i = 0; i < settings.wins; i++) px(x + CW - 4 - (settings.wins - i) * 4, y + 4, 3, 5, i < f.wins ? tagColor(f) : '#2a322f');
     // health with the lost part trailing, stamina under it
     const bx = x + 27, bw = CW - 31;
@@ -1916,11 +1925,11 @@ function drawSkillBox(u, W, H, f) {
   if (ready && f.readySeen === false) f.readyAt = game.time;
   f.readySeen = ready;
   const flash = Math.max(0, 1 - (game.time - (f.readyAt ?? -9)) / 0.7);
-  const w = 132 * u, h = 30 * u, x = W - w - 6 * u, y = H - h - 8 * u;
+  const w = 116 * u, h = 30 * u, x = W - w - 6 * u, y = H - h - 6 * u;   // (as wide as a fighter's card)
   const edge = ready ? info.color : on ? '#d8c8ff' : KC.edge;
-  kit.rect(x - u, y - u, w + 2 * u, h + 2 * u, KC.ink);
-  kit.rect(x, y, w, h, edge);
-  kit.rect(x + u, y + u, w - 2 * u, h - 2 * u, 'rgba(11, 16, 14, 0.92)');
+  // (see-through: nothing that hides the game. Just its edge, and a touch of dark behind the words)
+  for (const [ex, ey, ew, eh] of [[x, y, w, u], [x, y + h - u, w, u], [x, y, u, h], [x + w - u, y, u, h]]) kit.rect(ex, ey, ew, eh, edge);
+  kit.rect(x + u, y + u, w - 2 * u, h - 2 * u, 'rgba(11, 16, 14, 0.28)');
   // the picture, dimmed while it waits
   kit.rect(x + 4 * u, y + 4 * u, 22 * u, 22 * u, ready ? info.color : '#26302c');
   kit.rect(x + 5 * u, y + 5 * u, 20 * u, 20 * u, '#0b100e');
@@ -2073,6 +2082,17 @@ function drawCrosshair(ctx, u) {
     ctx.beginPath(); ctx.arc(x + u / 2, y + u / 2, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); ctx.stroke();
     ctx.restore();
     drawText(ctx, 'RELOAD', Math.round(x - textWidth('RELOAD') * u / 2), Math.round(y + R + 4 * u), u, '#8ff0ff');
+  } else if (w?.waitShown !== null && w?.waitShown !== undefined) {
+    // waiting to fire again (a bolt, a pump, a slow one): a thinner ring round the crosshair, amber, so there's no need to look at the gun
+    const R = 8 * u;
+    ctx.save();
+    ctx.lineWidth = 2 * u;
+    ctx.strokeStyle = 'rgba(5, 6, 4, 0.6)';
+    ctx.beginPath(); ctx.arc(x + u / 2, y + u / 2, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = u;
+    ctx.strokeStyle = '#ffc24a';
+    ctx.beginPath(); ctx.arc(x + u / 2, y + u / 2, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * w.waitShown); ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -2096,7 +2116,7 @@ function drawTitle(ctx, u, W, H) {
   OPTIONS.forEach(([k, label, vals], i) => {
     const c = Math.floor(i / rows), r = i % rows;
     let shown = vals.find(([v]) => v === settings[k])?.[1] ?? '?';
-    if (k === 'bots' && teamMode()) shown = '3 (2 V 2)';
+    if (k === 'bots' && teamMode()) { const n = settings.bots | 1; shown = `${n} (${(n + 1) / 2} V ${(n + 1) / 2})`; }
     const ox = px + 6 * u + c * (colW + 6 * u), oy = cy + r * rowH;
     if (k === 'myskill' || k === 'botskill') {
       if (menuSel === i) kit.rect(ox, oy, colW, rowH - u, KC.row);
@@ -2257,8 +2277,6 @@ function startTraining() {
   bots = [];
   // every crate and drum, to put it back a while after it's smashed
   game.racks = level.props.map((spec, i) => ({ spec, prop: game.props[i], t: 0 }));
-  hintEl.classList.remove('fade');
-  setTimeout(() => hintEl.classList.add('fade'), 9000);
 }
 
 // Training each frame: smashed crates come back, dummies heal up and the walking one walks.
@@ -2679,14 +2697,15 @@ function mainMenuInput() {
 
 function drawMainMenu(ctx, u, W, H) {
   kit.shade(0.5);
-  let y = Math.max(12 * u, Math.round(H * 0.09));
+  // (the title and the buttons, together in the middle of what's above the hints)
+  let y = Math.max(8 * u, Math.round((H - 13 * u - (78 + MODES.length * 37) * u) / 2));
   kit.text('PROJECT Z', W / 2, y, { size: 5, color: KC.gold, align: 'center' });
   y += 40 * u;
   kit.hazard(W / 2 - 112 * u, y, 224 * u, 4 * u);
   y += 10 * u;
   kit.text('LAB BRAWL', W / 2, y, { size: 2, color: KC.teal, align: 'center' });
   y += 28 * u;
-  const bw = Math.min(W - 24 * u, 260 * u), bh = 30 * u, x = Math.round(W / 2 - bw / 2);
+  const bw = Math.min(W - 24 * u, 300 * u), bh = 32 * u, x = Math.round(W / 2 - bw / 2);
   MODES.forEach((m, i) => {
     kit.button(`mode:${i}`, x, y, bw, bh, m.name, { size: 2, sub: m.soon ? 'COMING SOON' : m.desc, selected: modeSel === i });
     y += bh + 5 * u;
@@ -2727,8 +2746,6 @@ function startNetMatch(roster, mapKey, me, host) {
   locker = null;
   paused = false;
   startRound();
-  hintEl.classList.remove('fade');
-  setTimeout(() => hintEl.classList.add('fade'), 9000);
 }
 // someone coming into a match that's going on (online; the host): in for the round about to start
 function addNetFighter(r, nid) {
@@ -2802,6 +2819,26 @@ function runFor(sec, draw) {
   tick(Math.min(1 / 30, sec), draw);
 }
 
+// Behind the menus: the maps, one after another, picked at random, with nobody in them (the room setup: the one picked).
+let backdropT = 0, backdropFade = 0;
+function menuBackdrop(dt) {
+  if (game.fighters.length) {
+    game.fighters = [];
+    bots = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'demons', 'blasts', 'punches', 'fists', 'numbers', 'feed']) game[name] = [];
+  }
+  const picked = state === 'title' && settings.map !== 'random' ? settings.map : null;
+  backdropT -= dt;
+  backdropFade = Math.max(0, backdropFade - dt * 1.5);
+  if (picked ? level.map !== MAPS[picked] : backdropT <= 0) {
+    const now = MAP_KEYS.find((k) => MAPS[k] === level.map), next = picked ?? pick(MAP_KEYS.filter((k) => k !== now));
+    loadMap(next);
+    game.props = placeProps(level.props, level);
+    titlePan = Math.random() * 6;
+    backdropT = 15;
+    backdropFade = 1;
+  }
+}
 function tick(realDt, draw = true) {
   netUpdate(realDt);
   kit.pointer(input, renderer.dpr);   // (what the mouse is over on the menus, what's clicked)
@@ -2816,7 +2853,16 @@ function tick(realDt, draw = true) {
   else if (input.wasPressed('Escape')) { if (locker) locker = null; else paused = !paused; }
   else if (paused) pauseInput();
 
-  if (online.isClient && !onMenu()) {
+  if (onMenu()) {
+    menuBackdrop(realDt);
+    game.time += realDt;
+    stateT += realDt;
+    if (banner) { banner.t -= realDt; if (banner.t <= 0) banner = null; }
+    game.fx.update(realDt);
+    game.lights.update(realDt);
+    renderer.update(realDt);
+    updateCamera(realDt);
+  } else if (online.isClient) {
     // in someone else's game: what the host sends is drawn, our controls go to it (see online.js)
     clientFrame(realDt);
     for (const k of game.feed) k.t -= realDt;
@@ -2825,8 +2871,7 @@ function tick(realDt, draw = true) {
   } else if (!paused) {
     const dt = realDt * slow;
     game.time += dt;
-    if (!onMenu()) updateRounds(dt, realDt);
-    else stateT += realDt;
+    updateRounds(dt, realDt);
     if (banner) { banner.t -= realDt; if (banner.t <= 0) banner = null; }
     const live = state === 'fight' || state === 'end' || state === 'training';
     const cabinetOpen = !!locker;   // (the E that shuts it doesn't open it again)

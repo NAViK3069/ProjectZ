@@ -236,14 +236,14 @@ function assign(target, s) {
 const F_RULES = {
   hurtT: 'up', lastFireT: 'up', beamT: 'up', deadT: 'up', flash: 'down', throwT: 'run',
   pose: 'once', animT: 'once', frame: 'once', state: 'once', sq: 'once', sqV: 'once', settle: 'once', tilt: 'once', blinkIn: 'once', blinkLeft: 'once', climbT: 'once', aimTarget: 'once', pickupPressed: 'once', trail: 'once', triggerHeld: 'once',
-  hp: 1, stamina: 1, skillCD: 0.1, shield: 0.1, grenadeCD: 0.1, respawnT: 0.1, staminaRest: 0.02, coyote: 0.01, jumpBuf: 0.01, dropT: 0.01, ladderCool: 0.01, rollCool: 0.01, rollCrouch: 0.01, boostT: 0.1,
+  hp: 1, stamina: 1, skillCD: 0.1, shield: 0.1, grenadeCD: 0.1, respawnT: 0.1, staminaRest: 0.02, coyote: 0.01, padT: 0.02, jumpBuf: 0.01, dropT: 0.01, ladderCool: 0.01, rollCool: 0.01, rollCrouch: 0.01, boostT: 0.1,
 };
-const GUN_RULES = { cooldown: 'down', recoil: 'down', climb: 'down', flash: 'down', heat: 'down', cycleT: 'down', drawT: 'down', acting: 'down', actDelay: 'down', reload: 'run' };
+const GUN_RULES = { waitTotal: 'once', cooldown: 'down', recoil: 'down', climb: 'down', flash: 'down', heat: 'down', cycleT: 'down', drawT: 'down', acting: 'down', actDelay: 'down', reload: 'run' };
 const MELEE_RULES = { t: 'run', sinceHit: 'once', climb: 'once', engage: 0.25, holdT: 'once', recoil: 'once', chain: 'once', drawT: 'down', cooldown: 'down', sawing: 'down', reload: 'run' };
 const PROP_RULES = { flash: 'down', rot: 0.05, landed: 'once', dissolve: 'once' };
 const PICKUP_RULES = { life: 'once', bob: 'once', noGrab: 'once', beam: 'once', uid: 'once' };
 const FAST = new Set(['x', 'y', 'vx', 'vy', 'aim', 'facing', 'onGround', 'onLadder', 'crouch', 'gun', 'melee', 'decoy']);
-const CLAMPED = new Set(['skillCD', 'shield', 'grenadeCD', 'respawnT', 'staminaRest', 'coyote', 'jumpBuf', 'dropT', 'ladderCool', 'rollCool', 'rollCrouch', 'boostT']);
+const CLAMPED = new Set(['padT', 'skillCD', 'shield', 'grenadeCD', 'respawnT', 'staminaRest', 'coyote', 'jumpBuf', 'dropT', 'ladderCool', 'rollCool', 'rollCrouch', 'boostT']);
 function changed(key, o, rules = {}, leave = null) {
   const first = !N.sent.has(key), last = N.sent.get(key) ?? {}, out = {};
   for (const k of Object.keys(o)) {
@@ -500,13 +500,13 @@ function askResync() {
 }
 // What of a fighter is ours to say, when it's our own:
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
-const AUTH_KEYS = ['coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
+const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
 const SKILL_KEYS = ['cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
-const GUN_LOOKS = ['recoil', 'climb', 'flash', 'cycleT', 'heat', 'cooldown', 'acting', 'actDelay', 'spent', 'burstLeft', 'reloadQueued', 'drawT', 'cycle', 'spentIn', 'magless'];
+const GUN_LOOKS = ['recoil', 'climb', 'flash', 'cycleT', 'heat', 'cooldown', 'acting', 'actDelay', 'spent', 'burstLeft', 'reloadQueued', 'drawT', 'cycle', 'spentIn', 'magless', 'waitTotal'];
 const MELEE_LOOKS = ['side', 'move', 'step', 'hand', 'cooldown', 'drawT', 't', 'hits', 'climb', 'engage', 'holdT', 'recoil', 'sinceHit', 'chain', 'sawing'];
 function applyFighter(f, s, own) {
   if (own) {
@@ -895,7 +895,7 @@ function localShot(f, x, y, a, speed, dmg, range, pierce) {
 // the stand-in put where the host says we were, at the last command it's run - and the same state of feet and skills
 function loadAuth(gh, f) {
   const a = N.auth;
-  for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT']) if (a[k] !== undefined) gh[k] = a[k];
+  for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT']) if (a[k] !== undefined) gh[k] = a[k];
   gh.roll = a.roll ? { ...a.roll, trail: gh.roll?.trail ?? [] } : null;
   const trail = gh.blaze?.trail;
   for (const k of SKILL_KEYS) if (a[k] !== undefined) gh[k] = a[k] && typeof a[k] === 'object' && !(a[k] instanceof Fighter) ? { ...a[k] } : a[k];
@@ -1842,7 +1842,7 @@ function drawServers(k, u, W, H) {
   k.button('name', px + pw - 76 * u, cy, 68 * u, 16 * u, editing ? 'SAVE' : 'CHANGE');
   y += 50 * u;
   // the servers: where each is, how far (the ping, as bars), the nearest one recommended
-  const rowH = 21 * u, gapR = 3 * u, ph = 26 * u + SERVERS.length * (rowH + gapR), rec = recommended();
+  const rowH = 16 * u, gapR = 3 * u, ph = 26 * u + SERVERS.length * (rowH + gapR), rec = recommended();
   cy = k.panel(px, y, pw, ph, { title: 'SERVERS', note: 'FREE - PICK THE ONE YOUR FRIENDS PICK' });
   SERVERS.forEach((sv, i) => {
     const id = `srv:${i}`, ry = cy + i * (rowH + gapR), rx = px + 8 * u, rw = pw - 16 * u;
@@ -1851,22 +1851,22 @@ function drawServers(k, u, W, H) {
     k.rect(rx, ry, rw, rowH, hot ? K.teal : K.edge);
     k.rect(rx + u, ry + u, rw - 2 * u, rowH - 2 * u, hot ? '#1f3a36' : '#18211e');
     k.rect(rx + u, ry + u, rw - 2 * u, u, 'rgba(255, 255, 255, 0.08)');
-    if (hot) k.text('>', rx + 5 * u, ry + 4 * u, { size: 2, color: K.teal });
+    if (hot) k.text('>', rx + 5 * u, ry + 4 * u, { color: K.teal });
     // the name, where it is beside it (a badge on the nearest), how far at the right
-    const nw = k.text(sv.name, rx + 16 * u, ry + 4 * u, { size: 2, color: hot ? '#ffffff' : K.text });
+    const nw = k.text(sv.name, rx + 16 * u, ry + 4 * u, { color: hot ? '#ffffff' : K.text });
     let bx = rx + 16 * u + nw + 8 * u;
     if (i === rec) {
       const t = 'RECOMMENDED', bw = k.width(t, { small: true }) + 8 * u;
-      k.rect(bx, ry + 5 * u, bw, 10 * u, K.gold);
-      k.text(t, bx + 4 * u, ry + 7 * u, { small: true, color: K.ink, shadow: null });
+      k.rect(bx, ry + 3 * u, bw, 10 * u, K.gold);
+      k.text(t, bx + 4 * u, ry + 5 * u, { small: true, color: K.ink, shadow: null });
       bx += bw + 6 * u;
     }
-    if (sv.where !== sv.name) k.text(sv.where, bx, ry + 8 * u, { small: true, color: K.muted });
-    drawPing(k, u, rx + rw - 6 * u, ry + 16 * u, p);
+    if (sv.where !== sv.name) k.text(sv.where, bx, ry + 5 * u, { small: true, color: K.muted });
+    drawPing(k, u, rx + rw - 6 * u, ry + 12 * u, p);
     k.hit(id, rx, ry, rw, rowH);
   });
   y += ph + 6 * u;
-  k.text('EVERYTHING IN A GAME GOES THROUGH THE SERVER - PICK THE NEAREST (THE LOWEST PING), THE SAME AS YOUR FRIENDS', W / 2, y, { small: true, color: K.faint, align: 'center' });
+  k.text('PICK THE NEAREST (THE LOWEST PING), THE SAME AS YOUR FRIENDS', W / 2, y, { small: true, color: K.faint, align: 'center' });
   y += 10 * u;
   k.button('back', px, y, 80 * u, 18 * u, 'BACK', { kind: 'danger' });
   k.hints('CLICK A SERVER  CONNECT      ENTER  THE RECOMMENDED ONE      N  CHANGE NAME      ESC  BACK');
@@ -1965,9 +1965,9 @@ function drawPassBox(k, u, W, H) {
 function drawRoom(k, u, W, H) {
   const host = N.mode === 'host', me = N.members.find((m) => m.id === myId());
   const settings = host ? A.settings : (N.hostSettings ?? A.settings), teams = settings.mode === 'teams';
-  const pw = Math.min(W - 16 * u, 440 * u), px = Math.round(W / 2 - pw / 2), gap = 6 * u;
+  const pw = Math.min(W - 16 * u, 440 * u), px = Math.round(W / 2 - pw / 2), gap = 4 * u;
   // the room's name (the host can rename it), where, how it stands
-  let y = 6 * u;
+  let y = 4 * u;
   if (N.edit === 'room') field(k, u, 'room', W / 2 - 110 * u, y, 220 * u, 18 * u, N.roomName, true);
   else {
     k.text(N.roomName, W / 2, y + 2 * u, { size: 2, color: K.gold, align: 'center' });
@@ -2096,12 +2096,12 @@ export function drawNetOverlay(ctx, u, W, H) {
   if (N.mode === 'client' && N.room?.ping) k.text(`PING ${N.room.ping} MS`, 6 * u, H - 10 * u, { small: true, color: N.room.ping > 120 ? K.red : K.faint });
   if (N.mode === 'client' && !N.gotSnap) k.text('WAITING FOR THE HOST...', W / 2, H * 0.5, { color: K.teal, align: 'center' });
   if (N.watching && N.gotSnap && A.state !== 'match' && A.player) {
-    const f = A.player, name = `WATCHING  ${f.name}`, w = k.width(name, { size: 2 }) + 24 * u, bx = W / 2 - w / 2, by = H - 40 * u;
-    k.rect(bx - u, by - u, w + 2 * u, 28 * u, K.ink);
-    k.rect(bx, by, w, 26 * u, 'rgba(14, 20, 18, 0.9)');
+    const f = A.player, name = `WATCHING  ${f.name}`, w = Math.max(k.width(name), k.width('A / D  OR  CLICK  -  SWITCH PLAYER', { small: true })) + 20 * u, bx = W / 2 - w / 2, by = H - 30 * u;
+    k.rect(bx - u, by - u, w + 2 * u, 24 * u, K.ink);
+    k.rect(bx, by, w, 22 * u, 'rgba(14, 20, 18, 0.9)');
     k.rect(bx, by, w, u, A.tagColor(f));
-    k.text(name, W / 2, by + 4 * u, { size: 2, color: A.tagColor(f), align: 'center' });
-    k.text('A / D  OR  CLICK  -  SWITCH PLAYER', W / 2, by + 19 * u, { small: true, color: K.muted, align: 'center' });
+    k.text(name, W / 2, by + 4 * u, { color: A.tagColor(f), align: 'center' });
+    k.text('A / D  OR  CLICK  -  SWITCH PLAYER', W / 2, by + 14 * u, { small: true, color: K.muted, align: 'center' });
     // a place to play from the next round: JOIN (taken: waiting for it)
     if (seatOf(myId()) >= 0) k.text('YOU PLAY FROM THE NEXT ROUND', W / 2, by - 12 * u, { color: K.green, align: 'center' });
     else if (N.slots.some((x) => x.k === 'open')) k.button('net-join', W / 2 - 40 * u, by - 22 * u, 80 * u, 18 * u, 'JOIN', { kind: 'primary' });
