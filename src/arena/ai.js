@@ -638,7 +638,7 @@ export class Bot {
   useSkill(c, t, vis, dist, hpK, enemies) {
     const f = this.f, G = this.game, k = f.skill;
     if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook) return;
+    if (f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.fistsOut) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;
     const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
@@ -664,7 +664,7 @@ export class Bot {
         go = vis && dist < 230;
         if (go) c.target = { x: t.x, y: t.y - 12 };
         break;
-      case 'demon':      // a fight coming: call up the golem
+      case 'demon':      // a fight coming: call up the fists
         go = f.onGround && ((vis && dist < 320) || near.length >= 2);
         break;
       case 'grapple':    // out of a fight going badly: up and away

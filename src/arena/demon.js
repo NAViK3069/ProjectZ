@@ -304,11 +304,11 @@ export function drawDemon(ctx, gl, x, y, facing, t, seed, rest, reveal = 1, alph
 // A fist out on its own, flying at someone: the gauntlet, and a trail of dark
 // fire streaming back from it along (vx, vy) - solid blobs (a faded one would
 // only dither into dots), shrinking away.
-export function drawFist(ctx, gl, x, y, vx, vy, t, seed) {
+export function drawFist(ctx, gl, x, y, vx, vy, t, seed, trail = 7) {
   const sp = Math.hypot(vx, vy) || 1, ux = vx / sp, uy = vy / sp;
   glowAt(gl, x, y, 30, [[0, 'rgba(170, 90, 255, 0.35)'], [1, 'rgba(100, 30, 220, 0)']]);
   drawPixels(ctx, x, y, 76, ABYSS, (g) => {
-    for (let i = 7; i >= 1; i--) {
+    for (let i = trail; i >= 1; i--) {
       const d = i * 4.2, r = 5.2 - i * 0.6, wx = Math.sin(t * 20 + i) * 0.9, wy = Math.cos(t * 17 + i) * 0.9;
       for (const [s, col] of [[1.2, P.ink], [1, i > 4 ? P.dark : P.purple], [0.55, i > 4 ? P.plum : P.violet], [0.25, P.lilac]]) {
         if (s < 0.3 && i > 3) continue;

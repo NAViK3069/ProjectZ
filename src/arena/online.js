@@ -66,7 +66,7 @@ const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost thei
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
-  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS GOLEM'], [null, 'NO SKILL'],
+  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS FISTS'], [null, 'NO SKILL'],
 ];
 
 const N = {
@@ -234,6 +234,7 @@ function assign(target, s) {
 // - a number: only sent when it's changed by that much (rounded to it)
 // Timers that run on down past nothing are cut off at nothing, so they don't look changed for ever.
 const F_RULES = {
+  flipT: 'run', flipDir: 'once', exposeT: 0.1,
   hurtT: 'up', lastFireT: 'up', beamT: 'up', deadT: 'up', flash: 'down', throwT: 'run',
   pose: 'once', animT: 'once', frame: 'once', state: 'once', sq: 'once', sqV: 'once', settle: 'once', tilt: 'once', blinkIn: 'once', blinkLeft: 'once', climbT: 'once', aimTarget: 'once', pickupPressed: 'once', trail: 'once', triggerHeld: 'once',
   hp: 1, stamina: 1, skillCD: 0.1, shield: 0.1, grenadeCD: 0.1, respawnT: 0.1, staminaRest: 0.02, coyote: 0.01, hookGap: 0.02, padT: 0.02, jumpBuf: 0.01, dropT: 0.01, ladderCool: 0.01, rollCool: 0.01, rollCrouch: 0.01, boostT: 0.1,
@@ -243,7 +244,7 @@ const MELEE_RULES = { t: 'run', sinceHit: 'once', climb: 'once', engage: 0.25, h
 const PROP_RULES = { flash: 'down', rot: 0.05, landed: 'once', dissolve: 'once' };
 const PICKUP_RULES = { life: 'once', bob: 'once', noGrab: 'once', beam: 'once', uid: 'once' };
 const FAST = new Set(['x', 'y', 'vx', 'vy', 'aim', 'facing', 'onGround', 'onLadder', 'crouch', 'gun', 'melee', 'decoy']);
-const CLAMPED = new Set(['hookGap', 'padT', 'skillCD', 'shield', 'grenadeCD', 'respawnT', 'staminaRest', 'coyote', 'jumpBuf', 'dropT', 'ladderCool', 'rollCool', 'rollCrouch', 'boostT']);
+const CLAMPED = new Set(['exposeT', 'hookGap', 'padT', 'skillCD', 'shield', 'grenadeCD', 'respawnT', 'staminaRest', 'coyote', 'jumpBuf', 'dropT', 'ladderCool', 'rollCool', 'rollCrouch', 'boostT']);
 function changed(key, o, rules = {}, leave = null) {
   const first = !N.sent.has(key), last = N.sent.get(key) ?? {}, out = {};
   for (const k of Object.keys(o)) {
@@ -502,7 +503,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'hook', 'skillCD'];
+const SKILL_KEYS = ['charges', 'hookGap', 'fistsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
@@ -513,6 +514,8 @@ function applyFighter(f, s, own) {
     for (const k of [...AUTH_KEYS, ...SKILL_KEYS]) if (k in s) { N.auth[k] = s[k] === null ? null : typeof s[k] === 'object' ? rev(s[k]) : s[k]; N.authNew = true; delete s[k]; }
     delete s.fade;
     delete s.trail;
+    delete s.flipT;
+    delete s.flipDir;
     if (s.hp !== undefined && s.hp < f.hp && f.alive) A.renderer.kick((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 4);   // (hit: the screen feels it)
     // a slash from a skill (the grapple's spin) we don't do ourselves; the rest we have
     if (s.slashes) { for (const sl of s.slashes) if (sl?.spin && !f.slashes.some((o) => o.spin)) f.slashes.push(rev(sl)); delete s.slashes; }
@@ -831,9 +834,9 @@ function carryThings(dt, then, hostNow, self) {
 // Our own fighter, ours at once. The stand-in runs its movement - exactly as the host will, from the same commands
 // at the same step - and the fighter runs what's in its hand, in a game of its own where shots are only shown
 // and hits don't count. Drawn between the stand-in's last two steps, at this frame's moment.
-const MOVE_COPY = ['x', 'y', 'vx', 'vy', 'aim', 'onGround', 'onLadder', 'crouch', 'facing', 'roll', 'pose', 'sq', 'sqV', 'settle', 'state', 'animT', 'frame', 'climbT', 'blinkLeft', 'sprinting', 'stamina', 'winded', 'boostT', 'rollCool'];
+const MOVE_COPY = ['x', 'y', 'vx', 'vy', 'aim', 'onGround', 'onLadder', 'crouch', 'facing', 'roll', 'pose', 'sq', 'sqV', 'settle', 'state', 'animT', 'frame', 'climbT', 'blinkLeft', 'flipT', 'flipDir', 'sprinting', 'stamina', 'winded', 'boostT', 'rollCool'];
 const SKILL_SHARE = [...SKILL_KEYS, 'fade', 'trail'];   // (the very same objects: the stand-in runs them, the fighter's what's drawn)
-const GHOST_LOOKS = ['animT', 'frame', 'state', 'sq', 'sqV', 'settle', 'climbT', 'blinkIn', 'blinkLeft', 'pose', 'flash', 'hurtT', 'grenadeCD', 'lastFireT', 'fade', 'trail'];
+const GHOST_LOOKS = ['animT', 'frame', 'state', 'sq', 'sqV', 'settle', 'climbT', 'blinkIn', 'blinkLeft', 'pose', 'flash', 'hurtT', 'grenadeCD', 'lastFireT', 'fade', 'trail', 'flipT', 'flipDir'];
 function makeGhost(f) {
   const game = Object.create(A.game);   // the level and the props, as we have them
   const quiet = new Proxy({}, { get: () => () => {} });
@@ -961,7 +964,7 @@ function runOwn(f, dt) {
   if (c.slot) N.latch.slot = c.slot;
   if (c.cycle) N.latch.cycle = c.cycle;
   // (not while its skill has the aim: a stab on its way in, the flame fist's dash)
-  if (c.aim !== null && c.aim !== undefined && !gh.lunge && !gh.cloak?.prey && !gh.blaze) f.aim = c.aim;
+  if (c.aim !== null && c.aim !== undefined && !gh.lunge && !gh.cloak?.prey && !gh.blaze && !gh.mura) f.aim = c.aim;
   f.aimTarget = c.target ?? null;
   N.acc = Math.min(N.acc + dt, STEP * 12);
   while (N.acc >= STEP) {

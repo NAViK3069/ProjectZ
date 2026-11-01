@@ -36,7 +36,7 @@ const GRAPPLE_SPEED = 1200, GRAPPLE_RANGE = 360, GRAPPLE_PULL = 2600, GRAPPLE_MA
 const GRAPPLE_CUT = 48, SPIN_R = 30;   // reeled in through (or right up to) a foe: a spinning slash, this much to every foe this close
 // the cloak (skill, Q): how long it lasts, the wait after it ends, the dash in
 // to a stab (how far it reaches for someone, how fast), and a stab in the back
-const CLOAK_TIME = 8, CLOAK_CD = 10;
+const CLOAK_TIME = 8, CLOAK_CD = 10, CLOAK_KILL = 0.4;   // (a kill with the stab: only this much of the wait)
 export const LUNGE_RANGE = 64;
 const LUNGE_SPEED = 420, CLOAK_SPEED = 1.2;   // (cloaked: a fifth quicker on its feet)
 const ROLL_STAB_RANGE = 72;   // cloaked, a roll with a foe this close comes up stabbing them
@@ -81,8 +81,9 @@ const RED_BLUE = 0.42, MERGE = 0.74, MURA_CHARGE = 1.1, MURA_CD = 18;
 const BLAZE_CHARGE = 0.7, BLAZE_SPEED = 560, BLAZE_RANGE = 180, BLAZE_RECOVER = 0.3, BLAZE_DMG = 150, BLAZE_CD = 9;
 // galaxy (skill, Q): the cast (at a point this far off at most - where you aim), the wait after
 const GAL_CAST = 0.8, GAL_RANGE = 240, GAL_CD = 16;
-// summon (skill, Q): the calling-up, the wait after (the demon itself: see main.js)
-const SUM_CAST = 0.6, SUM_CD = 20;
+const MURA_LOCK = 420;   // (how far murasaki's aim locks on)
+// the abyss fists (skill, Q): the calling-up, the wait once they're all gone (the fists themselves: see main.js)
+const SUM_CAST = 0.6, SUM_CD = 15;
 export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD };
 export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST };
 // health / damage
@@ -111,6 +112,7 @@ const HALF_W = 5, HEIGHT = 28, ROLL_H = 14, CROUCH_H = 22, CROUCH_DROP = 5;
 const CROUCH_BODY = 3;   // crouched: the body sinks 3 px, the head 2 more (5 in all) - tucked into the shoulders
 // the main game's gun handling
 const GUN_HEIGHT = 9, GUN_REACH = 4, RELOAD_TILT = 0.55, SHELL_TILT = -0.4, RAISE_TILT = -1.1, STEP_TILT = -0.3, CLIMB_KEEP = 0.35;
+const FLIP_TIME = 0.45;   // the second jump's somersault
 const WALK_FPS = 16, IDLE_PERIOD = 1.5, SETTLE_TIME = 0.1;
 const SPRING_K = 420, SPRING_D = 14;   // the body's squash-and-stretch spring (bouncy: it overshoots)
 const BELT = { x: -2, y: -5 };
@@ -250,7 +252,7 @@ export class Fighter {
   reset(x, y) {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
-      padT: 0, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
+      padT: 0, flipT: -1, flipDir: 1, exposeT: 0, fistsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
       onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
@@ -455,6 +457,8 @@ export class Fighter {
     this.grenadeCD -= dt;
     this.lastFireT += dt;
     this.rollCool -= dt;
+    this.exposeT -= dt;
+    if (this.flipT >= 0 && (this.flipT += dt / FLIP_TIME) >= 1) this.flipT = -1;
     if (!this.alive) return this.updateCorpse(dt);
     if (this.beamT !== undefined) this.beamT += dt;
     // the spawn shield: running down, and gone the moment you attack
@@ -465,6 +469,11 @@ export class Fighter {
     this.aimTarget = c.target ?? null;
     const prey = this.lunge?.v ?? this.cloak?.prey;
     if (prey?.alive) { const s = this.seen(prey); this.aim = Math.atan2(s.y - 14 - (this.y - GUN_HEIGHT), s.x - this.x); }
+    // a skill's aim while it builds: onto someone close to it
+    if (this.mura || this.blaze?.phase === 'charge') {
+      const v = this.assistTarget(this.mura ? MURA_LOCK : BLAZE_RANGE + 20), s = v && this.seen(v);
+      if (v) this.aim = Math.atan2(s.y - 14 - (this.y - GUN_HEIGHT), s.x - this.x);
+    }
     if (!this.roll) {
       const cs = Math.cos(this.aim), f = cs > 0.15 ? 1 : cs < -0.15 ? -1 : this.facing;
       if (f !== this.facing) { this.facing = f; this.settle = SETTLE_TIME; }
@@ -576,7 +585,7 @@ export class Fighter {
       const sp = Math.hypot(this.vx, this.vy);
       if (sp > GRAPPLE_MAX) { this.vx *= GRAPPLE_MAX / sp; this.vy *= GRAPPLE_MAX / sp; }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.hidden ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -590,6 +599,8 @@ export class Fighter {
         this.vy = -JUMP2;
         this.jumpBuf = 0;
         this.airJumps--;
+        this.flipT = 0;   // a somersault
+        this.flipDir = c.move ? Math.sign(c.move) : this.facing;
         this.bounce(-75);
         this.game.fx.puff(this.x, this.y - 2);
       }
@@ -633,6 +644,7 @@ export class Fighter {
       if (fall > 250) this.game.fx.dust(this.x, this.y, 5);
     }
     if (this.onGround) { this.airJumps = 1; this.airRoll = true; }
+    if (this.onGround || this.onLadder || this.roll) this.flipT = -1;
     // on a jump pad: up you go
     this.padT -= dt;
     if (this.onGround && !this.onLadder && !this.roll && L.padAt(this.x, this.y)) {
@@ -800,15 +812,30 @@ export class Fighter {
     if (solid(px, y) || !solid(x, py)) return { x: 0, y: y > py ? -1 : 1 };
     return { x: x > px ? -1 : 1, y: 0 };
   }
-  // Who a line shot now would lock on to: a foe it can reach, close to the line of the aim or to the cursor.
+  // Who the line shot now would lock on to.
   hookTarget() {
-    if (this.skill !== 'grapple' || !(this.charges > 0)) return null;
+    return this.skill === 'grapple' && this.charges > 0 ? this.assistTarget(GRAPPLE_RANGE) : null;
+  }
+  // Who this fighter's skill would go for, right now (what's shown as locked on, for whoever's playing).
+  skillLock() {
+    const ready = this.skillCD <= 0 && !this.fistsOut;
+    switch (this.skill) {
+      case 'grapple': return this.hookTarget();
+      case 'murasaki': return ready || this.mura ? this.assistTarget(MURA_LOCK) : null;
+      case 'blaze': return ready || this.blaze?.phase === 'charge' ? this.assistTarget(BLAZE_RANGE + 20) : null;
+      case 'galaxy': return ready && !this.gal ? this.assistTarget(GAL_RANGE + 40) : null;
+      default: return null;
+    }
+  }
+  // Aim assist, for the skills: a foe in reach, close to the line of the aim or to the cursor, nothing solid
+  // between. Not someone unseen: they aren't there to aim at.
+  assistTarget(range) {
     const s = this.lineFrom(), ax = Math.cos(this.aim), ay = Math.sin(this.aim), t = this.aimTarget;
     let best = null, bs = Infinity;
     for (const v of this.game.fighters) {
       if (v === this || !v.alive || v.vanish || v.hidden || !this.game.foes(this, v)) continue;
       const p = this.seen(v), cx = p.x, cy = p.y - 14, dx = cx - s.x, dy = cy - s.y;
-      if (Math.hypot(dx, dy) > GRAPPLE_RANGE || dx * ax + dy * ay <= 0) continue;
+      if (Math.hypot(dx, dy) > range || dx * ax + dy * ay <= 0) continue;
       const off = Math.min(Math.abs(dx * ay - dy * ax), t ? Math.hypot(t.x - cx, t.y - cy) : Infinity);
       if (off > GRAPPLE_LOCK || off >= bs || !this.game.los(s.x, s.y, cx, cy)) continue;
       bs = off;
@@ -984,8 +1011,12 @@ export class Fighter {
   // stab in the back is a critical. Stabbing, getting hurt or the time running
   // out brings it back into view (Q again does too), with what it had in hand.
 
-  get hidden() {
+  // unseen - unless an archery bow's lock is on them, which shows them to everyone
+  get stealthed() {
     return (!!this.cloak && !this.cloak.out) || !!this.veil;
+  }
+  get hidden() {
+    return this.stealthed && !(this.exposeT > 0);
   }
   // the cloak glitching: seen (as a flickering hologram) by everyone, just for a moment
   get glimpsed() {
@@ -1025,7 +1056,7 @@ export class Fighter {
     this.lunge = null;
     this.melee = k.saved;
     this.slot = k.slot;
-    this.skillCD = CLOAK_CD;
+    this.skillCD = CLOAK_CD * (k.killed ? CLOAK_KILL : 1);
     this.settle = SETTLE_TIME;
     this.fade = { t: 0, dur: 0.3, out: false, seed: Math.random() * 100 };
     this.game.fx.motes(this.x, this.y, 10, ['#b89aff', '#8f6aff', '#e0d4ff']);
@@ -1049,7 +1080,7 @@ export class Fighter {
   foeNear(r) {
     let best = null;
     for (const v of this.game.fighters) {
-      if (!v.alive || v === this || !this.game.foes(this, v)) continue;
+      if (!v.alive || v === this || v.hidden || !this.game.foes(this, v)) continue;
       const s = this.seen(v), d = Math.hypot(s.x - this.x, s.y - this.y);
       if (d >= r || !this.game.los(this.x, this.y - 14, s.x, s.y - 14)) continue;
       r = d;
@@ -1067,7 +1098,7 @@ export class Fighter {
   stabVictim() {
     const h = this.preyHint;
     if (h === undefined) return this.foeNear(LUNGE_RANGE);
-    if (!h?.alive || !this.game.foes(this, h)) return null;
+    if (!h?.alive || h.hidden || !this.game.foes(this, h)) return null;
     const s = this.seen(h);
     return Math.hypot(s.x - this.x, s.y - this.y) < LUNGE_RANGE + 24 && this.game.los(this.x, this.y - 14, s.x, s.y - 14) ? h : null;
   }
@@ -1152,11 +1183,14 @@ export class Fighter {
     b.point = this.burstPoint();
     for (const v of this.game.fighters) {
       if (b.locks.length >= ARCH_MAX) break;
-      if (v === this || !v.alive || v.hidden || v.vanish || !this.game.foes(this, v) || b.locks.some((l) => l.v === v)) continue;
+      if (v === this || !v.alive || v.vanish || !this.game.foes(this, v) || b.locks.some((l) => l.v === v)) continue;   // (the unseen too: see below)
       if (Math.hypot(v.x - this.x, v.y - this.y) <= ARCH_RANGE) b.locks.push({ v, t: 0 });
     }
-    b.locks = b.locks.filter((l) => l.v.alive && !l.v.hidden && !l.v.vanish && Math.hypot(l.v.x - this.x, l.v.y - this.y) <= ARCH_RANGE * 1.25);
-    for (const l of b.locks) l.t += dt;
+    b.locks = b.locks.filter((l) => l.v.alive && !l.v.vanish && Math.hypot(l.v.x - this.x, l.v.y - this.y) <= ARCH_RANGE * 1.25);
+    for (const l of b.locks) {
+      l.t += dt;
+      l.v.exposeT = 0.3;   // the lock shows them up, cloak or no cloak, for as long as it's on them
+    }
     if (b.t >= ARCH_CHARGE) {
       b.fired = true;
       this.skillCD = ARCH_CD;
@@ -1527,7 +1561,9 @@ export class Fighter {
 
   // where it's being cast: the aim point, no further than GAL_RANGE from your chest
   galPoint() {
-    const sx = this.x, sy = this.y - 16, t = this.aimTarget ?? { x: sx + Math.cos(this.aim) * 140, y: sy + Math.sin(this.aim) * 140 };
+    // (aimed close to someone: on them)
+    const v = this.assistTarget(GAL_RANGE + 40), vs = v && this.seen(v);
+    const sx = this.x, sy = this.y - 16, t = (vs && { x: vs.x, y: vs.y - 12 }) ?? this.aimTarget ?? { x: sx + Math.cos(this.aim) * 140, y: sy + Math.sin(this.aim) * 140 };
     const dx = t.x - sx, dy = t.y - sy, d = Math.hypot(dx, dy);
     return d > GAL_RANGE ? { x: sx + (dx / d) * GAL_RANGE, y: sy + (dy / d) * GAL_RANGE } : { x: t.x, y: t.y };
   }
@@ -1572,13 +1608,14 @@ export class Fighter {
   // ---------- summon (skill, Q) ----------
   // Q (standing on something): weapons away, both hands thrown up - a summoning
   // circle opens on the floor in front of you, light streaming down into it from
-  // your hands (slowed right down, no attacking or rolling) - and out of it rises
-  // the Abyss Golem, a hulk of obsidian and black fire, to fight at your side a while (see main.js).
+  // your hands (slowed right down, no attacking or rolling) - and out of it come
+  // four great fists of black fire, to circle you and strike at whoever's near,
+  // one blow each (see main.js). The wait starts when the last of them has gone.
 
   updateSummon(dt, c) {
     const m = this.summon;
     if (!m) {
-      if (c.skill && this.skillCD <= 0 && this.onGround && !this.onLadder && !this.roll && this.alive) {
+      if (c.skill && this.skillCD <= 0 && !this.fistsOut && this.onGround && !this.onLadder && !this.roll && this.alive) {
         this.summon = { t: 0, x: this.x + this.facing * 26, y: this.y, seed: Math.random() * 100 };
         if (this.weapon?.reloading) this.weapon.cancelReload();
         this.hook = null;
@@ -1589,7 +1626,7 @@ export class Fighter {
     if (m.t >= SUM_CAST) {
       this.game.summonDemon?.(this, m.x, m.y, m.seed);
       this.summon = null;
-      this.skillCD = SUM_CD;
+      this.fistsOut = true;
     }
   }
   // both hands thrown up overhead, open, trembling with it
@@ -2038,6 +2075,8 @@ export class Fighter {
       this.lastFireT += dt;
       if (this.beamT !== undefined) this.beamT += dt;
       this.flash -= dt;
+      this.exposeT -= dt;
+      if (limbs && this.flipT >= 0) { this.flipT += dt / FLIP_TIME; if (this.flipT >= 1 || this.onGround) this.flipT = -1; }
       if (!this.alive) { this.deadT += dt; return; }
       if (limbs) this.animate(dt);
       if (limbs && this.onLadder) this.climbT += Math.abs(this.vy) * dt;
@@ -2106,6 +2145,7 @@ export class Fighter {
     const part = (k) => (white ? P[k + 'W'] : P[k]);
     const ox = -ORIGIN_X, oy = -ORIGIN_Y;
     if (this.roll) return this.drawRoll(ctx, x, y);
+    if (this.flipT >= 0) return this.drawFlip(ctx, x, y);
     if (this.onLadder && P.backBody) return this.drawClimbing(ctx, x, y, part);
     if (this.trail.length > 2 && !this.painting) this.drawTrail(ctx);
     this.drawSlung(ctx, x, y);
@@ -2364,6 +2404,24 @@ export class Fighter {
     if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon)) return;   // (put away too while the archery bow's out)
     if (g.def.cls === 'pistol') put(g, Math.PI * 0.62, 2, 10);   // holstered
     else put(g, -Math.PI * 0.75, 3, 13);                         // across the back at 45 degrees
+  }
+
+  // The second jump's somersault: the whole character drawn off to the side and turned once, about the middle of the body.
+  drawFlip(ctx, x, y) {
+    this.rollCanvas ??= makeCanvas(64, 64);
+    const [c, rc] = this.rollCanvas, FX = 32, FY = 46, MID = 13, t = this.flipT;
+    rc.clearRect(0, 0, 64, 64);
+    rc.save();
+    rc.translate(FX - x, FY - y);
+    this.flipT = -1;
+    this.draw(rc);
+    this.flipT = t;
+    rc.restore();
+    ctx.save();
+    ctx.translate(x, y - MID);
+    ctx.rotate(Math.round((this.flipDir * smooth(t) * Math.PI * 2) / (Math.PI / 8)) * (Math.PI / 8));   // (in steps, like the roll)
+    ctx.drawImage(c, -FX, -(FY - MID));
+    ctx.restore();
   }
 
   // The main game's dodge roll: the whole character (gun and all) drawn off to

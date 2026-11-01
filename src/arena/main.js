@@ -22,7 +22,7 @@ import { Nav, Bot, gunTier } from './ai.js';
 import { drawBolts, drawVoidHole } from './void.js';
 import { drawBlast } from './flame.js';
 import { drawCircle, drawHole, drawBoom } from './galaxy.js';
-import { drawDemon, drawFist, drawSummonCircle, drawPunch } from './demon.js';
+import { drawFist, drawSummonCircle, drawPunch } from './demon.js';
 import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -74,8 +74,8 @@ const OPTIONS = [
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
-  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS GOLEM'], [null, 'NO SKILL']]],
-  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS GOLEM'], [null, 'NONE']]],
+  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS FISTS'], [null, 'NO SKILL']]],
+  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS FISTS'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -250,6 +250,7 @@ const game = {
       // knocked out of their hands if they were shooting
       const shooting = v.weapon && (v.lastFireT < 0.7 || v.triggerHeld);
       if (!v.hurt(m.damage * MUL * (back ? BACKSTAB : 1), f, nx * knock, -60 - knock * 0.25)) continue;
+      if (d.cloak && f.cloak && !v.alive && !v.isDecoy) f.cloak.killed = true;   // (a kill with the stab: the wait after is shorter)
       if (back) this.fx.sparks(v.x, v.y - 16, 10, nx, -0.4, '#ff5a4a');
       this.fx.blood(v.x, v.y - 14, d.fists ? 4 : 8, nx, ny);
       if (shooting && v.alive) this.disarm(v, nx);
@@ -717,13 +718,29 @@ function burstArrow(o) {
   game.arrows.push({ kind: 'ring', x: o.x, y: o.y, t: 0 });
   game.fx.sparks(o.x, o.y, 16, 0, 0, '#b8ffc0');
   game.lights.flash(o.x, o.y, 60, '120, 255, 140', 0.12);
-  const targets = o.targets.length ? o.targets : null, n = targets ? targets.length : 5, f = o.owner;
+  const targets = o.targets.length ? o.targets : null, n = targets ? targets.length : 4, f = o.owner;
   for (let i = 0; i < n; i++) {
     // each one sets off roughly at its own, fanned a little, then turns after it
     const spread = n > 1 ? (i / (n - 1) - 0.5) * 1.2 : 0;
-    const point = targets ? null : { x: o.x + f.facing * rand(20, 160), y: o.y + 300 };   // none locked: a few come down ahead anyway
+    // none locked: they come down round it instead, two either side, and go off where they land
+    const point = targets ? null : { x: f.x + (i < 2 ? -1 : 1) * (i % 2 ? 110 : 50) + rand(-8, 8), y: f.y - 2 };
     const goal = targets ? { x: targets[i].x, y: targets[i].y - 14 } : point, a = Math.atan2(goal.y - o.y, goal.x - o.x) + spread;
     game.arrows.push({ kind: 'seek', owner: f, target: targets?.[i] ?? null, point, x: o.x, y: o.y, vx: Math.cos(a) * 240, vy: Math.sin(a) * 240, t: 0, trail: [] });
+  }
+}
+// One that had nobody to go for, come down: a little burst where it lands.
+const ARROW_BURST = 30;
+function arrowBurst(o) {
+  o.dead = true;
+  game.arrows.push({ kind: 'ring', x: o.x, y: o.y, t: 0, small: true });
+  game.fx.sparks(o.x, o.y, 12, 0, -1, '#9cff9c');
+  game.lights.flash(o.x, o.y, 50, '120, 255, 140', 0.1);
+  for (const v of game.fighters) {
+    if (!v.alive || v.vanish || !game.foes(o.owner, v)) continue;
+    const dx = v.x - o.x, d = Math.hypot(dx, v.y - 12 - o.y);
+    if (d > ARROW_BURST) continue;
+    v.hitHow = 'ARROW';
+    v.hurt(ARROW_DMG * 0.7, o.owner, (Math.sign(dx) || 1) * 150, -120);
   }
 }
 function arrowHit(o, v) {
@@ -767,6 +784,7 @@ function updateArrows(dt) {
     for (let i = 0; i < n && !o.dead; i++) {
       o.x += (o.vx * dt) / n;
       o.y += (o.vy * dt) / n;
+      if (o.point && !o.target && (o.y >= o.point.y || level.solidAt(o.x, o.y))) { arrowBurst(o); break; }
       if (level.solidAt(o.x, o.y)) { o.dead = true; game.fx.sparks(o.x, o.y, 6, -o.vx / sp, -o.vy / sp, '#9cff9c'); break; }
       const v = game.fighters.find((q) => q !== o.owner && q.alive && !q.vanish && game.foes(o.owner, q) && q.hitPart(o.x, o.y));
       if (v) arrowHit(o, v);
@@ -1031,7 +1049,7 @@ function updateGalaxies(dt) {
 let galaxyLayer = null;
 function drawGalaxies(ctx) {
   const casting = game.fighters.filter((f) => f.alive && f.gal);
-  if (!game.galaxies.length && !casting.length && !game.demons.length) return;
+  if (!game.galaxies.length && !casting.length) return;
   const cv = ctx.canvas;
   if (!galaxyLayer || galaxyLayer[0].width !== cv.width || galaxyLayer[0].height !== cv.height) galaxyLayer = makeCanvas(cv.width, cv.height);
   const [c, g] = galaxyLayer;
@@ -1044,11 +1062,6 @@ function drawGalaxies(ctx) {
   for (const o of game.galaxies) {
     if (o.t < GAL_HOLE) drawHole(g, ctx, o.x, o.y, GAL_R, o.t / GAL_HOLE, game.time, o.seed);
     else drawBoom(g, ctx, o.x, o.y, GAL_R, (o.t - GAL_HOLE) / GAL_BOOM, game.time, o.seed);
-  }
-  for (const d of game.demons) {
-    const rest = d.fists.filter((f) => f.state === 'rest').map((f) => ({ x: f.x - d.x, y: f.y - d.y, side: f.side }));
-    const reveal = d.phase === 'rise' ? Math.min(1, d.t / (DEMON_RISE * 0.8)) : 1, alpha = d.phase === 'gone' ? 1 - d.t / DEMON_GONE : 1;
-    drawDemon(g, ctx, d.x, d.y, d.facing, game.time, d.seed, rest, reveal, alpha, (d.pix ??= {}));
   }
   g.globalCompositeOperation = 'destination-out';
   for (const p of game.props) p.draw(g);
@@ -1066,115 +1079,110 @@ function drawGalaxies(ctx) {
 }
 
 // ---------- summon ----------
-// The Abyss Golem, called up by the summon skill: it rises out of its circle in a
-// burst of black-violet fire, then floats at its summoner's back, keeping up with
-// them, and flings its fists - one, then the other - at the nearest foe it
-// can see within reach; each goes off in a burst of violet fire where it
-// lands and flies back. After a while (or if its summoner falls) it goes up
-// in flame. (Nothing can hurt it.) The look of it: demon.js.
+// The abyss fists, called up by the summon skill: four great fists of black fire come
+// up out of the circle and go round their summoner. Each strikes once - at the nearest
+// foe that can be seen, one after another - goes off in a burst of violet fire
+// where it lands, and it's gone. One that misses is spent too. The skill's wait starts
+// when the last has gone, or they burn out unused. The look of it: demon.js.
 
-const DEMON_RISE = 0.8, DEMON_LIFE = 12, DEMON_GONE = 0.7;   // rising, fighting, going
-const DEMON_RANGE = 190, DEMON_EVERY = 0.55, DEMON_PUNCH = 38;   // how far it sees to strike, a fist this often, how hard
-const FIST_SPEED = 470, FIST_BACK = 560, FIST_REACH = 230;   // a fist out, coming back, how far it goes at most
+const DEMON_LIFE = 12, DEMON_FISTS = 4;   // how long they last unused, how many
+const DEMON_RANGE = 230, DEMON_EVERY = 0.35, DEMON_PUNCH = 38;   // how far they strike, one this often, how hard
+const FIST_SPEED = 470, FIST_REACH = 300, FIST_R_X = 26, FIST_R_Y = 20;   // a fist out, how far it goes at most; the ring they go round in
 const PUNCH_LIFE = 0.45;   // how long the burst where one lands shows
 function summonDemon(f, x, y, seed) {
-  for (const d of game.demons) if (d.owner === f && d.phase !== 'gone') { d.phase = 'gone'; d.t = 0; }   // (one at a time)
-  const d = { owner: f, x, y: y - 34, t: 0, phase: 'rise', life: DEMON_LIFE, facing: f.facing, seed, cd: 0.4, next: 1, circle: { x, y } };
-  d.fists = [-1, 1].map((side) => ({ side, state: 'rest', ...demonRest(d, side), vx: 0, vy: 0, dist: 0, target: null }));
+  const d = { owner: f, x: f.x, y: f.y - 14, t: 0, life: DEMON_LIFE, seed, cd: 0.25, circle: { x, y } };
+  d.fists = Array.from({ length: DEMON_FISTS }, (_, i) => ({ i, state: 'rest', x: x, y: y - 6, vx: 0, vy: 0, dist: 0, target: null }));
   game.demons.push(d);
   game.fx.sparks(x, y - 4, 26, 0, -1, '#d49cff');
-  game.fx.sparks(x, y - 4, 20, 0, -1, '#a24ef0');
-  game.fx.smoke(x, y - 6, 10, true);
-  game.lights.flash(x, y - 20, 160, '150, 100, 255', 0.4);
-  if (Math.hypot(player.x - x, player.y - y) < 240) renderer.kick((Math.random() - 0.5) * 6, 5);
+  game.fx.smoke(x, y - 6, 8, true);
+  game.lights.flash(x, y - 20, 120, '150, 100, 255', 0.3);
 }
-// where a fist floats when it isn't out: at the demon's side, bobbing
-const demonRest = (d, side) => ({ x: d.x + side * 25, y: d.y + 9 + Math.sin(game.time * 3 + side) * 1.5 });
+// where a fist is while it waits: going round its summoner
+function fistRest(d, fi) {
+  const o = d.owner, a = game.time * 1.8 + (fi.i / DEMON_FISTS) * Math.PI * 2;
+  return { x: (o?.x ?? d.x) + Math.cos(a) * FIST_R_X, y: (o?.y ?? d.y + 14) - 14 + Math.sin(a) * FIST_R_Y, a };
+}
+function fistGone(fi, d) {
+  fi.state = 'done';
+  game.fx.sparks(fi.x, fi.y, 8, 0, -1, '#a24ef0');
+}
 function updateDemons(dt) {
   for (const d of game.demons) {
     const o = d.owner;
     d.t += dt;
-    if (d.phase === 'rise' && d.t >= DEMON_RISE) { d.phase = 'live'; d.t = 0; }
-    else if (d.phase === 'live') {
-      d.life -= dt;
-      if (d.life <= 0 || !o.alive) {
-        d.phase = 'gone';
-        d.t = 0;
-        game.fx.sparks(d.x, d.y, 20, 0, -1, '#a24ef0');
-        game.fx.smoke(d.x, d.y + 6, 8, true);
-      }
-      // at its summoner's back, over their shoulder
-      const k = Math.min(1, dt * 3.5);
-      d.x += (o.x - o.facing * 22 - d.x) * k;
-      d.y += (o.y - 44 + Math.sin(game.time * 2.2) * 2 - d.y) * k;
-      // the nearest foe it can see within reach
-      let tgt = null, best = DEMON_RANGE;
-      for (const v of game.fighters) {
-        if (!v.alive || v.vanish || !game.foes(o, v) || (v.hidden && !v.glimpsed)) continue;
-        const dd = Math.hypot(v.x - d.x, v.y - 14 - d.y);
-        if (dd < best && game.los(d.x, d.y, v.x, v.y - 14)) { best = dd; tgt = v; }
-      }
-      d.facing = tgt ? Math.sign(tgt.x - d.x) || d.facing : o.facing;
-      d.cd -= dt;
-      if (tgt && d.cd <= 0) {
-        const fi = d.fists.find((f) => f.state === 'rest' && f.side === d.next) ?? d.fists.find((f) => f.state === 'rest');
-        if (fi) {
-          fi.state = 'out';
-          fi.target = tgt;
-          fi.dist = 0;
-          d.next = -fi.side;
-          d.cd = DEMON_EVERY;
-          game.fx.sparks(fi.x, fi.y, 6, Math.sign(tgt.x - fi.x), 0, '#d49cff');
-        }
+    d.x = o.x;
+    d.y = o.y - 14;
+    d.life -= dt;
+    const over = d.life <= 0 || !o.alive;
+    // the nearest foe that can be seen within reach
+    let tgt = null, best = DEMON_RANGE;
+    if (!over) for (const v of game.fighters) {
+      if (!v.alive || v.vanish || !game.foes(o, v) || v.hidden) continue;
+      const dd = Math.hypot(v.x - d.x, v.y - 14 - d.y);
+      if (dd < best && game.los(d.x, d.y, v.x, v.y - 14)) { best = dd; tgt = v; }
+    }
+    d.cd -= dt;
+    if (tgt && d.cd <= 0) {
+      const fi = d.fists.filter((q) => q.state === 'rest').sort((a, b) => Math.hypot(a.x - tgt.x, a.y - tgt.y) - Math.hypot(b.x - tgt.x, b.y - tgt.y))[0];
+      if (fi) {
+        fi.state = 'out';
+        fi.target = tgt;
+        fi.dist = 0;
+        d.cd = DEMON_EVERY;
+        game.fx.sparks(fi.x, fi.y, 6, Math.sign(tgt.x - fi.x), 0, '#d49cff');
       }
     }
     for (const fi of d.fists) {
-      const r = demonRest(d, fi.side);
-      if (fi.state === 'rest') { fi.x = r.x; fi.y = r.y; continue; }
-      if (fi.state === 'out') {
-        const v = fi.target;
-        if (!v.alive || d.phase !== 'live') fi.state = 'back';
-        else {
-          const dx = v.x - fi.x, dy = v.y - 14 - fi.y, dd = Math.hypot(dx, dy) || 1;
-          fi.vx = (dx / dd) * FIST_SPEED;
-          fi.vy = (dy / dd) * FIST_SPEED;
-          fi.x += fi.vx * dt;
-          fi.y += fi.vy * dt;
-          fi.dist += FIST_SPEED * dt;
-          if (dd < 9) {
-            v.hitHow = 'ABYSS GOLEM';
-            v.hurt(DEMON_PUNCH, o, (dx / dd) * 300, -150 + (dy / dd) * 80);
-            game.punches.push({ x: fi.x, y: fi.y, ax: dx / dd, ay: dy / dd, t: 0, seed: Math.random() * 100 });
-            game.fx.sparks(fi.x, fi.y, 10, dx / dd, dy / dd, '#d49cff');
-            game.lights.flash(fi.x, fi.y, 70, '150, 110, 255', 0.15);
-            if (Math.hypot(player.x - fi.x, player.y - fi.y) < 180) renderer.kick((dx / dd) * 5, (dy / dd) * 4);
-            fi.state = 'back';
-          } else if (fi.dist > FIST_REACH) fi.state = 'back';
-        }
+      if (fi.state === 'rest') {
+        const r = fistRest(d, fi), k = Math.min(1, dt * 10);
+        fi.vx = -Math.sin(r.a) * 40;
+        fi.vy = Math.cos(r.a) * 40;
+        fi.x += (r.x - fi.x) * k;
+        fi.y += (r.y - fi.y) * k;
+        if (over) fistGone(fi, d);
+        continue;
       }
-      if (fi.state === 'back') {
-        const dx = r.x - fi.x, dy = r.y - fi.y, dd = Math.hypot(dx, dy);
-        if (dd < 5) { fi.state = 'rest'; continue; }
-        const step = Math.min(dd, FIST_BACK * dt);
-        fi.vx = (dx / dd) * FIST_BACK;
-        fi.vy = (dy / dd) * FIST_BACK;
-        fi.x += (dx / dd) * step;
-        fi.y += (dy / dd) * step;
-      }
+      const v = fi.target;
+      if (!v?.alive || v.vanish) { fistGone(fi, d); continue; }
+      const dx = v.x - fi.x, dy = v.y - 14 - fi.y, dd = Math.hypot(dx, dy) || 1;
+      fi.vx = (dx / dd) * FIST_SPEED;
+      fi.vy = (dy / dd) * FIST_SPEED;
+      fi.x += fi.vx * dt;
+      fi.y += fi.vy * dt;
+      fi.dist += FIST_SPEED * dt;
+      if (dd < 9) {
+        v.hitHow = 'ABYSS FISTS';
+        v.hurt(DEMON_PUNCH, o, (dx / dd) * 300, -150 + (dy / dd) * 80);
+        game.punches.push({ x: fi.x, y: fi.y, ax: dx / dd, ay: dy / dd, t: 0, seed: Math.random() * 100 });
+        game.fx.sparks(fi.x, fi.y, 10, dx / dd, dy / dd, '#d49cff');
+        game.lights.flash(fi.x, fi.y, 70, '150, 110, 255', 0.15);
+        if (Math.hypot(player.x - fi.x, player.y - fi.y) < 180) renderer.kick((dx / dd) * 5, (dy / dd) * 4);
+        fi.state = 'done';
+      } else if (fi.dist > FIST_REACH) fistGone(fi, d);
     }
-    if (d.phase === 'gone' && Math.random() < 30 * dt) game.fx.sparks(d.x + (Math.random() - 0.5) * 28, d.y + (Math.random() - 0.5) * 24, 1, 0, -1, Math.random() < 0.5 ? '#a24ef0' : '#d49cff');
+    d.fists = d.fists.filter((q) => q.state !== 'done');
+    // the last of them gone: now the wait starts
+    if (!d.fists.length) {
+      d.over = true;
+      o.fistsOut = false;
+      if (o.alive) o.skillCD = SKILL_CD.demon;
+    }
   }
-  game.demons = game.demons.filter((d) => !(d.phase === 'gone' && d.t >= DEMON_GONE));
+  game.demons = game.demons.filter((d) => !d.over);
   for (const p of game.punches) p.t += dt;
   game.punches = game.punches.filter((p) => p.t < PUNCH_LIFE);
 }
-// After the lighting, over everything: the circles being called up out of
-// (and fading as the demon rises), fists out flying, and the bursts where they land.
+// After the lighting, over everything: the circles being called up out of (and fading as
+// the fists come up), the fists going round and flying, and the bursts where they land.
 function drawDemonsOnTop(ctx) {
   for (const f of game.fighters) if (f.alive && f.summon) drawSummonCircle(ctx, ctx, f.summon.x, f.summon.y, f.summon.t / SKILL_TIME.demon, game.time);
   for (const d of game.demons) {
-    if (d.phase === 'rise') drawSummonCircle(ctx, ctx, d.circle.x, d.circle.y, 1, game.time, 1 - d.t / DEMON_RISE);
-    for (const fi of d.fists) if (fi.state !== 'rest') drawFist(ctx, ctx, fi.x, fi.y, fi.vx, fi.vy, game.time, d.seed + fi.side);
+    if (d.t < 0.5) drawSummonCircle(ctx, ctx, d.circle.x, d.circle.y, 1, game.time, 1 - d.t / 0.5);
+    for (const fi of d.fists) {
+      // (going round: from where its summoner is as drawn, so online it keeps up with them between the host's words)
+      const r = fi.state === 'rest' && d.t > 0.2 ? fistRest(d, fi) : fi;
+      drawFist(ctx, ctx, r.x, r.y, fi.vx || 1, fi.vy, game.time, d.seed + fi.i, fi.state === 'rest' ? 3 : 7);
+    }
   }
   for (const p of game.punches) drawPunch(ctx, ctx, p.x, p.y, p.t / PUNCH_LIFE, game.time, p.seed, p.ax, p.ay);
 }
@@ -1547,7 +1555,7 @@ function drawWorld() {
   for (const f of game.fighters) if (f.alive && f.fade && !(f.fade.secret && f !== player)) extra.push({ x: f.x, y: f.y - 14, r: 38, rgb: f.fade.rgb ?? '150, 110, 255', k: 0.5 * (1 - f.fade.t / f.fade.dur) });
   // the grapple's claw lights up what it's stuck in
   for (const f of game.fighters) if (f.hook && f.hook.state !== 'back') extra.push({ x: f.hook.x, y: f.hook.y, r: 22, rgb: '120, 210, 255', k: 0.4 });
-  for (const d of game.demons) extra.push({ x: d.x, y: d.y - 4, r: 70, rgb: '140, 100, 255', k: 0.5 * (d.phase === 'rise' ? d.t / DEMON_RISE : d.phase === 'gone' ? 1 - d.t / DEMON_GONE : 1) });
+  for (const d of game.demons) extra.push({ x: d.owner?.x ?? d.x, y: (d.owner?.y ?? d.y) - 14, r: 50, rgb: '140, 100, 255', k: 0.35 });
   for (const p of game.pickups) if (p.ready) extra.push({ x: p.x, y: p.y - 6, r: 26, rgb: p.kind === 'health' ? '255, 120, 110' : '170, 240, 255', k: 0.3 });
   for (const g of game.grenades) if (Math.sin(g.t * (g.t < 0.6 ? 40 : 14)) > 0) extra.push({ x: g.x, y: g.y - 3, r: 16, rgb: '255, 80, 60', k: 0.6 });
   if (overtime) extra.push({ x: renderer.camera.x, y: renderer.camera.y, r: 600, rgb: '120, 20, 10', k: 0.15 + 0.08 * Math.sin(time * 5) });
@@ -1618,7 +1626,7 @@ function drawWorld() {
     }
   }
   // you, cloaked: whoever's in reach of your stab right now, locked on
-  const mine = player.alive ? player.stabTarget() ?? player.hookTarget() : null;   // (who the stab, or the line, would go for)
+  const mine = player.alive ? player.stabTarget() ?? player.skillLock() : null;   // (who the stab, or the skill, would go for)
   if (mine?.alive) drawMarked(ctx, mine);
   drawCabinetPrompt(ctx);
   // E prompt over a weapon the player could swap to
@@ -1854,7 +1862,7 @@ function drawCards(ctx, u, W) {
       const k = f.skill === 'grapple' && f.charges > 0 ? 1 : Math.max(0, Math.min(1, 1 - f.skillCD / SKILL_CD[f.skill])), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
-      if (on) { const left = Math.max(0, f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (game.demons.find((d) => d.owner === f)?.life ?? 0) / DEMON_LIFE) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.skill === 'demon' ? '#6a22b0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
+      if (on) { const left = Math.max(0, f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (game.demons.find((d) => d.owner === f)?.fists.length ?? 0) / DEMON_FISTS) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.skill === 'demon' ? '#6a22b0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
       else if (!ready) px(x + 16, y + 18 + 7 * (1 - k), 8, 7 * k, '#22343a');
       text('Q', x + 19, y + 19, on ? '#d8c8ff' : ready ? '#8ff0ff' : '#4a5a5c');
     }
@@ -1916,7 +1924,7 @@ function drawCards(ctx, u, W) {
   return (y + CH + 1) * u;
 }
 // A skill going (cast, out, or what it called up still about).
-const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || game.demons.some((d) => d.owner === f && d.phase !== 'gone');
+const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || game.demons.some((d) => d.owner === f) || !!f.fistsOut;
 
 // Your skill, bottom right: its picture and name, Q, and how it stands - READY (lit, with a
 // flash the moment it comes ready), going, or the wait left as a bar filling back up.
@@ -2420,11 +2428,11 @@ const SKILL_INFO = [
   { key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, color: '#9ad0ff', desc: '3 SHOTS SAVED UP - ZIP TO WHERE YOU AIM, OR LOCK ON TO A FOE' },
   { key: 'cloak', name: 'CLOAK', img: CLOAK_ICON, color: '#a89aff', desc: '8 S UNSEEN WITH A KNIFE - ONE STAB, X4.5 IN THE BACK' },
   { key: 'decoy', name: 'SHADOW CLONE', img: CLONE_ICON, color: '#8aa8ff', desc: 'A DOUBLE OUT OF THE MIST FIGHTS FOR YOU, 3 S UNSEEN' },
-  { key: 'archery', name: 'ARCHERY', img: BOW_ICON, color: '#7aff8a', desc: 'LOCK ON TO EVERY FOE NEAR, AN ARROW SPLITS FOR THEM ALL' },
+  { key: 'archery', name: 'ARCHERY', img: BOW_ICON, color: '#7aff8a', desc: 'LOCK ON TO EVERY FOE NEAR, EVEN THE UNSEEN - NOBODY: IT RAINS ROUND YOU' },
   { key: 'murasaki', name: 'MURASAKI', img: VOID_ICON, color: '#c07aff', desc: 'RED AND BLUE MADE ONE: A PURPLE THAT ERASES ALL IN ITS LINE' },
   { key: 'blaze', name: 'FLAME FIST', img: FIST_FIRE_ICON, color: '#ff9a4a', desc: 'FISTS ALIGHT, THEN A DASH AND A PUNCH THE WAY YOU AIM' },
   { key: 'galaxy', name: 'GALAXY', img: GALAXY_ICON, color: '#7af0ff', desc: 'A BLACK HOLE WHERE YOU AIM: DRAGS THEM IN, THEN GOES OFF' },
-  { key: 'demon', name: 'ABYSS GOLEM', img: DEMON_ICON, color: '#b06aff', desc: 'A GOLEM OF BLACK FIRE FIGHTS AT YOUR BACK FOR 12 S' },
+  { key: 'demon', name: 'ABYSS FISTS', img: DEMON_ICON, color: '#b06aff', desc: 'FOUR FISTS OF BLACK FIRE CIRCLE YOU, ONE BLOW EACH' },
 ];
 // the choices for a pick list: each skill (with its wait), then none - and for the bots, RANDOM first
 function skillItems(forBots = false) {
