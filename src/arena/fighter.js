@@ -134,6 +134,17 @@ const THRUST_FRAMES = [
 ];
 const smooth = (t) => t * t * (3 - 2 * t);
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+// The same little run of random numbers for the same seed: online, a shot's spread comes out alike
+// on the player's screen and on the host's (see Fighter.shoot, shotSeed in online.js).
+function seeded(seed) {
+  let a = Math.imul(seed, 2654435761) >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 function reloadPose(from, to, k) {
   if (from === 'rest' && to === 'rest') return 'support';
@@ -1595,11 +1606,11 @@ export class Fighter {
   // Same as the main game: pellets fan out evenly, single shots wobble by the gun's spread.
   shoot(g) {
     const w = this.weapon, d = w.def, m = this.gunPoint(g, w.muzzle);
-    const pellets = d.pellets ?? 1, dir = this.shotDir(g, m);
+    const pellets = d.pellets ?? 1, dir = this.shotDir(g, m), rnd = this.shotSeed ? seeded(this.shotSeed) : Math.random;
     const air = this.onGround ? 1 : 1.5;
     for (let i = 0; i < pellets; i++) {
-      const spread = pellets > 1 ? ((i / (pellets - 1)) * 2 - 1 + (Math.random() - 0.5) * 0.4) * w.spread : (Math.random() * 2 - 1) * w.spread * air;
-      const speed = d.bulletSpeed * (pellets > 1 ? 0.85 + Math.random() * 0.3 : 1);
+      const spread = pellets > 1 ? ((i / (pellets - 1)) * 2 - 1 + (rnd() - 0.5) * 0.4) * w.spread : (rnd() * 2 - 1) * w.spread * air;
+      const speed = d.bulletSpeed * (pellets > 1 ? 0.85 + rnd() * 0.3 : 1);
       this.game.fireBullet(this, m.x, m.y, dir + spread, speed, w.damage * DAMAGE * (CLASS_MUL[d.cls] ?? 1) * (this.game.gunDamage ?? 1), d.range ?? 520, d.pierce ?? 0);
     }
     if (!d.action && !d.keepsShells) this.ejectShell(g);
@@ -1945,39 +1956,51 @@ export class Fighter {
   // skill building up - so it moves at the screen's own rate, not twenty times a second. Nothing the
   // host decides changes: ammo, health, what's in hand, whether a reload is done. (limbs: false - our
   // own fighter, whose limbs come from its stand-in; see online.js)
-  coast(dt, limbs = true) {
+  // arms false: what's in hand is being run already (our own fighter, online: see stepOwn)
+  coast(dt, limbs = true, arms = true) {
     const game = this.game;
     this.game = quietGame(game);   // (no dust of its own: the host's effects come with its state)
     try {
       this.hurtT += dt;
       this.lastFireT += dt;
+      if (this.beamT !== undefined) this.beamT += dt;
       this.flash -= dt;
-      if (!this.alive) return;
+      if (!this.alive) { this.deadT += dt; return; }
       if (limbs) this.animate(dt);
-      if (this.slot === 1) {
-        const m = this.melee;
-        m.update(dt);
-        this.tilt += (m.raising * RAISE_TILT - this.tilt) * Math.min(1, dt * 16);
-      } else if (this.weapon) {
-        const w = this.weapon, keep = { ammo: w.ammo, reserve: w._reserve, reloading: w.reloading, reload: w.reload };
-        w.update(dt);
-        w.ammo = keep.ammo;
-        w._reserve = keep.reserve;
-        if (keep.reloading && !w.reloading) w.reload = keep.reload;   // (done when the host says so - reloading is its progress, -1 when not)
-        let tilt = !w.reloading ? 0
-          : w.def.reload === 'shells' ? SHELL_TILT
-          : w.def.reload === 'steps' ? (w.openAngle / w.def.openAngle) * STEP_TILT
-          : Math.sin(Math.PI * Math.min(1, w.reload * 1.15)) * RELOAD_TILT;
-        tilt += w.raising * RAISE_TILT;
-        this.tilt += (tilt - this.tilt) * Math.min(1, dt * 16);
+      if (limbs && this.onLadder) this.climbT += Math.abs(this.vy) * dt;
+      if (this.hook?.state === 'on') { this.trail.unshift({ x: this.x, y: this.y }); this.trail.length = Math.min(this.trail.length, 9); }
+      else if (this.trail.length) this.trail.pop();
+      if (arms) {
+        if (this.throwT >= 0) { this.throwT += dt / 0.35; if (this.throwT >= 1) this.throwT = -1; }
+        if (this.slot === 1) {
+          const m = this.melee;
+          m.update(dt);
+          this.tilt += (m.raising * RAISE_TILT - this.tilt) * Math.min(1, dt * 16);
+        } else if (this.weapon) {
+          const w = this.weapon, keep = { ammo: w.ammo, reserve: w._reserve, reloading: w.reloading, reload: w.reload };
+          w.update(dt);
+          w.ammo = keep.ammo;
+          w._reserve = keep.reserve;
+          if (keep.reloading && !w.reloading) w.reload = keep.reload;   // (done when the host says so - reloading is its progress, -1 when not)
+          let tilt = !w.reloading ? 0
+            : w.def.reload === 'shells' ? SHELL_TILT
+            : w.def.reload === 'steps' ? (w.openAngle / w.def.openAngle) * STEP_TILT
+            : Math.sin(Math.PI * Math.min(1, w.reload * 1.15)) * RELOAD_TILT;
+          tilt += w.raising * RAISE_TILT;
+          this.tilt += (tilt - this.tilt) * Math.min(1, dt * 16);
+        }
+        for (const sl of this.slashes) sl.t += dt;
+        for (const c of this.cuts) c.t += dt;
       }
-      for (const sl of this.slashes) sl.t += dt;
-      for (const c of this.cuts) c.t += dt;
       for (const k of ['bow', 'mura', 'gal', 'summon']) if (this[k] && typeof this[k].t === 'number') this[k].t += dt;
       if (this.blaze?.phase === 'charge') this.blaze.t += dt;
       if (this.cloak && !this.cloak.out) { this.cloak.t -= dt; this.cloak.flick -= dt; }
       if (this.veil) this.veil.t -= dt;
-      if (this.roll && limbs) this.roll.t = Math.min(0.99, this.roll.t + dt / ROLL_TIME);
+      if (this.roll && limbs) {
+        this.roll.t = Math.min(0.99, this.roll.t + dt / ROLL_TIME);
+        (this.roll.trail ??= []).unshift({ x: this.x, y: this.y, t: this.roll.t });
+        this.roll.trail.length = Math.min(this.roll.trail.length, 10);
+      }
     } finally {
       this.game = game;
     }

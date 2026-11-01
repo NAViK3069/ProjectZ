@@ -209,7 +209,10 @@ const game = {
       this.fx.sparks(x, y, 3, -Math.cos(a), -Math.sin(a));   // the gun's poked into a wall
       return;
     }
-    this.bullets.push({ id: (this.shotIds = (this.shotIds ?? 0) + 1), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, done: new Set(), dead: false });   // (id: online, a shot's known from one state to the next)
+    // (id, sq: online, how a shot's known; rw: how far behind now its shooter saw everyone - see pastOf)
+    const b = { id: (this.shotIds = (this.shotIds ?? 0) + 1), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, done: new Set(), dead: false, sq: f.shotSeed ?? 0, rw: f.rewind ?? 0 };
+    this.bullets.push(b);
+    this.onShot?.(b);
   },
   // the main game's muzzle: a flash of light, a puff of smoke off the barrel, the camera kicked back
   muzzle(x, y, a, w, f) {
@@ -226,7 +229,9 @@ const game = {
     let targets = [];
     for (const v of this.fighters) {
       if (!v.alive || m.hits.has(v) || !this.foes(f, v)) continue;
-      const tx = v.x, ty = v.y - (v.roll ? 7 : 14), dist = Math.hypot(tx - o.x, ty - o.y);
+      // (online: where the player swinging saw them - see pastOf)
+      const seen = (f.rewind && this.pastOf?.(v, f.rewind)) || v;
+      const tx = seen.x, ty = seen.y - (v.roll ? 7 : 14), dist = Math.hypot(tx - o.x, ty - o.y);
       if (dist > m.reach + 8) continue;
       const da = Math.abs(wrap(Math.atan2(ty - o.y, tx - o.x) - f.aim));
       if (da > m.arc / 2 && dist > 12) continue;   // right up close always counts
@@ -1199,7 +1204,9 @@ function updateBullets(dt) {
       if (b.dead) break;
       for (const o of game.fighters) {
         if (o === b.owner || !o.alive || b.done.has(o) || !game.foes(b.owner, o)) continue;
-        const part = o.hitPart(b.x, b.y);
+        // (online, a player's shot: tested against where they saw this one when they fired - see pastOf)
+        const seen = b.rw ? game.pastOf?.(o, b.rw) : null;
+        const part = seen ? o.hitPart(b.x + o.x - seen.x, b.y + o.y - seen.y) : o.hitPart(b.x, b.y);
         if (!part) continue;
         b.done.add(o);
         if (o.shield > 0) { fx.sparks(b.x, b.y, 4, -dx, -dy, '#8ff0ff'); b.dead = true; break; }
@@ -1437,14 +1444,14 @@ function updatePickups(dt) {
       } else if (p.kind === 'melee') {
         if (f.cloak) continue;
         const fists = f.melee.def.fists;
-        const wants = f === player ? fists || f.pickupPressed : fists;
+        const wants = f === player || f.peer ? fists || f.pickupPressed : fists;
         if (!wants) continue;
         const old = f.giveMelee(MELEE[p.key]);
         if (old) game.pickups.push({ kind: 'melee', key: old.def.key, x: f.x, y: f.y - 10, vx: -f.facing * 60, vy: -140, beam: 0, life: 20, bob: 0, ready: false, noGrab: 0.6 });
         f.pickupPressed = false;
       } else {
         const def = WEAPONS[p.key], w = f.gunIn(f.slotFor(def)), armed = w && (w.ammo > 0 || w.reserve > 0);
-        const wants = f === player ? !armed || f.pickupPressed : !armed || gunTier(def) > gunTier(w.def) + 0.4;
+        const wants = f === player || f.peer ? !armed || f.pickupPressed : !armed || gunTier(def) > gunTier(w.def) + 0.4;
         if (!wants) continue;
         if (armed) {
           // drop the old one where the new one was
@@ -2755,7 +2762,7 @@ function frame(now) {
 const backupClock = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 1000 / 30);'], { type: 'text/javascript' })));
 backupClock.onmessage = () => {
   const now = performance.now();
-  if (frozen || !online.active || now - last < 100) return;
+  if (frozen || !online.active || now - last < (document.hidden ? 25 : 100)) return;   // (hidden there are no frames to wait for: its own rate, or states would only go out ten times a second)
   try { runFor((now - last) / 1000, false); } catch (e) { console.error(e); input.endFrame(); }
   last = now;
 };
@@ -2820,7 +2827,7 @@ function tick(realDt, draw = true) {
     // off the bottom of an open map (the rooftops): gone
     for (const f of game.fighters) if (f.alive && f.y > PH + 40) f.die(null, 'FELL', 0, 0);
     for (const p of game.pickups) if (p.y > PH + 60) p.life = 0;
-    player.pickupPressed = false;
+    for (const f of game.fighters) f.pickupPressed = false;
     game.fx.update(dt);
     for (const b of game.blasts) b.t += dt;
     game.blasts = game.blasts.filter((b) => b.t < 0.35);

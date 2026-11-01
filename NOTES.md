@@ -35,15 +35,33 @@ everyone in it carry on); both ask SURE? first. In a match, ESC: the host
 can END THE MATCH (everyone back to the room) or CLOSE THE ROOM (twice); a
 player can go BACK TO THE ROOM (out of that match, WATCH it from there).
 
-The others draw everyone a moment behind the host's latest state, eased
-between states (`clientFrame`), so movement stays smooth however unevenly
-states arrive; the moment grows with the gaps between them.
+How a player's screen keeps up with the host's game (`src/arena/online.js`;
+the top of the file has the short version):
 
-A player's own fighter isn't waited for: a stand-in of it runs the movement
-on their own screen at once (`predict` in `src/arena/online.js`) and where
-it is goes to the host with their controls, which the host takes (unless
-it's far off, or something the host runs is moving them - a dash, the
-grapple, a lunge, a respawn). Shots, hits, health and skills stay the host's.
+- **Prediction:** each 1/60 s of play is a numbered command. It runs at once on
+  a stand-in of the player's fighter (`runOwn`, `stepOwn`) and goes to the host,
+  which runs the same commands in order at the same step (`updateRemotes`). Only
+  controls go in: the host is never told where anyone is, and can't be sped up by
+  sending more (`bank`).
+- **Reconciliation:** the host's word on their fighter comes back with the number
+  of the last command it's run. The stand-in goes there and runs the commands not
+  yet heard back about again (`reconcile`). Normally that lands on the same spot;
+  a knock or a black hole's pull comes out in it, and any difference is eased away.
+- **Interpolation:** everyone else is drawn a little in the past, between two
+  states. How far (`N.delay`) follows how unevenly states really arrive.
+- **What's in hand:** gun, melee swing, slot and throw run at once on the player's
+  screen too (`stepOwn`; hits don't count there). Shots have the same spread on both
+  ends (`shotSeed`). The host's word on what's in hand waits until it's run
+  everything the player's done (`N.combatSeq`, `N.deferred`).
+- **Lag compensation:** a player's shot or melee hit is judged against where they
+  saw everyone (`pastOf`, at most `MAX_REWIND` back).
+- **Skills are still the host's:** starting one waits a trip there and back; once
+  it's going its movement (the grapple's reel, a dash) is predicted like the rest.
+
+Testing a bad connection: `?lag=40&jitter=25` on both pages holds back everything
+each one sends. F9 in a match, or `arena.online.netStats`, shows messages and bytes
+a second, how far behind others are drawn, jitter, commands unheard, and FIX (how far
+the last correction moved the player - it should stay near 0).
 
 Skills: YOUR SKILL and BOT SKILLS (RANDOM, one of them, or NONE) are picked
 from a list (the setup screen, and the room for online); SKILLS (Q) OFF turns
@@ -64,21 +82,22 @@ kept up by its host. The SDK is a copy in `src/vendor/photon-realtime.js`
 (the npm package "photon-realtime" 4.4.0, its Node-only tail cut off), loaded
 the first time you go online. Players on a different `APP_VERSION` don't meet.
 
-The host's browser runs the game; the others send their controls and draw
-the state the host sends 20 times a second - only what changed - plus the
-effects that went off (`src/arena/online.js`). A hidden tab gets no frames,
-so online a worker keeps time instead (`backupClock` in `src/arena/main.js`)
-and the game runs on at full speed with the host's tab in the background or
-minimised; and however slowly frames come, the game makes up the time in
-1/30 s steps (`runFor`). The host leaving ends the room (HOST hands it over
-first). Our own shots come in from the host already on their way; each is
-drawn coming out of the gun and catching up in 0.12 s (`N.shots`).
-Between the host's states, each screen carries on what only moves with
-time - limbs, the gun's kick and flash, a reload's motion, a swing, a
-skill building up (`Fighter.coast`) - and eases the others' aim, so it all
-moves at the screen's rate. A player's own gun fires and starts reloading on
-their screen at once (the host fires the real shot); for a moment after,
-their ammo and reload stand over the host's not-yet-updated copy.
+The host's browser runs the game; the others send commands and get states
+30 times a second (20 with more than 5 in the room, to stay under Photon's 500
+messages a second in a room). A state has only what's changed (`changed`, with a
+rule per field for what each screen can carry on by itself; `Fighter.coast`). A
+shot's sent once, and each screen carries it on; how far it got is sent when it
+ends. A hidden tab gets no frames, so online a worker keeps time instead
+(`backupClock` in `src/arena/main.js`) and the game runs on at full speed with
+the host's tab in the background or minimised; and however slowly frames come,
+the game makes up the time in 1/30 s steps (`runFor`).
+
+If the host's connection or tab goes, the first of the others in the room takes it
+over (`hostGone`): the match is over, as the game ran on that machine, but the room,
+its slots and its settings carry on. CLOSE THE ROOM still ends it for everyone. A
+player whose connection drops is taken back in by themselves (`getBack`), keeps their
+id for the tab (`sessionStorage`), and the host keeps their seat for `SEAT_HOLD` s,
+so a reload can also come back to it from the lobby.
 
 ## The 2.5D top-down game is shelved, not deleted
 

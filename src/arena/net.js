@@ -10,9 +10,14 @@
 // src/vendor (it loads when you first go online).
 
 const SDK = new URL('../vendor/photon-realtime.js', import.meta.url).href;
-const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-1';   // (players on different versions don't meet)
+const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-2';   // (players on different versions don't meet)
 const PROPS = ['n', 'm', 'mp', 's', 'mx', 'w', 'p', 'l', 'md', 'h'];   // a room's properties the lobby sees (name, mode, map, seated, max, watchers, playing, locked, made, host)
 const EV = { msg: 1, snap: 2, ctl: 3 };
+
+// For testing a bad connection: `?lag=80&jitter=30` on the address holds everything this page sends
+// back by that many ms (set it on both ends; arena.online.netStats shows what it does to the game).
+export const netSim = { lag: 0, jitter: 0 };
+try { const q = new URLSearchParams(location.search); netSim.lag = +q.get('lag') || 0; netSim.jitter = +q.get('jitter') || 0; } catch {}
 
 export const SERVERS = [
   { key: 'asia', name: 'SINGAPORE', where: 'SINGAPORE' },
@@ -36,8 +41,17 @@ function photon() {
   }));
 }
 
-// Who we are to everyone else (for this visit).
-const UID = `p${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+// Who we are to everyone else: kept for this tab, through a reload or a dropped connection, so a
+// player who comes back gets their seat back (and someone kicked is still kicked).
+const UID = (() => {
+  const fresh = `p${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+  try {
+    const had = sessionStorage.getItem('arena.uid');
+    if (had) return had;
+    sessionStorage.setItem('arena.uid', fresh);
+  } catch {}
+  return fresh;
+})();
 export const myId = () => UID;
 
 // ---------- the connection: one, for the lobby and for a room ----------
@@ -54,11 +68,14 @@ class Conn {
     this.room = null;        // the GameRoom we're in
     this.stats = null;       // how many are on (the region's, from Photon now and then)
     this.waits = [];         // [state wanted, resolve, reject]
+    this.held = [];          // (netSim) what's being held back: [when, code, text, target]
+    this.heldTill = 0;
+    this.stat = { outN: 0, outB: 0, inN: 0, inB: 0 };   // messages and bytes, both ways (see online.js)
     this.lbc.onStateChange = (st) => {
       for (const w of [...this.waits]) if (w[0].includes(st)) { this.waits.splice(this.waits.indexOf(w), 1); w[1](); }
       if (st === this.S.Error || st === this.S.Disconnected) {
         for (const w of this.waits.splice(0)) w[2](new Error('disconnected'));
-        if (this.room) this.room._gone();
+        if (this.room) this.room._lost();
       }
     };
     this.lbc.onError = (code, msg) => console.warn('Photon:', code, msg);
@@ -71,11 +88,22 @@ class Conn {
       if (!this.room) return;
       const from = this.uidOf(actorNr);
       let data = content;
+      this.stat.inN++;
+      if (typeof content === 'string') this.stat.inB += content.length;
       if (typeof content === 'string') { try { data = JSON.parse(content); } catch { return; } }
       this.room._event(code, data, from);
     };
     this.lbc.onActorJoin = (actor) => { if (this.room && actor.userId !== UID) this.room._join(actor.userId); };
-    this.lbc.onActorLeave = (actor) => { if (this.room && actor.userId !== UID) this.room._leave(actor.userId); };
+    this.lbc.onActorLeave = (actor) => {
+      if (!this.room || actor.userId === UID) return;
+      // (a moment later, when it's clear: if it's us being cut off, everyone's "leaving" - that's not them going, see _lost)
+      setTimeout(() => {
+        if (!this.room || this.lbc.state() !== this.S.Joined) return;
+        // (back already, on a new connection, before the old one timed out: they haven't gone anywhere)
+        if (Object.values(this.lbc.myRoomActors()).some((a) => a.userId === actor.userId && a.actorNr !== actor.actorNr)) return;
+        this.room._leave(actor.userId);
+      }, 0);
+    };
   }
   until(states, ms = 15000) {
     if (states.includes(this.lbc.state())) return Promise.resolve();
@@ -98,11 +126,30 @@ class Conn {
   actorOf(uid) {
     return Object.values(this.lbc.myRoomActors()).find((a) => a.userId === uid)?.actorNr ?? null;
   }
+  // target: one player, some players (an array), or nobody named: everyone
   raise(code, data, target) {
+    const text = JSON.stringify(data);
+    if (!netSim.lag && !netSim.jitter) return this.put(code, text, target);
+    // (in order, as the real thing's always in order: a message never overtakes the one before it)
+    this.heldTill = Math.max(this.heldTill, performance.now() + netSim.lag + Math.random() * netSim.jitter);
+    this.held.push([this.heldTill, code, text, target]);
+  }
+  put(code, text, target) {
     if (!this.lbc.isJoinedToRoom()) return;
     const opt = {};
-    if (target) { const nr = this.actorOf(target); if (nr === null) return; opt.targetActors = [nr]; }
-    this.lbc.raiseEvent(code, JSON.stringify(data), opt);
+    if (target) {
+      const nrs = (Array.isArray(target) ? target : [target]).map((t) => this.actorOf(t)).filter((n) => n !== null);
+      if (!nrs.length) return;
+      opt.targetActors = nrs;
+    }
+    this.stat.outN += opt.targetActors?.length ?? 1;
+    this.stat.outB += text.length;
+    try { this.lbc.raiseEvent(code, text, opt); } catch { /* the connection's on its way out: _lost hears of it */ }
+  }
+  // (netSim) what's been held back long enough, out
+  pump() {
+    const now = performance.now();
+    while (this.held.length && this.held[0][0] <= now) { const [, code, text, target] = this.held.shift(); this.put(code, text, target); }
   }
 }
 async function connect(server) {
@@ -192,7 +239,7 @@ export class Lobby {
     const want = { n: ad.name, m: ad.mode, mp: ad.map, s: ad.n, mx: ad.max, w: ad.w, p: ad.playing ? 1 : 0, l: ad.lock ? 1 : 0, md: ad.made, h: UID };
     const out = {};
     for (const k of PROPS) if (this.sent[k] !== want[k]) { out[k] = want[k]; this.sent[k] = want[k]; }
-    if (Object.keys(out).length) room.setCustomProperties(out);
+    if (Object.keys(out).length) { try { room.setCustomProperties(out); } catch { /* (the connection's going) */ } }
   }
   update() {}
   leave() {
@@ -227,6 +274,7 @@ export class GameRoom {
     this.onCtl = () => {};
     this.onJoin = () => {};
     this.onLeave = () => {};
+    this.onLost = null;   // the connection gone (see online.js: it tries to get back in)
     c.room = this;
     const send = (code) => ({ send: (data, opt) => c.raise(code, data, opt?.target) });
     this.snap = send(EV.snap);
@@ -244,11 +292,12 @@ export class GameRoom {
     this.c.raise(EV.msg, data, target);
   }
   update() {
+    this.c.pump();
     this.ping = Math.round(this.c.lbc.getRtt?.() ?? 0);   // (to Photon's server and back)
   }
   leave() {
     if (this.c.room === this) this.c.room = null;
-    if (this.c.lbc.isJoinedToRoom()) this.c.lbc.leaveRoom();   // (back to the lobby)
+    try { if (this.c.lbc.isJoinedToRoom()) this.c.lbc.leaveRoom(); } catch {}   // (back to the lobby)
   }
   _event(code, data, from) {
     if (code === EV.msg) this.onMsg(data, from);
@@ -264,8 +313,9 @@ export class GameRoom {
     if (!this.peers.delete(uid)) return;
     this.onLeave(uid);
   }
-  // the connection lost: everyone gone, as far as we're concerned
-  _gone() {
+  // the connection lost: whoever's looking after the room hears; if nobody is, everyone's gone
+  _lost() {
+    if (this.onLost) return this.onLost();
     for (const uid of [...this.peers]) this._leave(uid);
   }
 }

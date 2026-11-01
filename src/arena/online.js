@@ -2,14 +2,31 @@
 // lobby's list of rooms, a room waiting to start - Point Blank style) and the
 // game itself over the network (see net.js for the connections).
 //
-// The host's game is the real one: it runs everything, with each of the
-// other players' fighters moved by the controls they send in. Twenty times a
-// second it sends everyone the state of the game - every fighter, prop,
-// bullet, grenade, pickup, skill effect, the round - and the effects that went
-// off since the last time (sparks, blood, smoke, flashes), which the others
-// play on their own screens. The others don't run the game at all: they draw
-// what they're sent, easing their fighters between one state and the next and
-// carrying bullets on along their way, so it all moves smoothly.
+// The host's game is the real one - everything that counts happens there. How
+// a player's screen keeps up with it, for a fast game:
+//
+// - Their own fighter is theirs at once (prediction). Each 1/60 s of play is a
+//   numbered command - the controls held for that step. They run it straight
+//   away on a stand-in of their fighter and send it to the host, who runs the
+//   very same commands, in order, at the same step. Nothing but controls goes
+//   in: the host is never told where anyone is.
+// - The host's word on where they are comes back with the number of the last
+//   command it's run (reconciliation): the stand-in is put there, and the
+//   commands the host hasn't got to yet are run over again. With nothing else
+//   going on that lands exactly where it was, and nothing shows; a hit's knock
+//   or a black hole's pull just comes out in it. What difference there is gets
+//   eased away over a moment.
+// - Everyone else is drawn a little in the past, between two states from the
+//   host (interpolation) - as little as this connection's unevenness allows,
+//   measured by when states actually arrive.
+// - Shots are fired on the player's own screen at once (with the same spread:
+//   it's seeded by the command's number), and the host judges them against where
+//   they saw everyone when they fired (lag compensation; see pastOf). So what
+//   you hit on your screen is what you hit.
+//
+// What's sent is kept small: a shot goes once (it flies straight, each screen
+// can carry it on), things that only run on with time aren't sent, and of the
+// rest only what's changed.
 
 import { SERVERS, Lobby, GameRoom, myId, pingServer } from './net.js';
 import { Fighter } from './fighter.js';
@@ -21,7 +38,13 @@ import { MeleeWeapon, MELEE } from '../combat/melee.js';
 import { K } from '../ui/kit.js';
 
 let A = null;   // what this needs of the game (main.js)
-const SNAP_EVERY = 1 / 20, CTL_EVERY = 1 / 30, CTL_STALE = 0.35;   // states out; controls in at least this often; no word from a player this long, they're let go
+const STEP = 1 / 60;   // a command: this much of a player's time
+const CTL_STALE = 0.35;   // no word from a player this long: their fighter's let go
+const MAX_REWIND = 0.25;   // the furthest back a shot's judged (any more and you'd be hit round corners)
+const MAX_PENDING = 120;   // commands not yet heard back about (2 s): any more and we stop adding to them
+// (a full room says less, often: Photon asks for under 500 messages a second in a room, in and out)
+const snapEvery = () => (N.members.length > 5 ? 1 / 20 : 1 / 30);
+const ctlEvery = () => (N.members.length > 5 ? 1 / 20 : 1 / 30);
 // A room's 8 slots, in two columns of 4 (in TEAMS: the left BLUE, the right RED). Each is open
 // (anyone joining takes the first), closed (not there), a bot, or a player.
 const SLOTS = 8;
@@ -31,22 +54,15 @@ const LOOKS = [
   { color: '#7affc8', hue: 100, sat: 1.2 }, { color: '#ff9ad8', hue: 320, sat: 1.2 },
 ];
 const BOT_NAMES = ['VEX', 'KORA', 'DUKE', 'ROOK', 'NYX', 'ZED', 'IVO', 'MOX'];
-// (the others) everyone else is drawn a moment behind the latest from the host, eased between its states - smooth,
-// however unevenly they come in. How far behind goes with how far apart they've been coming (the longest gap lately, and a bit).
-const DELAY_MIN = 0.08, DELAY_MAX = 0.3;
-// worked out on each screen for itself, every frame (see Fighter.coast): not taken from the host's states
-const LOOKS_HERE = ['pose', 'animT', 'frame', 'state', 'sq', 'sqV', 'settle', 'tilt'];
-// our own gun's kick, flash and cycling - from the shots fired here, at once (see predict), not the host's later copy of them
-const OUR_GUN = ['flash', 'recoil', 'climb', 'cooldown', 'cycleT', 'heat', 'acting', 'actDelay', 'spent', 'burstLeft', 'reloadQueued'];
-const delay = () => Math.max(DELAY_MIN, Math.min(DELAY_MAX, (N.gap ?? 0.05) * 1.3 + 0.03));
+const DELAY_MIN = 0.035, DELAY_MAX = 0.3;   // how far in the past everyone else is drawn, at most and at least
 const teamOf = (i) => (i < SLOTS / 2 ? 0 : 1);
 const TEAM_LOOKS = [{ color: '#6ad8ff', hue: 210, sat: 1.2 }, { color: '#ff6a5a', hue: 8, sat: 1.7 }];   // in TEAMS everyone wears their side's colour: BLUE, RED (the art's own hair is red)
 const MAX_WATCH = 8;   // how many can watch a room besides those in its slots
+const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost their seat
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
   ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'ABYSS GOLEM'], [null, 'NO SKILL'],
 ];
-const PRESSED = ['jump', 'reload', 'roll', 'melee', 'skill', 'drop', 'throwWeapon', 'pickup', 'grenade'];
 
 const N = {
   name: '', skill: 'grapple', edit: null, draft: '',
@@ -56,10 +72,13 @@ const N = {
   watching: false, match: null, deadT: 0,
   pass: '', creating: null, joinAsk: null, joinPass: '',
   confirm: null, banned: new Map(), out: false, offset: undefined,
-  ghost: null, knock: null, shots: new Map(),   // (the others) our own fighter's movement, run here at once (see predict); a hit's knock to give it   // confirm: a button waiting for its second click; banned: (the host) kicked -> till when; out: sat out of the match, in the room   // pass: (the host) the room's password, '' for none; creating: the CREATE ROOM box ({ name, pass }); joinAsk: a locked room we're asked the password for   // watching: in a game we're not in (it started before we came); match: (the host) the game going on, for anyone who comes to watch
-  ctl: new Map(), sendT: 0, snaps: [], gotSnap: false, menu: false, saved: null, ctlT: 0, lastCtl: '', pend: {},
+  heirPass: '', heirSent: null, back: null, gap: 1 / 30, jit: 0, delay: undefined, statN: { t: 0 }, stats: {},   // heirPass: the room's password, told to whoever takes over if the host goes; back: getting back in after losing the connection
+  ctl: new Map(), sendT: 0, snaps: [], gotSnap: false, menu: false, saved: null,
   fighters: new Map(), props: new Map(), nextNid: 100, propIds: 0, fistsDef: null,
-  sent: new Map(),   // (the host) what each fighter and prop was last sent as, field by field - only what's changed goes again
+  sent: new WeakMap(), listSent: {}, hdrSent: {}, propLive: new Set(), newShots: [], liveShots: new Set(), uids: 0, sentRound: -1, snapN: 0,   // (the host) what's been sent so far - only what's changed goes again
+  // (the others) our own fighter: the commands run, not heard back about yet; the stand-in; the host's word on it
+  seq: 0, ack: 0, pending: [], out_: [], latch: {}, acc: 0, ghost: null, auth: {}, authNew: false, err: { x: 0, y: 0 }, prev: null, ctlT: 0, ctlAgo: 0,
+  combatSeq: 0, deferred: {}, shots: [], local: [], predicted: new Set(), later: [], pickups: new Map(), trk: new Map(),
 };
 try { N.name = localStorage.getItem('arena.name') || ''; N.skill = localStorage.getItem('arena.skill') ?? 'grapple'; } catch {}
 if (!N.name) N.name = `PLAYER${Math.floor(100 + Math.random() * 900)}`;
@@ -73,7 +92,7 @@ export const online = {
   get isClient() { return N.mode === 'client'; },
   get menuOpen() { return N.menu; },
   get watching() { return N.watching; },
-  get snapSize() { return N.lastSize; },   // (for checking: how big a state of the game sent lately was, in bytes)
+  get netStats() { return N.stats; },      // (for checking: messages and bytes a second, how far behind everything is)
   get debug() { return N; },               // (for checking, from the console)
   isScreen: (state) => state === 'net-servers' || state === 'net-lobby' || state === 'net-room',
 };
@@ -81,6 +100,8 @@ export const online = {
 export function initOnline(api) {
   A = api;
   recordEffects();
+  A.game.onShot = (b) => { if (N.mode === 'host' && N.playing) N.newShots.push(b); };
+  A.game.pastOf = pastOf;
 }
 // from the main menu
 export function openOnline() {
@@ -90,14 +111,16 @@ export function openOnline() {
 // ---------- the effects, passed along ----------
 // On the host, every effect that's set off (outside another one) is noted
 // down, to go out with the next state of the game; the others set them off
-// on their own screens the same way.
+// on their own screens the same way. Each says whose doing it was, if a player's:
+// their own steps and shots they've shown already.
 const FX_CALLS = ['dust', 'puff', 'mist', 'wisp', 'motes', 'runDust', 'step', 'casing', 'blood', 'sparks', 'impact', 'gunSmoke', 'debris', 'smoke', 'fire', 'scorch'];
-let noted = null, depth = 0;
+const OWN_MOVES = new Set(['dust', 'puff', 'step', 'runDust']);
+let noted = null, depth = 0, fxBy = 0, fxShot = 0;
 function recordEffects() {
   const wrap = (proto, name, as = name, conv = (args) => args.map((a) => ser(a))) => {
     const orig = proto[name];
     proto[name] = function (...args) {
-      if (noted && depth === 0) noted.push([as, conv(args)]);
+      if (noted && depth === 0) noted.push(fxBy ? [as, conv(args), fxBy, fxShot] : [as, conv(args)]);
       depth++;
       try { return orig.apply(this, args); } finally { depth--; }
     };
@@ -105,19 +128,34 @@ function recordEffects() {
   for (const m of FX_CALLS) wrap(Fx.prototype, m);
   wrap(Fx.prototype, 'thrownGun', 'thrownGun', ([f, w]) => [ser(f), w.def?.key ?? null]);
   wrap(Lights.prototype, 'flash', 'flash');
+  // (what a shot sets off, and a reload's spent cases: its player has done those)
+  for (const name of ['shoot', 'reloadEvent']) {
+    const orig = Fighter.prototype[name];
+    Fighter.prototype[name] = function (...args) {
+      const was = fxShot;
+      fxShot = 1;
+      try { return orig.apply(this, args); } finally { fxShot = was; }
+    };
+  }
 }
 function playEffects(list) {
-  for (const [m, args] of list) {
-    if (m === 'flash') A.game.lights.flash(...args);
-    else if (m === 'thrownGun') { const f = rev(args[0]); if (f && args[1]) A.game.fx.thrownGun(f, { icon: A.iconOf(args[1]) }); }
+  const self = N.watching ? null : A.game.fighters.find((f) => f.peer === myId())?.nid;
+  for (const [m, args, by, shot] of list) {
+    if (by && by === self && (shot || OWN_MOVES.has(m))) continue;
+    if (m === 'flash') {
+      A.game.lights.flash(...args);
+      // something big going off close by: the screen feels it
+      if (args[2] >= 150) { const p = A.player, near = p ? Math.max(0, 1 - Math.hypot(p.x - args[0], p.y - args[1]) / 300) : 0; if (near > 0) A.renderer.kick((Math.random() - 0.5) * 8 * near, -6 * near); }
+    } else if (m === 'thrownGun') { const f = rev(args[0]); if (f && args[1]) A.game.fx.thrownGun(f, { icon: A.iconOf(args[1]) }); }
     else A.game.fx[m]?.(...args.map((a) => rev(a)));
   }
 }
 
 // ---------- the state of the game, as plain data ----------
 // Fighters, props and weapons go by reference ({$f: id}, {$p: id}, a weapon by
-// its key and its state); canvases, caches and the like are left out.
-const SKIP = new Set(['game', 'images', 'parts', 'hands', 'selfCanvas', 'rollCanvas', 'rollGhost', 'pix', 'art', 'def', 'ammoSource', 'events', '_icon', 'level', 'nav', 'img']);
+// its key and its state); canvases, caches and the like are left out, and so is anything of ours
+// that starts with _ (screens' own notes), bar a gun's spare rounds.
+const SKIP = new Set(['game', 'images', 'parts', 'hands', 'selfCanvas', 'rollCanvas', 'rollGhost', 'pix', 'art', 'def', 'ammoSource', 'events', 'level', 'nav', 'img', 'staminaA', 'staminaSeen', 'staminaT', 'rw', 'sq']);
 const nidOf = (f) => (f.nid ??= ++N.nextNid);
 function ser(v, d = 0) {
   if (v === null || v === undefined) return null;
@@ -128,7 +166,7 @@ function ser(v, d = 0) {
   if (v instanceof Fighter) return { $f: nidOf(v) };
   if (v instanceof Prop) return { $p: (v.nid ??= ++N.propIds) };
   if (v instanceof Weapon) return { $w: v.def.key, s: { ...serObj(v, d), _reserve: v.reserve } };
-  if (v instanceof MeleeWeapon) return { $m: v.def.key ?? (v.def.fists ? '_fists' : '_'), s: serObj(v, d) };
+  if (v instanceof MeleeWeapon) return { $m: meleeKey(v), s: serObj(v, d) };
   if (Array.isArray(v)) return v.map((x) => { const s = ser(x, d + 1); return s === undefined ? null : s; });
   if (v instanceof Map || v instanceof Set || v instanceof HTMLCanvasElement || v instanceof HTMLImageElement || v instanceof CanvasRenderingContext2D) return undefined;
   return serObj(v, d);
@@ -136,12 +174,13 @@ function ser(v, d = 0) {
 function serObj(o, d) {
   const out = {};
   for (const k of Object.keys(o)) {
-    if (SKIP.has(k)) continue;
+    if (SKIP.has(k) || k[0] === '_') continue;
     const s = ser(o[k], d + 1);
     if (s !== undefined) out[k] = s;
   }
   return out;
 }
+const meleeKey = (m) => m.def.key ?? (m.def.fists ? '_fists' : '_');
 function rev(v, prev) {
   if (v === null || typeof v !== 'object') return v;
   if (Array.isArray(v)) return v.map((x) => rev(x));
@@ -150,15 +189,15 @@ function rev(v, prev) {
   if ('$w' in v) {
     let w = prev instanceof Weapon && prev.def.key === v.$w ? prev : null;
     if (!w && A.weapons[v.$w]) {
-      w = new Weapon(A.weapons[v.$w]);
-      w.ammoSource = { count: () => w._reserve ?? 0, take: () => 0, give() {} };
+      const gun = (w = new Weapon(A.weapons[v.$w]));
+      gun.ammoSource = { count: () => gun._reserve ?? 0, take: (c, k) => { const t = Math.min(k, gun._reserve ?? 0); gun._reserve = (gun._reserve ?? 0) - t; return t; }, give() {} };
     }
     if (w) assign(w, v.s);
     return w;
   }
   if ('$m' in v) {
     const def = v.$m === '_fists' ? N.fistsDef : MELEE[v.$m];
-    let m = prev instanceof MeleeWeapon && (prev.def.key ?? (prev.def.fists ? '_fists' : '_')) === v.$m ? prev : null;
+    let m = prev instanceof MeleeWeapon && meleeKey(prev) === v.$m ? prev : null;
     if (!m && def) m = new MeleeWeapon(def);
     if (m) assign(m, v.s);
     return m ?? prev;
@@ -171,38 +210,157 @@ function assign(target, s) {
   for (const k in s) target[k] = rev(s[k], target[k]);
 }
 
-// Only the fields of `o` that have changed since it was last sent (all of them the first time).
-// (The messages arrive, and in order, so the others are always up to date.)
-function changed(key, o) {
-  const full = serObj(o, 0), last = N.sent.get(key) ?? {}, out = {};
-  for (const k in full) {
-    const j = JSON.stringify(full[k]);
-    if (last[k] !== j) { out[k] = full[k]; last[k] = j; }
+// How each field's sent. (After its first time, which is always all of it.)
+// - up: runs on upward by itself on each screen - only sent when it starts over
+// - down: runs out by itself on each screen - only sent when it's set again
+// - once: worked out on each screen for itself - never again
+// - run: a progress (a reload, a swing) running on by itself: sent when it starts, stops or starts over
+// - a number: only sent when it's changed by that much (rounded to it)
+// Timers that run on down past nothing are cut off at nothing, so they don't look changed for ever.
+const F_RULES = {
+  hurtT: 'up', lastFireT: 'up', beamT: 'up', deadT: 'up', flash: 'down', throwT: 'run',
+  pose: 'once', animT: 'once', frame: 'once', state: 'once', sq: 'once', sqV: 'once', settle: 'once', tilt: 'once', blinkIn: 'once', blinkLeft: 'once', climbT: 'once', aimTarget: 'once', pickupPressed: 'once', trail: 'once', triggerHeld: 'once',
+  hp: 1, stamina: 1, skillCD: 0.1, shield: 0.1, grenadeCD: 0.1, respawnT: 0.1, staminaRest: 0.02, coyote: 0.01, jumpBuf: 0.01, dropT: 0.01, ladderCool: 0.01, rollCool: 0.01, rollCrouch: 0.01, boostT: 0.1,
+};
+const GUN_RULES = { cooldown: 'down', recoil: 'down', climb: 'down', flash: 'down', heat: 'down', cycleT: 'down', drawT: 'down', acting: 'down', actDelay: 'down', reload: 'run' };
+const MELEE_RULES = { t: 'run', sinceHit: 'once', climb: 'once', engage: 'once', holdT: 'once', recoil: 'once', chain: 'once', drawT: 'down', cooldown: 'down', sawing: 'down', reload: 'run' };
+const PROP_RULES = { flash: 'down', rot: 0.05, landed: 'once', dissolve: 'once' };
+const PICKUP_RULES = { life: 'once', bob: 'once', noGrab: 'once', beam: 'once', uid: 'once' };
+const FAST = new Set(['x', 'y', 'vx', 'vy', 'aim', 'facing', 'onGround', 'onLadder', 'crouch', 'gun', 'melee', 'decoy']);
+const CLAMPED = new Set(['skillCD', 'shield', 'grenadeCD', 'respawnT', 'staminaRest', 'coyote', 'jumpBuf', 'dropT', 'ladderCool', 'rollCool', 'rollCrouch', 'boostT']);
+function changed(key, o, rules = {}, leave = null) {
+  const first = !N.sent.has(key), last = N.sent.get(key) ?? {}, out = {};
+  for (const k of Object.keys(o)) {
+    if (SKIP.has(k) || (k[0] === '_' && k !== '_reserve') || leave?.has(k)) continue;
+    let v = o[k];
+    const rule = rules[k];
+    if (typeof v === 'number') {
+      if (CLAMPED.has(k) && v < 0) v = 0;
+      if (typeof rule === 'number' && rule > 0) v = Math.round(v / rule) * rule;
+    }
+    if (!first && rule) {
+      const seen = last['#' + k];
+      last['#' + k] = v;
+      if (rule === 'once') continue;
+      if (rule === 'up' && !(v < seen)) continue;
+      if (rule === 'down' && !(v > seen)) continue;
+      if (rule === 'run' && !(v < seen || (v >= 0) !== (seen >= 0))) continue;
+    } else if (rule) last['#' + k] = v;
+    if (k === 'roll' && v) v = { t: v.t, dir: v.dir, spin: v.spin };   // (its afterimages each screen does for itself)
+    const s = ser(v, 1);
+    if (s === undefined) continue;
+    const j = JSON.stringify(s);
+    if (last[k] !== j) { out[k] = s; last[k] = j; }
   }
   N.sent.set(key, last);
   return out;
 }
-const LISTS = [['bu', 'bullets'], ['gr', 'grenades'], ['pk', 'pickups'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['fi', 'fists'], ['ga', 'galaxies'], ['de', 'demons'], ['pu', 'punches'], ['bl', 'blasts'], ['nu', 'numbers'], ['fe', 'feed']];
+// what's changed of what's in a fighter's hand
+function handDelta(f, out) {
+  const last = N.sent.get(f) ?? {};
+  // (now and then all of it, whatever's changed: a screen that guessed wrong puts itself right)
+  if (f.gun && N.snapN % 90 === (f.nid % 8) * 10) N.sent.delete(f.gun);
+  if (f.melee && N.snapN % 90 === (f.nid % 8) * 10) N.sent.delete(f.melee);
+  if (f.gun) {
+    const d = changed(f.gun, Object.assign(Object.create(null), f.gun, { _reserve: f.gun.reserve }), GUN_RULES);
+    if (Object.keys(d).length || last.$gun !== f.gun.def.key) out.gun = { $w: f.gun.def.key, s: d };
+    last.$gun = f.gun.def.key;
+  } else if (last.$gun !== null) { out.gun = null; last.$gun = null; }
+  const d = changed(f.melee, f.melee, MELEE_RULES), mk = meleeKey(f.melee);
+  if (Object.keys(d).length || last.$melee !== mk) out.melee = { $m: mk, s: d };
+  last.$melee = mk;
+  N.sent.set(f, last);
+}
+// Lists sent whole, while there's anything in them and it's changed (things few and short-lived)
+const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'demons']];
+// Things that happen once and run their course on each screen: sent the once
+const ONCE = [['nu', 'numbers'], ['bl', 'blasts'], ['pu', 'punches'], ['fi', 'fists'], ['fe', 'feed']];
+const LIFE = { numbers: 0.9, blasts: 0.35, punches: 0.45, fists: 0.6 };
+const uidOf = (o) => (o.uid ??= ++N.uids);
+const fastOf = (f) => [ser(f.x), ser(f.y), Math.round(f.vx), Math.round(f.vy), Math.round(f.aim * 1000) / 1000, (f.onGround ? 1 : 0) | (f.onLadder ? 2 : 0) | (f.crouch ? 4 : 0) | (f.facing > 0 ? 8 : 0)];
 function snapshot() {
   const g = A.game;
-  return {
-    t: Math.round(g.time * 1000) / 1000, rt: Math.round(performance.now()) / 1000, st: A.state, sT: ser(A.stateT), rd: A.round, rT: ser(A.roundT), ot: A.overtime, sl: A.slow,
-    bn: ser(A.banner), wi: ser(A.winner), ch: ser(A.champion),
-    f: g.fighters.map((f) => ({ n: nidOf(f), i: [f.name, f.color, f.hue ?? 0, f.sat ?? 1, f.team ?? 0, f.peer ?? null], s: changed(f, f) })),
-    p: g.props.map((p) => ({ n: (p.nid ??= ++N.propIds), k: p.kind, s: changed(p, p) })),
-    l: Object.fromEntries(LISTS.map(([k, name]) => [k, ser(g[name])])),
-    la: g.lights.lamps.map((l) => (l.on ? 1 : 0)).join(''),
-    fx: noted ?? [],
-  };
+  N.snapN++;
+  const s = { t: Math.round(g.time * 1000) / 1000, rt: Math.round(performance.now()) / 1000 };
+  // how the round stands: what's changed
+  const hd = { st: A.state, sT: Math.round(A.stateT * 10) / 10, rd: A.round, rT: Math.round(A.roundT * 2) / 2, ot: A.overtime, sl: A.slow, wi: ser(A.winner), ch: ser(A.champion), bk: A.banner?.text ?? null, la: g.lights.lamps.map((l) => (l.on ? 1 : 0)).join('') };
+  const h = {};
+  for (const k in hd) { const j = JSON.stringify(hd[k]); if (N.hdrSent[k] !== j) { h[k] = hd[k]; N.hdrSent[k] = j; } }
+  if ('bk' in h) h.bn = ser(A.banner);
+  if (Object.keys(h).length) s.h = h;
+  // the fighters
+  s.f = g.fighters.map((f) => {
+    const e = { n: nidOf(f) };
+    if (!N.sent.has(f)) e.i = [f.name, f.color, f.hue ?? 0, f.sat ?? 1, f.team ?? 0, f.peer ?? null];
+    const delta = changed(f, f, F_RULES, FAST);
+    if (f.decoy !== f._decoySent) { delta.decoy = ser(f.decoy); f._decoySent = f.decoy; }
+    handDelta(f, delta);
+    if (Object.keys(delta).length) e.s = delta;
+    const k = fastOf(f), j = k.join();
+    if (j !== f._kSent) { e.k = k; f._kSent = j; }
+    if (f.peer && f.peer !== myId()) { const c = N.ctl.get(f.peer); if (c && c.ack !== f._ackSent) { e.a = c.ack; f._ackSent = c.ack; } }
+    return e;
+  });
+  // the props: those new or changed, and which have gone
+  const ids = new Set(), ps = [];
+  for (const p of g.props) {
+    const n = (p.nid ??= ++N.propIds), d = changed(p, p, PROP_RULES);
+    ids.add(n);
+    const fresh = !N.propLive.has(n);
+    if (fresh || Object.keys(d).length) ps.push(fresh ? { n, k: p.kind, s: d } : { n, s: d });
+  }
+  const pd = [...N.propLive].filter((n) => !ids.has(n));
+  N.propLive = ids;
+  if (ps.length) s.p = ps;
+  if (pd.length) s.pd = pd;
+  // what's lying about to be picked up
+  const pk = [];
+  for (const p of g.pickups) { uidOf(p); const fresh = !N.sent.has(p), d = changed(p, p, PICKUP_RULES); if (fresh) d.uid = p.uid; if (Object.keys(d).length) pk.push([p.uid, d]); }
+  const pkIds = g.pickups.map((p) => p.uid).join();
+  if (pkIds !== N.pkSent) { s.pl = g.pickups.map((p) => p.uid); N.pkSent = pkIds; }
+  if (pk.length) s.pk = pk;
+  // the shots: each new one (where it is now, how far it's come), and how far each one that's ended got
+  const bs = N.newShots.map((b) => { N.liveShots.add(b); return [b.id, ser(b.x), ser(b.y), ser(b.vx), ser(b.vy), Math.round(b.travelled), nidOf(b.owner), b.sq]; });
+  N.newShots = [];
+  const bd = [];
+  for (const b of N.liveShots) if (b.dead) { bd.push([b.id, Math.round(b.travelled)]); N.liveShots.delete(b); }
+  if (bs.length) s.bs = bs;
+  if (bd.length) s.bd = bd;
+  // the lists
+  const l = {};
+  for (const [k, name] of LISTS) {
+    for (const o of g[name]) if (o && typeof o === 'object') uidOf(o);
+    const v = ser(g[name]), j = JSON.stringify(v);
+    if (N.listSent[k] !== j) { l[k] = v; N.listSent[k] = j; }
+  }
+  if (Object.keys(l).length) s.l = l;
+  const ev = {};
+  for (const [k, name] of ONCE) {
+    const fresh = g[name].filter((o) => !o._sent);
+    if (fresh.length) { ev[k] = ser(fresh); for (const o of fresh) o._sent = true; }
+  }
+  if (Object.keys(ev).length) s.ev = ev;
+  if (noted?.length) s.fx = noted;
+  return s;
 }
-// (on the others' screens) the latest state from the host, put into the game
+
+// (on the others' screens) a state from the host, put into the game
 function applySnapshot(s) {
-  const g = A.game;
-  // the fighters: any new ones made (a shadow clone), any gone dropped, each brought up to date - eased toward where it is now
+  const g = A.game, me = myId();
+  // where the host is in time against us, and how unevenly its states get here: how much later than
+  // the best lately this one came. (Time by when it arrived, not when this frame got to it.)
+  const lag = s.rt - s._at;
+  N.offset = N.offset === undefined || lag > N.offset ? lag : N.offset + (lag - N.offset) * 0.005;
+  N.jit = Math.max(N.offset - lag, N.jit * 0.985);
+  if (N.lastRt !== undefined && s.rt > N.lastRt) N.gap += (s.rt - N.lastRt - N.gap) * 0.1;
+  N.lastRt = s.rt;
+  if (s.h) applyHeader(s.h);
+  // the fighters: any new ones made (a shadow clone), any gone dropped, each brought up to date
   const keep = [];
   for (const e of s.f) {
     let f = N.fighters.get(e.n);
     if (!f) {
+      if (!e.i) { askResync(); continue; }
       const [name, color, hue, sat, team, peer] = e.i;
       f = new Fighter(g, A.images, { name, color, hue, sat });
       f.nid = e.n;
@@ -211,271 +369,598 @@ function applySnapshot(s) {
       N.fighters.set(e.n, f);
     }
     keep.push(f);
-  }
-  // where the host is in time against us (the least delayed of what comes in counts most)
-  const lag = s.rt - performance.now() / 1000;
-  N.offset = N.offset === undefined || lag > N.offset ? lag : N.offset + (lag - N.offset) * 0.01;
-  // the gap between states (the longest lately, fading)
-  if (N.lastRt !== undefined) N.gap = Math.max(s.rt - N.lastRt, (N.gap ?? 0.05) * 0.985);
-  N.lastRt = s.rt;
-  for (const e of s.f) {
-    const f = N.fighters.get(e.n), ox = f.x, oy = f.y, had = f._seen, aim = f.aim;
-    if (had) for (const k of LOOKS_HERE) delete e.s[k];
-    const ours = had && f.peer === myId() && !N.watching && N.ghost?.synced, gun = ours ? f.weapon : null, gunWas = gun && Object.fromEntries([...OUR_GUN, 'ammo', 'reloading', 'reload'].map((k) => [k, gun[k]]));
-    assign(f, e.s);
-    if (gun && f.weapon === gun) {
-      const now = performance.now() / 1000, { ammo, reloading, reload } = gunWas;
-      for (const k of OUR_GUN) gun[k] = gunWas[k];
-      // a shot or a reload just done here: the host's copy may not have it yet (its state set off before
-      // our controls got there) - ours stands till it can have
-      if (now < N.gunHold && gun.ammo > ammo) gun.ammo = ammo;
-      if (now < N.reloadHold && reloading && !gun.reloading) gun.reload = reload;   // (reloading: its progress, -1 when not)
+    const own = f.peer === me && !N.watching;
+    if (own && e.a !== undefined && e.a > N.ack) N.ack = e.a;
+    if (e.k) {
+      const [x, y, vx, vy, aim, b] = e.k, onGround = !!(b & 1), onLadder = !!(b & 2), crouch = !!(b & 4), facing = b & 8 ? 1 : -1;
+      f._sx = x; f._sy = y; f._aim = aim;
+      if (own) { Object.assign(N.auth, { x, y, vx, vy, onGround, onLadder, crouch, facing }); N.authNew = true; }
+      else Object.assign(f, { vx, vy, onGround, onLadder, crouch, facing });
     }
-    // the aim: eased to (see clientFrame) - our own, it's where our mouse is
-    if (e.s.aim !== undefined) { f._aim = f.aim; if (had) f.aim = aim; }
-    // where it is now by the host, kept with the time - drawn from these (see clientFrame), not jumped to
-    if (f.peer === myId() && e.s.hurtT !== undefined && f.hurtT < 0.15 && (e.s.vx !== undefined || e.s.vy !== undefined)) N.knock = { vx: f.vx, vy: f.vy };
-    if (e.s.x !== undefined || f._sx === undefined) f._sx = f.x;
-    if (e.s.y !== undefined || f._sy === undefined) f._sy = f.y;
-    (f._h ??= []).push({ t: s.rt, x: f._sx, y: f._sy });
-    if (f._h.length > 12) f._h.shift();
-    if (had) { f.x = ox; f.y = oy; }
-    f._seen = true;
+    if (e.s) applyFighter(f, e.s, own);
+    if (own && e.a !== undefined) N.authNew = true;
+    if (f._sx !== undefined) {
+      (f._h ??= []).push({ t: s.rt, x: f._sx, y: f._sy, a: f._aim ?? f.aim });
+      if (f._h.length > 16) f._h.shift();
+    }
   }
   for (const id of [...N.fighters.keys()]) if (!keep.includes(N.fighters.get(id))) N.fighters.delete(id);
   g.fighters = keep;
-  const me = keep.find((f) => f.peer === myId());
-  if (me && !N.watching) A.player = me;
-  else if (!keep.includes(A.player) || (N.watching && A.player === me && !me.alive)) A.player = keep.find((f) => !f.isDecoy) ?? keep[0] ?? A.player;
+  const mine = keep.find((f) => f.peer === me);
+  if (mine && !N.watching) A.player = mine;
+  else if (!keep.includes(A.player) || (N.watching && A.player === mine && !mine.alive)) A.player = keep.find((f) => !f.isDecoy) ?? keep[0] ?? A.player;
+  // our own fighter's hand: the host's caught up with everything we've done, so its word goes
+  if (mine && !N.watching && N.ack >= N.combatSeq) flushDeferred(mine);
   // the props
-  const props = [];
-  for (const e of s.p) {
-    let p = N.props.get(e.n);
-    if (!p) { p = new Prop(e.k, 0, 0); p.nid = e.n; N.props.set(e.n, p); }
-    assign(p, e.s);
-    props.push(p);
+  if (s.p || s.pd) {
+    for (const e of s.p ?? []) {
+      let p = N.props.get(e.n);
+      if (!p) { p = new Prop(e.k, 0, 0); p.nid = e.n; N.props.set(e.n, p); }
+      const dx = p.x, dy = p.y, seen = p._seen;
+      assign(p, e.s);
+      // (moved: eased there - see clientFrame)
+      p._tx = p.x; p._ty = p.y;
+      if (seen) { p.x = dx; p.y = dy; }
+      p._seen = true;
+    }
+    for (const n of s.pd ?? []) N.props.delete(n);
+    g.props = [...N.props.values()];
   }
-  for (const id of [...N.props.keys()]) if (!props.includes(N.props.get(id))) N.props.delete(id);
-  g.props = props;
-  // everything else
-  for (const [k, name] of LISTS) g[name] = rev(s.l[k]) ?? [];
-  for (const o of g.thrown) if (!o.img) o.img = o.kind === 'gun' ? A.iconOf(o.key) : MELEE[o.key]?.img;
-  // (others' shots and throws put back as far as the fighters are drawn behind, so they come out of the
-  // gun; our own not - our own fighter is drawn where it is now, and ours come out of ours)
-  const mine = (o) => !N.watching && (o.owner?.peer === myId() || o.owner?.owner?.peer === myId());
-  for (const list of [g.bullets, g.grenades, g.thrown, g.arrows]) for (const o of list) if (o && typeof o.vx === 'number' && !mine(o)) { o.x -= o.vx * delay(); o.y -= o.vy * delay(); }
-  // our own shots come in from the host already well on their way (a trip there and back after the click):
-  // the first time each is seen, how far out it is - it's drawn coming out of our gun and catching up
-  // to where it really is in a moment (see clientFrame). Where it really is, is what hits.
-  const self = N.watching ? null : g.fighters.find((f) => f.peer === myId()), now = performance.now() / 1000;
-  for (const b of g.bullets) {
-    if (!b || b.id === undefined || !self || b.owner !== self) continue;
-    if (!N.shots.has(b.id)) N.shots.set(b.id, { t0: null, ahead: 0, seen: now });   // (how far out: measured when it's first drawn - see clientFrame)
+  // what's lying about
+  for (const [uid, d] of s.pk ?? []) {
+    let p = N.pickups.get(uid);
+    if (!p) N.pickups.set(uid, (p = { uid, life: 30, bob: 0, beam: 0, ready: false, vx: 0, vy: 0 }));
+    assign(p, d);
   }
-  for (const [id, sh] of N.shots) if (now - sh.seen > 2) N.shots.delete(id);
-  [...s.la].forEach((c, i) => { const l = g.lights.lamps[i]; if (l) l.on = c === '1'; });
+  if (s.pl) {
+    const live = new Set(s.pl);
+    for (const uid of [...N.pickups.keys()]) if (!live.has(uid)) N.pickups.delete(uid);
+    g.pickups = s.pl.map((uid) => N.pickups.get(uid)).filter(Boolean);
+  }
+  // the shots: new ones, carried on by each screen from here (ours that we've fired already, not again);
+  // ended ones, how far they got
+  for (const [id, x, y, vx, vy, tr, owner, sq] of s.bs ?? []) {
+    const o = N.fighters.get(owner), ownShot = sq && o && o.peer === me && !N.watching && N.predicted.has(sq);
+    if (ownShot) continue;
+    N.shots.push({ id, x0: x, y0: y, vx, vy, speed: Math.hypot(vx, vy) || 1, rt0: s.rt, tr0: tr, owner: o, x, y, travelled: 0, end: Infinity, dead: false });
+  }
+  for (const [id, tr] of s.bd ?? []) { const b = N.shots.find((o) => o.id === id); if (b) b.end = tr; }
+  // the lists
+  if (s.l) for (const [k, name] of LISTS) if (k in s.l) {
+    const list = rev(s.l[k]) ?? [], trk = N.trk;
+    for (const o of list) {
+      if (!o) continue;
+      if (name === 'thrown' && !o.img) o.img = o.kind === 'gun' ? A.iconOf(o.key) : MELEE[o.key]?.img;
+      if (o.uid === undefined) continue;
+      const was = trk.get(o.uid);
+      if (was?.pix) o.pix = was.pix;
+      if (was?.burn) o.burn = was.burn;
+      o._hx = o.x; o._hy = o.y; o._rt = s.rt;
+      if (was) { o._px = was.x; o._py = was.y; }
+      trk.set(o.uid, o);
+    }
+    g[name] = list;
+  }
+  if (trackAge++ > 300) { trackAge = 0; const live = new Set(); for (const [, name] of LISTS) for (const o of g[name]) if (o?.uid !== undefined) live.add(o.uid); for (const uid of [...N.trk.keys()]) if (!live.has(uid)) N.trk.delete(uid); }
   g.time = s.t;
-  A.state = s.st;
-  A.stateT = s.sT;
-  A.round = s.rd;
-  A.roundT = s.rT;
-  A.overtime = s.ot;
-  A.slow = s.sl;
-  A.banner = rev(s.bn);
-  A.winner = rev(s.wi);
-  A.champion = rev(s.ch);
-  playEffects(s.fx);
+  // what's happened: shown as it comes to be drawn (ours at once), rather than before what's drawn gets there
+  if (s.ev || s.fx) N.later.push({ rt: s.rt, ev: s.ev, fx: s.fx });
 }
-
-// ---------- the game, each frame ----------
-
-// (the host) a player's controls: the held ones as they last were, a press kept till it's used
-function takeControl(peer) {
-  const c = N.ctl.get(peer);
-  if (!c) return A.IDLE;
-  if (performance.now() - c.at > CTL_STALE * 1000) c.held = {};   // (gone quiet: hands off, rather than run on as they were)
-  const out = { ...A.IDLE, ...c.held, ...c.pressed };
-  c.pressed = {};
-  return out;
+let trackAge = 0;
+function applyHeader(h) {
+  const g = A.game;
+  if ('rd' in h && h.rd !== A.round) {
+    // a new round: a clean level, nothing left over from the last
+    g.fx = new Fx(g.level);
+    g.lights = new Lights(g.level);
+    N.shots = [];
+    N.local = [];
+    N.later = [];
+    N.pickups.clear();
+    N.trk.clear();
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'demons', 'numbers', 'blasts', 'punches', 'fists', 'feed']) g[name] = [];
+  }
+  if ('st' in h) A.state = h.st;
+  if ('sT' in h) A.stateT = h.sT;
+  if ('rd' in h) A.round = h.rd;
+  if ('rT' in h) A.roundT = h.rT;
+  if ('ot' in h) A.overtime = h.ot;
+  if ('sl' in h) A.slow = h.sl;
+  if ('bn' in h) A.banner = rev(h.bn);
+  if ('wi' in h) A.winner = rev(h.wi);
+  if ('ch' in h) A.champion = rev(h.ch);
+  if ('la' in h) [...h.la].forEach((c, i) => { const l = g.lights.lamps[i]; if (l) l.on = c === '1'; });
 }
-// (the host) each other player's fighter, moved by their controls
-export function updateRemotes(dt, live) {
-  if (N.mode !== 'host') return;
-  for (const f of A.game.fighters) {
-    if (!f.peer || f.peer === myId() || f.isDecoy) continue;
-    const c = live && N.members.some((m) => m.id === f.peer) ? takeControl(f.peer) : A.IDLE;
-    if (c.pickup) f.pickupPressed = true;
-    f.update(dt, c);
-    f.pickupPressed = false;
-    // where they say they are (they move themselves at once, on their own screen - see predict):
-    // taken, carried on a touch for its age - unless it's far off (just respawned, say) or something
-    // else is moving them (a dash, the grapple line, a stab's lunge: those the host runs)
-    const e = N.ctl.get(f.peer), p = e?.pos, age = e ? (performance.now() - e.posAt) / 1000 : 9;
-    if (live && p && age < 0.3 && f.alive && !hostMoved(f)) {
-      const x = p[0] + p[2] * Math.min(age, 0.1);
-      if (Math.hypot(x - f.x, p[1] - f.y) < 100) {
-        f.x = x; f.y = p[1]; f.vx = p[2]; f.vy = p[3];
-        f.onGround = !!(p[4] & 1); f.onLadder = !!(p[4] & 2); f.crouch = !!(p[4] & 4); f.facing = p[5];
+function askResync() {
+  const now = performance.now();
+  if (now - (N.resyncAt ?? -9e9) < 1000) return;
+  N.resyncAt = now;
+  N.room?.send({ t: 'resync' }, N.room.hostId);
+}
+// What of a fighter is ours to say, when it's our own:
+// where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
+const AUTH_KEYS = ['coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
+// what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
+// waits till it's heard about everything we've done with them)
+const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
+const GUN_LOOKS = ['recoil', 'climb', 'flash', 'cycleT', 'heat', 'cooldown', 'acting', 'actDelay', 'spent', 'burstLeft', 'reloadQueued', 'drawT', 'cycle', 'spentIn'];
+const MELEE_LOOKS = ['side', 'move', 'step', 'hand', 'cooldown', 'drawT', 't', 'hits'];
+const skillBusy = (f) => !!(f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.lunge);
+function applyFighter(f, s, own) {
+  if (own) {
+    for (const k of AUTH_KEYS) if (k in s) { N.auth[k] = s[k] === null ? null : typeof s[k] === 'object' ? rev(s[k]) : s[k]; N.authNew = true; delete s[k]; }
+    if (s.hp !== undefined && s.hp < f.hp && f.alive) A.renderer.kick((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 4);   // (hit: the screen feels it)
+    if (!skillBusy(f)) {
+      // a slash from a skill (the grapple's spin) we don't do ourselves; the rest we have
+      if (s.slashes) { for (const sl of s.slashes) if (sl?.spin && !f.slashes.some((o) => o.spin)) f.slashes.push(rev(sl)); delete s.slashes; }
+      const d = N.deferred;
+      for (const k of HAND_KEYS) {
+        if (!(k in s)) continue;
+        const v = s[k];
+        // (a gun's or a swing's looks are ours already, from the shots we've fired: only the rest of it is the host's)
+        if (v?.$w) for (const l of GUN_LOOKS) delete v.s[l];
+        if (v?.$m) for (const l of MELEE_LOOKS) delete v.s[l];
+        const was = d[k];
+        if (v && was && (was.$w === v.$w && was.$w || was.$m === v.$m && was.$m)) Object.assign(was.s, v.s);
+        else d[k] = v;
+        delete s[k];
       }
     }
   }
+  if (s.roll) s.roll.trail = f.roll?.trail ?? [];
+  assign(f, s);
 }
-// Something other than its own feet moving a fighter (run by the host, not predicted)
-const hostMoved = (f) => !!(f.blaze || f.hook || f.lunge || f.mura || f.gal || f.summon || (f.bow && !f.bow.fired) || f.cloak?.rollStab);
-// (the host) the state of the game out to everyone, twenty times a second
+function flushDeferred(f) {
+  const d = N.deferred;
+  if (!Object.keys(d).length) return;
+  N.deferred = {};
+  // (not the reload's progress, while ours is running on ahead of the host's: only if it's over)
+  const g = d.gun, w = f.gun;
+  if (g?.$w && w && w.def.key === g.$w && w.reloading && g.s.reload >= 0) delete g.s.reload;
+  assign(f, d);
+}
+
+// ---------- the host's side ----------
+
+// Where a fighter was, this long ago (the host keeps a note of it, every frame). A player's shot is
+// judged against where they saw everyone when they fired: they send what time it was on the host, as
+// far as what they were looking at goes, and it's tested as if the others were still there then.
+// (Not if they've jumped since - a respawn; and only so far back.)
+function pastOf(f, ago) {
+  const h = f._past;
+  if (!h?.length) return null;
+  const t = performance.now() / 1000 - ago;
+  for (let i = h.length - 1; i > 0; i--) {
+    const a = h[i - 1], b = h[i];
+    if (a.t > t) continue;
+    if (Math.hypot(b.x - a.x, b.y - a.y) > 60) return null;
+    const k = b.t > a.t ? Math.min(1, (t - a.t) / (b.t - a.t)) : 1;
+    return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+  }
+  return null;
+}
+function notePositions() {
+  const now = performance.now() / 1000;
+  for (const f of A.game.fighters) {
+    const h = (f._past ??= []);
+    h.push({ t: now, x: f.x, y: f.y });
+    while (h.length > 2 && h[0].t < now - 0.5) h.shift();
+  }
+}
+
+// A command, as it goes over the wire: its number, the keys held as bits, the aim, what's aimed at.
+const BITS = ['up', 'down', 'jump', 'jumpHeld', 'fire', 'reload', 'sprint', 'roll', 'melee', 'meleeHeld', 'skill', 'crouch', 'drop', 'throwWeapon', 'pickup', 'grenade'];
+const PRESSES = ['jump', 'reload', 'roll', 'melee', 'skill', 'drop', 'throwWeapon', 'pickup', 'grenade'];
+function encodeCmd(c) {
+  let b = (Math.sign(c.move || 0) + 1) << 16;
+  BITS.forEach((k, i) => { if (c[k]) b |= 1 << i; });
+  const out = [c.seq, b, c.aim === null || c.aim === undefined ? null : Math.round(c.aim * 1000), c.target ? Math.round(c.target.x) : null, c.target ? Math.round(c.target.y) : null];
+  if (c.slot || c.cycle) out.push(c.slot || 0, c.cycle || 0);
+  return out;
+}
+// (the host) what came in, as a command - nothing in it taken on trust
+function decodeCmd(r) {
+  if (!Array.isArray(r) || !Number.isInteger(r[0]) || !Number.isInteger(r[1])) return null;
+  const b = r[1], c = { seq: r[0], move: ((b >> 16) & 3) - 1 };
+  BITS.forEach((k, i) => { c[k] = !!(b & (1 << i)); });
+  c.aim = Number.isFinite(r[2]) ? r[2] / 1000 : null;
+  c.target = Number.isFinite(r[3]) && Number.isFinite(r[4]) ? { x: r[3], y: r[4] } : null;
+  c.slot = r[5] === 1 || r[5] === 2 || r[5] === 3 ? r[5] : 0;
+  c.cycle = r[6] === 1 || r[6] === -1 ? r[6] : 0;
+  return c;
+}
+function ctlOf(peer) {
+  let e = N.ctl.get(peer);
+  if (!e) N.ctl.set(peer, (e = { q: [], last: 0, ack: 0, bank: 0.1, pace: 0, at: 0, rewind: 0 }));
+  return e;
+}
+// (the host) each other player's fighter, moved by their commands, one at a time - evenly, however they
+// came in. Their time is real time: a burst after a hold-up gets through quicker, but no more than
+// they've been held up (the bank), so nobody can run faster by sending more.
+export function updateRemotes(dt, live) {
+  if (N.mode !== 'host') return;
+  const real = dt / (A.slow || 1), now = performance.now();
+  for (const f of A.game.fighters) {
+    if (!f.peer || f.peer === myId() || f.isDecoy) continue;
+    const e = N.ctl.get(f.peer), m = N.members.find((x) => x.id === f.peer), on = live && m && !m.away;
+    if (!e) { f.update(dt, A.IDLE); continue; }
+    if (!f.alive || !on) {
+      if (e.q.length) { e.ack = e.q.at(-1).seq; e.q.length = 0; }
+      f.update(dt, A.IDLE);
+      continue;
+    }
+    e.bank = Math.min(0.3, e.bank + real);
+    e.pace = Math.min(STEP * 3, e.pace + real * (e.q.length > 4 ? 2 : e.q.length > 2 ? 1.25 : 1));
+    fxBy = nidOf(f);
+    f.rewind = e.rewind;
+    let ran = 0;
+    while (e.q.length && e.pace >= STEP * 0.999 && e.bank >= STEP * 0.999 && f.alive) {
+      const c = e.q.shift();
+      e.pace -= STEP;
+      e.bank -= STEP;
+      e.ack = c.seq;
+      if (c.pickup) f.pickupPressed = true;
+      f.shotSeed = c.seq;
+      f.update(STEP * A.slow, c);
+      ran++;
+    }
+    if (!e.q.length) e.pace = Math.min(e.pace, STEP);
+    // gone quiet: hands off, rather than hang in the air as they were
+    if (!ran && !e.q.length && now - e.at > CTL_STALE * 1000) f.update(dt, A.IDLE);
+    fxBy = 0;
+  }
+}
+// (the host) the state of the game out to everyone
 export function hostFrame(dt) {
   if (N.mode !== 'host' || !N.playing || !N.room) return;
   noted ??= [];
-  if ((N.sendT -= dt) > 0) return;
-  N.sendT = Math.max(0, N.sendT + SNAP_EVERY);   // (what's over carries on: 20 a second whatever the step)
+  notePositions();
+  // seats held for players who've dropped out: only so long
+  for (const m of [...N.members]) if (m.away && performance.now() - m.away > SEAT_HOLD * 1000) dropMember(m);
+  N.sendT -= dt;
+  // (not a burst of them, catching up after a hold-up here: only the latest's any use)
+  const clock = performance.now();
+  if (N.sendT > 0 || clock - (N.sentAt ?? -1e9) < snapEvery() * 700) return;
+  N.sentAt = clock;
+  N.sendT = Math.max(0, N.sendT + snapEvery());   // (what's over carries on: so many a second whatever the step)
+  if (A.round !== N.sentRound) { N.sentRound = A.round; N.liveShots.clear(); }
   const s = snapshot();
-  if (N.room.peers.size) N.room.snap.send(s);
-  if ((N.sizeN = (N.sizeN ?? 0) + 1) % 40 === 1) N.lastSize = JSON.stringify(s).length;
   noted = [];
+  if (!N.room.peers.size) return;
+  // (not to those who've gone back to the room: they aren't looking)
+  const out = N.members.filter((m) => m.out && m.id !== myId()).map((m) => m.id);
+  const to = out.length ? [...N.room.peers].filter((id) => !out.includes(id)) : null;
+  if (!to || to.length) N.room.snap.send(s, to ? { target: to } : undefined);
 }
-// (the others) a frame: the latest state put in, things carried on between states, our controls sent
+
+// ---------- the player's side ----------
+
+// (the others) a frame: what's come in put in, our fighter's commands run, everyone else eased along
 export function clientFrame(dt) {
   const g = A.game;
   if (N.snaps.length) { for (const s of N.snaps.splice(0)) applySnapshot(s); N.gotSnap = true; }
   if (!N.gotSnap) return;
   g.time += dt;
-  // everyone drawn where they were a moment ago by the host, eased between the two states either
-  // side of then - so they move smoothly however unevenly the states arrive; our own (not watching)
-  // straight toward the latest, quickly - it feels less behind our hands
-  const then = performance.now() / 1000 + (N.offset ?? 0) - delay();
+  // how far back to draw everyone: a state's gap, how much later than the best they've been lately, a hair.
+  // Longer quickly, shorter slowly (a change of pace nobody sees)
+  const want = Math.max(DELAY_MIN, Math.min(DELAY_MAX, N.gap + N.jit * 1.1 + 0.008));
+  if (N.delay === undefined) N.delay = want;
+  N.delay += Math.max(-dt * 0.06, Math.min(dt * 0.6, want - N.delay));
+  const hostNow = performance.now() / 1000 + (N.offset ?? 0), then = hostNow - N.delay;
+  N.then = then;
+  // what's happened, as it comes to be drawn
+  while (N.later.length && N.later[0].rt <= then) {
+    const { ev, fx } = N.later.shift();
+    if (ev) playOnce(ev);
+    if (fx) playEffects(fx);
+  }
   const live = A.state === 'fight' || A.state === 'end';
-  const c = live && !N.menu && !N.watching ? A.playerControl() : A.IDLE;
-  const mine = N.watching ? null : g.fighters.find((f) => f.peer === myId());
-  const predicted = mine && live && predict(mine, c, dt);
-  for (const f of g.fighters) {
-    f.coast(dt, f !== predicted);
-    if (f !== predicted && f._aim !== undefined) f.aim += Math.atan2(Math.sin(f._aim - f.aim), Math.cos(f._aim - f.aim)) * Math.min(1, dt * 18);
+  const self = N.watching ? null : g.fighters.find((f) => f.peer === myId());
+  const predicting = !!self && live && self.alive;
+  if (predicting) runOwn(self, dt);
+  else if (self) {
+    // (out of the fight, or not started: where the host says, no commands to run)
+    N.pending.length = 0;
+    N.prev = null;
+    N.err.x = N.err.y = 0;
+    if (N.ghost) N.ghost.synced = false;
+    for (const k of ['vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing']) if (N.auth[k] !== undefined) self[k] = N.auth[k];
+    self.roll = N.auth.roll ? { ...N.auth.roll, trail: self.roll?.trail ?? [] } : null;
+    N.authNew = false;
   }
   for (const f of g.fighters) {
+    const mine = predicting && f === self;
+    f.coast(dt, !mine, !(mine && !skillBusy(f)));
+    if (mine) continue;
     const h = f._h;
-    if (!h?.length || f === predicted) continue;
-    if (f.peer === myId() && !N.watching) {
-      const k = Math.min(1, dt * 30), far = Math.hypot(f._sx - f.x, f._sy - f.y) > 60;
-      f.x = far ? f._sx : f.x + (f._sx - f.x) * k;
-      f.y = far ? f._sy : f.y + (f._sy - f.y) * k;
-      continue;
-    }
+    if (!h?.length) continue;
+    // drawn where it was at `then`, eased between the two states either side
     let a = h[0], b = h[h.length - 1];
     for (let i = h.length - 1; i > 0; i--) if (h[i - 1].t <= then) { a = h[i - 1]; b = h[i]; break; }
-    let x = b.x, y = b.y;
-    if (then <= h[0].t) { x = h[0].x; y = h[0].y; }
+    let x = b.x, y = b.y, aim = b.a;
+    if (then <= h[0].t) { x = h[0].x; y = h[0].y; aim = h[0].a; }
     else if (then > b.t && h.length > 1) {
       // past the newest (a state late): on the way it was going, a little, rather than stop dead
-      const p = h[h.length - 2], span = b.t - p.t, ahead = Math.min(then - b.t, 0.12);
+      const p = h[h.length - 2], span = b.t - p.t, ahead = Math.min(then - b.t, 0.1);
       if (span > 0.005 && Math.hypot(b.x - p.x, b.y - p.y) < 60) { x = b.x + ((b.x - p.x) / span) * ahead; y = b.y + ((b.y - p.y) / span) * ahead; }
-    }
-    else if (then < b.t && b.t > a.t && Math.hypot(b.x - a.x, b.y - a.y) < 60) {   // (further apart than that: a respawn, a teleport - no gliding across)
+    } else if (then < b.t && b.t > a.t && Math.hypot(b.x - a.x, b.y - a.y) < 60) {   // (further apart than that: a respawn, a teleport - no gliding across)
       const k = (then - a.t) / (b.t - a.t);
       x = a.x + (b.x - a.x) * k;
       y = a.y + (b.y - a.y) * k;
+      aim = a.a + Math.atan2(Math.sin(b.a - a.a), Math.cos(b.a - a.a)) * k;
     }
     f.x = x;
     f.y = y;
+    f.aim = aim;
   }
-  for (const list of [g.bullets, g.grenades, g.thrown, g.arrows]) for (const o of list) if (o && typeof o.vx === 'number') {
-    o._tx = (o._tx ?? o.x) + o.vx * dt;
-    o._ty = (o._ty ?? o.y) + o.vy * dt;
-    // our own shot, just fired: drawn back toward the gun, the gap closing over 0.12 s
-    const sh = o.id !== undefined && N.shots.get(o.id), v = Math.hypot(o.vx, o.vy) || 1;
-    if (sh && sh.t0 === null) {
-      const self = g.fighters.find((f) => f.peer === myId());
-      sh.t0 = performance.now() / 1000;
-      sh.ahead = self ? Math.max(0, Math.min(180, ((o._tx - self.x) * o.vx + (o._ty - (self.y - 14)) * o.vy) / v - 6)) : 0;
-    }
-    const k = sh ? Math.max(0, 1 - (performance.now() / 1000 - sh.t0) / 0.12) : 0;
-    o.x = o._tx - (o.vx / v) * (sh ? sh.ahead * k : 0);
-    o.y = o._ty - (o.vy / v) * (sh ? sh.ahead * k : 0);
+  carryShots(dt, then, self);
+  carryThings(dt, then, hostNow, self);
+  for (const p of g.props) if (p._tx !== undefined && (p.x !== p._tx || p.y !== p._ty)) {
+    if (Math.hypot(p._tx - p.x, p._ty - p.y) > 60 || Math.abs(p._tx - p.x) + Math.abs(p._ty - p.y) < 0.05) { p.x = p._tx; p.y = p._ty; }
+    else { const k = Math.min(1, dt * 22); p.x += (p._tx - p.x) * k; p.y += (p._ty - p.y) * k; }
   }
-  for (const list of [g.fists, g.galaxies, g.punches, g.blasts, g.numbers]) for (const o of list) if (o && typeof o.t === 'number') o.t += dt;
+  for (const p of g.props) p.flash -= dt;
+  for (const p of g.pickups) { p.life -= dt; p.bob += dt; p.beam -= dt; p.ready = p.beam <= 0; }
+  for (const o of g.galaxies) if (typeof o?.t === 'number') o.t += dt;
+  for (const name in LIFE) {
+    for (const o of g[name]) o.t += dt;
+    g[name] = g[name].filter((o) => o.t < LIFE[name]);
+  }
+  g.feed = g.feed.filter((k) => k.t > 0);
   g.fx.update(dt);
   g.lights.update(dt);
-  if (A.banner) A.banner.t -= dt;
+  if (A.banner) { A.banner.t -= dt; if (A.banner.t <= 0) A.banner = null; }
   if (N.watching) {
     const f = A.player;
     N.deadT = f && !f.alive && !(f.respawnT > 0) ? N.deadT + dt : 0;
     if (N.deadT > 1.5) { N.deadT = 0; watchNext(1); }
     return;
   }
-  // our controls to the host: a press kept till it's sent; sent the moment anything changes, and 30 times a second anyway
-  // (with where we are, while we're moving ourselves)
-  const out = { ...c, target: c.target ? { x: Math.round(c.target.x), y: Math.round(c.target.y) } : null, aim: c.aim === null || c.aim === undefined ? null : Math.round(c.aim * 100) / 100 };
-  const gh = predicted ? N.ghost : null;
-  out.p = gh ? [Math.round(gh.x * 10) / 10, Math.round(gh.y * 10) / 10, Math.round(gh.vx), Math.round(gh.vy), (gh.onGround ? 1 : 0) | (gh.onLadder ? 2 : 0) | (gh.crouch ? 4 : 0), gh.facing] : null;
-  for (const k of PRESSED) if (out[k]) N.pend[k] = true;
-  if (out.slot) N.pend.slot = out.slot;
-  if (out.cycle) N.pend.cycle = out.cycle;
-  const held = JSON.stringify({ ...out, ...Object.fromEntries(PRESSED.map((k) => [k, false])), slot: 0, cycle: 0, p: null });
-  N.ctlT -= dt;
-  if (N.room && (held !== N.lastCtl || Object.keys(N.pend).length || N.ctlT <= 0)) {
-    N.room.ctl.send({ ...out, ...N.pend }, { target: N.room.hostId });
-    N.lastCtl = held;
-    N.pend = {};
-    N.ctlT = CTL_EVERY;
+  sendCommands(dt, then);
+}
+// happenings sent the once, added to their lists
+function playOnce(ev) {
+  const g = A.game;
+  for (const [k, name] of ONCE) if (ev[k]) g[name].push(...rev(ev[k]).filter(Boolean));
+  if (g.feed.length > 5) g.feed.splice(0, g.feed.length - 5);
+}
+// The shots: those from the host, carried on from where it said, a straight line at the time we're drawing
+// (hidden till then, so they come out of the gun as it's drawn firing, and stopped as far as they got);
+// our own, fired here at once and flying through the level as we have it.
+function carryShots(dt, then, self) {
+  const g = A.game, out = [];
+  for (const b of N.shots) {
+    const d = b.tr0 + b.speed * (then - b.rt0);
+    if (d >= b.end || d > 3000) { b.dead = true; continue; }
+    if (d < 0) continue;
+    const go = d - b.tr0;
+    b.x = b.x0 + (b.vx / b.speed) * go;
+    b.y = b.y0 + (b.vy / b.speed) * go;
+    b.travelled = d;
+    out.push(b);
+  }
+  N.shots = N.shots.filter((b) => !b.dead);
+  for (const b of N.local) stepShot(b, dt, self);
+  N.local = N.local.filter((b) => !b.dead);
+  g.bullets = out.concat(N.local);
+}
+function stepShot(b, dt) {
+  const g = A.game, L = g.level, dist = b.speed * dt, n = Math.ceil(dist / 3), ux = b.vx / b.speed, uy = b.vy / b.speed;
+  for (let i = 0; i < n && !b.dead; i++) {
+    b.x += (b.vx * dt) / n;
+    b.y += (b.vy * dt) / n;
+    b.left -= dist / n;
+    b.travelled += dist / n;
+    if (b.left <= 0) { b.dead = true; break; }
+    if (L.solidAt(b.x, b.y)) { b.dead = true; g.fx.impact(b.x - ux * 2, b.y - uy * 2, -ux, -uy); g.lights.flash(b.x, b.y, 18, '255, 210, 150', 0.05); break; }
+    if (g.props.some((p) => !p.dead && p.contains(b.x, b.y))) { b.dead = true; g.fx.impact(b.x - ux * 2, b.y - uy * 2, -ux, -uy); break; }
+    for (const o of g.fighters) {
+      if (o === b.owner || !o.alive || b.done.has(o) || !g.foes(b.owner, o) || !o.hitPart(b.x, b.y)) continue;
+      b.done.add(o);
+      if (o.shield > 0) { g.fx.sparks(b.x, b.y, 4, -ux, -uy, '#8ff0ff'); b.dead = true; break; }
+      g.fx.blood(b.x, b.y, 3, ux, uy);   // (a touch at once; the host's own blood comes with its word on it)
+      if (b.pierce > 0) b.pierce--;
+      else { b.dead = true; break; }
+    }
+  }
+}
+// Grenades, things thrown, arrows, orbs: from the host's last word on where each was and how it was going, on to
+// the time we're drawing (ours to now), and eased to there so a new word doesn't jump.
+const FALLS = { grenades: 700, thrown: 800 };
+function carryThings(dt, then, hostNow, self) {
+  const g = A.game, k = Math.min(1, dt * 30);
+  for (const name of ['grenades', 'thrown', 'arrows', 'voids']) for (const o of g[name]) {
+    if (!o || o._hx === undefined) continue;
+    const vx = o.vx ?? (o.sp !== undefined && o.done < 0 ? Math.cos(o.a) * o.sp : 0), vy = o.vy ?? (o.sp !== undefined && o.done < 0 ? Math.sin(o.a) * o.sp : 0);
+    if (typeof o.t === 'number' && name === 'arrows') o.t += dt;
+    const ours = self && (o.owner === self || o.owner?.owner === self), age = (ours ? hostNow : then) - o._rt;
+    const tx = o._hx + vx * age, ty = o._hy + vy * age + 0.5 * (FALLS[name] ?? 0) * Math.max(0, age) * age;
+    if (o._px === undefined || Math.hypot(tx - o._px, ty - o._py) > 50) { o.x = tx; o.y = ty; }
+    else { o.x = o._px + (tx - o._px) * k; o.y = o._py + (ty - o._py) * k; }
+    o._px = o.x;
+    o._py = o.y;
   }
 }
 
-// Our own fighter, moved here at once - not after our controls have been to the host and back (the
-// host's own moves are instant on its screen; this makes ours the same). A stand-in of it runs just
-// the movement - walking, running, jumping, ladders, dropping through, crouching, rolling - in the
-// level as we have it, and our fighter is drawn where it is; where it is goes to the host with our
-// controls, and the host takes it. Everything else - shots, hits, health, what's in hand, the skills -
-// is still the host's. Back in step with the host: on a hit's knock, and whenever the host moves us
-// itself (a respawn; a dash, the grapple line, a stab's lunge - those it runs) or we're far apart.
-const MOVE_KEYS = ['move', 'up', 'down', 'jump', 'jumpHeld', 'sprint', 'roll', 'crouch', 'drop', 'aim', 'target'];
+// Our own fighter, ours at once. The stand-in runs its movement - exactly as the host will, from the same commands
+// at the same step - and the fighter runs what's in its hand, in a game of its own where shots are only shown
+// and hits don't count. Drawn between the stand-in's last two steps, at this frame's moment.
+const MOVE_COPY = ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'roll', 'pose', 'sq', 'sqV', 'settle', 'state', 'animT', 'frame', 'climbT', 'sprinting', 'stamina', 'winded', 'boostT', 'rollCool'];
+const GHOST_LOOKS = ['animT', 'frame', 'state', 'sq', 'sqV', 'settle', 'climbT', 'blinkIn', 'blinkLeft', 'pose', 'flash', 'hurtT', 'grenadeCD', 'lastFireT'];
 function makeGhost(f) {
-  const game = Object.create(A.game);   // the level and the props, as we have them - but no effects of its own
-  game.fx = new Proxy({}, { get: () => () => {} });
-  game.lights = new Proxy({}, { get: () => () => {} });
+  const game = Object.create(A.game);   // the level and the props, as we have them
+  const quiet = new Proxy({}, { get: () => () => {} });
+  Object.defineProperty(game, 'fx', { get: () => (N.replaying ? quiet : A.game.fx) });
+  Object.defineProperty(game, 'lights', { get: () => (N.replaying ? quiet : A.game.lights) });
   game.kick = () => {};
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.skill = null;
   gh.updateCombat = () => {};   // (moves only)
+  gh.blazeStep = () => {};      // (the flame fist's blows are the host's)
+  gh.die = () => {};            // (nor is it for us to say we're dead)
   Object.defineProperty(gh, 'held', { get: () => f.held });     // what's in hand slows it as it does ours
+  Object.defineProperty(gh, 'melee', { get: () => f.melee, set() {} });
+  Object.defineProperty(gh, 'slot', { get: () => f.slot, set() {} });
   Object.defineProperty(gh, 'hidden', { get: () => f.hidden });   // and the cloak
   return gh;
 }
-function syncGhost(gh, f) {
-  Object.assign(gh, {
-    x: f._sx ?? f.x, y: f._sy ?? f.y, vx: f.vx, vy: f.vy, onGround: f.onGround, onLadder: f.onLadder, crouch: f.crouch, facing: f.facing,
-    roll: null, airJumps: f.airJumps ?? 1, coyote: 0, jumpBuf: 0, dropT: 0, alive: true, hp: gh.maxHp,
-  });
+function makeHandGame() {
+  const game = Object.create(A.game);
+  // the effects are real (we want to see them) but a gun flung away empty's the host's to show
+  Object.defineProperty(game, 'fx', { get: () => new Proxy(A.game.fx, { get: (t, k) => (k === 'thrownGun' ? () => {} : typeof t[k] === 'function' ? t[k].bind(t) : t[k]) }) });
+  game.meleeHit = game.throwWeapon = game.throwGrenade = game.disarm = () => {};
+  game.fireBullet = localShot;
+  return game;
 }
-function predict(f, c, dt) {
-  if (!f.alive || hostMoved(f) || f.beamT !== undefined && f.beamT < 0.3) { N.ghost?.synced && (N.ghost.synced = false); return null; }
-  const gh = (N.ghost ??= makeGhost(f));
-  if (!gh.synced || Math.hypot((f._sx ?? f.x) - gh.x, (f._sy ?? f.y) - gh.y) > 100) { syncGhost(gh, f); gh.synced = true; }
-  if (N.knock) { gh.vx = N.knock.vx; gh.vy = N.knock.vy; if (gh.vy < 0) gh.onGround = false; N.knock = null; }
-  gh.stamina = f.stamina;
-  gh.winded = f.winded;
-  gh.boostT = f.boostT;
-  gh.slot = f.slot;
-  const mc = { ...A.IDLE };
-  for (const k of MOVE_KEYS) mc[k] = c[k];
-  gh.update(dt, mc);
-  // our gun, at once: a shot (kick, flash, the round gone - the host fires the real one and sends it),
-  // a reload started. (The host's copies of these come a trip later, and aren't taken: see applySnapshot.)
-  const w = f.slot === 1 ? null : f.weapon;
-  if (w && f.alive) {
-    // (the host's word on these waits a trip there and back - and a bit)
-    const hold = performance.now() / 1000 + Math.max(0.2, Math.min(0.6, ((N.room?.ping ?? 60) * 2) / 1000 + 0.15));
-    if (c.reload && w.startReload() !== false) N.reloadHold = hold;
-    const pull = c.fire && !f.onLadder && !f.roll && (((w.def.auto && !w.def.burst) || !N.trigger) || w.burstLeft > 0);
-    if (pull) {
-      const r = w.tryFire();
-      if (r === 'fired') N.gunHold = hold;
-      else if (r === 'empty' && w.reloading) N.reloadHold = hold;
-    }
+let handGame = null;
+// A shot of ours, shown at once: where it goes is worked out as the host will, from the same numbers.
+function localShot(f, x, y, a, speed, dmg, range, pierce) {
+  const s = f.shoulder;
+  if (!A.game.los(s.x, s.y, x, y)) { A.game.fx.sparks(x, y, 3, -Math.cos(a), -Math.sin(a)); return; }
+  N.predicted.add(f.shotSeed);
+  if (N.predicted.size > 400) N.predicted = new Set([...N.predicted].slice(-200));
+  N.local.push({ local: true, x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, left: range, travelled: 0, pierce, done: new Set(), dead: false });
+}
+// the stand-in put where the host says we were, at the last command it's run - and the same state of feet and skills
+function loadAuth(gh, f) {
+  const a = N.auth;
+  for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT']) if (a[k] !== undefined) gh[k] = a[k];
+  gh.roll = a.roll ? { ...a.roll, trail: gh.roll?.trail ?? [] } : null;
+  gh.hook = f.hook?.state === 'on' ? { ...f.hook } : null;
+  gh.lunge = f.lunge ? { ...f.lunge } : null;
+  for (const k of ['blaze', 'bow', 'mura', 'gal', 'summon']) gh[k] = f[k] ?? null;
+  gh.alive = true;
+}
+function reconcile(gh, f) {
+  if (!N.authNew) return;
+  N.authNew = false;
+  if (N.auth.x === undefined) return;
+  const ox = gh.x, oy = gh.y, keep = {};
+  for (const k of GHOST_LOOKS) keep[k] = gh[k];
+  loadAuth(gh, f);
+  while (N.pending.length && N.pending[0].seq <= N.ack) N.pending.shift();
+  N.replaying = true;
+  for (const c of N.pending) {
+    gh.update(c.dt, c);
+    if (c.kx || c.ky) { gh.vx += c.kx; gh.vy += c.ky; }
   }
-  N.trigger = !!c.fire;
-  // drawn where the stand-in is, as it is
-  for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'roll', 'pose', 'sq', 'sqV', 'settle', 'state', 'animT', 'frame', 'climbT', 'sprinting', 'tilt']) f[k] = gh[k];
+  N.replaying = false;
+  for (const k of GHOST_LOOKS) gh[k] = keep[k];
+  // the difference, eased away (a long way off: a respawn, say - there at once)
+  const dx = ox - gh.x, dy = oy - gh.y;
+  if (!gh.synced || Math.hypot(dx + N.err.x, dy + N.err.y) > 72) { N.err.x = N.err.y = 0; N.prev = null; }
+  else {
+    N.err.x += dx; N.err.y += dy;
+    if (N.prev) { N.prev.x -= dx; N.prev.y -= dy; }
+    N.stats.fix = Math.max(N.stats.fix ?? 0, Math.hypot(dx, dy));
+  }
+  gh.synced = true;
+}
+const NO_PRESS = { ...Object.fromEntries(PRESSES.map((k) => [k, false])), slot: 0, cycle: 0 };
+function runOwn(f, dt) {
+  const gh = (N.ghost ??= makeGhost(f));
+  reconcile(gh, f);
+  if (!gh.synced) { if (f._sx === undefined) return; gh.x = f._sx; gh.y = f._sy; gh.synced = true; }
+  // the controls this frame: a press is kept till a step's had it
+  const c = !N.menu ? A.playerControl() : A.IDLE;
+  for (const k of PRESSES) if (c[k]) N.latch[k] = true;
+  if (c.fire) N.latch.fire = true;
+  if (c.slot) N.latch.slot = c.slot;
+  if (c.cycle) N.latch.cycle = c.cycle;
   if (c.aim !== null && c.aim !== undefined) f.aim = c.aim;
-  return f;
+  f.aimTarget = c.target ?? null;
+  N.acc = Math.min(N.acc + dt, STEP * 12);
+  while (N.acc >= STEP) {
+    N.acc -= STEP;
+    const cmd = { ...c, ...NO_PRESS, ...N.latch, seq: ++N.seq, dt: STEP * A.slow, kx: 0, ky: 0 };
+    N.latch = {};
+    stepOwn(gh, f, cmd);
+    if (N.pending.length < MAX_PENDING) N.pending.push(cmd);
+    N.out_.push(encodeCmd(cmd));
+    if (PRESSES.some((k) => cmd[k]) || cmd.slot || cmd.cycle || (cmd.fire && !N.lastFire)) N.urgent = true;
+    N.lastFire = !!cmd.fire;
+  }
+  // drawn at this frame's moment, between the last two steps, with what's left of any difference
+  const k = N.prev ? N.acc / STEP : 1, damp = Math.exp(-14 * dt);
+  N.err.x *= damp;
+  N.err.y *= damp;
+  f.x = (N.prev ? N.prev.x + (gh.x - N.prev.x) * k : gh.x) + N.err.x;
+  f.y = (N.prev ? N.prev.y + (gh.y - N.prev.y) * k : gh.y) + N.err.y;
+  f.vx = gh.vx;
+  f.vy = gh.vy;
+}
+function stepOwn(gh, f, cmd) {
+  N.prev = { x: gh.x, y: gh.y };
+  gh.update(cmd.dt, cmd);
+  for (const k of MOVE_COPY) f[k] = gh[k];
+  if (skillBusy(f)) { flushDeferred(f); return; }   // (hands full: all that's the host's)
+  // what's in hand, here and now
+  handGame ??= makeHandGame();
+  const w = f.gun, was = { slot: f.slot, quick: f.quick, gun: w, ammo: w?.ammo, reload: w?.reloading, swing: f.melee.t >= 0, nades: f.grenades, melee: f.melee };
+  const px = f.vx, py = f.vy, real = f.game;
+  f.game = handGame;
+  f.shotSeed = cmd.seq;
+  f.grenadeCD -= cmd.dt;
+  try { f.updateCombat(cmd.dt, cmd); } finally { f.game = real; }
+  cmd.kx = f.vx - px;
+  cmd.ky = f.vy - py;
+  gh.vx += cmd.kx;
+  gh.vy += cmd.ky;
+  if (was.slot !== f.slot || was.quick !== f.quick || was.gun !== f.gun || was.ammo !== f.gun?.ammo || was.reload !== f.gun?.reloading || was.swing !== f.melee.t >= 0 || was.nades !== f.grenades || was.melee !== f.melee) N.combatSeq = cmd.seq;
+}
+// Our commands to the host: every so often, and at once for a press - it's been down since a step ago, and every
+// moment it spends waiting here is a moment later it's done there.
+function sendCommands(dt, then) {
+  N.ctlT -= dt;
+  N.ctlAgo += dt;
+  if (!N.room || !N.out_.length || !(N.ctlT <= 0 || (N.urgent && N.ctlAgo >= STEP))) return;
+  N.room.ctl.send({ c: N.out_, v: Math.round(then * 1000) }, { target: N.room.hostId });
+  N.out_ = [];
+  N.urgent = false;
+  N.ctlT = ctlEvery();
+  N.ctlAgo = 0;
+}
+// A fresh start for our end of a match
+function resetOwn() {
+  N.ack = 0;   // (the numbering carries on: commands still on their way from before aren't mistaken for these)
+  N.pending = [];
+  N.out_ = [];
+  N.latch = {};
+  N.acc = 0;
+  N.ghost = null;
+  N.auth = {};
+  N.authNew = false;
+  N.err = { x: 0, y: 0 };
+  N.prev = null;
+  N.combatSeq = 0;
+  N.deferred = {};
+  N.shots = [];
+  N.local = [];
+  N.predicted = new Set();
+  N.later = [];
+  N.pickups = new Map();
+  N.trk = new Map();
+  N.delay = undefined;
+  N.offset = undefined;
+  N.lastRt = undefined;
+  N.jit = 0;
+}
+// What a screen that was only drawing the game has in the air: it isn't the real thing, and can't be run as if it was
+function clearAir() {
+  const g = A.game;
+  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'demons', 'blasts', 'punches', 'fists', 'numbers']) g[name] = [];
+  N.shots = [];
+  N.local = [];
+  N.later = [];
+}
+// (the host) everything goes out whole next time
+function sendAllAgain() {
+  N.sent = new WeakMap();
+  N.listSent = {};
+  N.hdrSent = {};
+  N.propLive = new Set();
+  N.pkSent = null;
+  for (const f of A.game.fighters) { f._kSent = undefined; f._ackSent = undefined; f._decoySent = undefined; }
 }
 
 // ---------- rooms ----------
@@ -490,7 +975,7 @@ function lobbyAd() {
   return { name: N.roomName, mode: A.settings.mode, map: A.settings.map, n: seated().length, max: roomSize(), w: watchers().length, playing: N.playing, made: N.made, lock: !!N.pass, rid: N.room?.rid };
 }
 function roomState() {
-  return { t: 'room', name: N.roomName, members: N.members, slots: N.slots, settings: { ...A.settings }, playing: N.playing, lock: !!N.pass, host: myId() };
+  return { t: 'room', name: N.roomName, members: N.members, slots: N.slots, settings: { ...A.settings }, playing: N.playing, lock: !!N.pass, host: myId(), made: N.made };
 }
 // (the host) a player into slot i (if it's open), out of the one they were in
 function moveTo(id, i) {
@@ -533,7 +1018,8 @@ function handOver(id) {
   const m = N.members.find((x) => x.id === id);
   if (!m || id === myId() || N.playing) return;
   for (const x of N.members) x.ready = x.id === id;
-  N.room.send({ t: 'host', to: id, st: { ...roomState(), pass: N.pass, made: N.made } });
+  N.room.send({ t: 'pass', pass: N.pass }, id);   // (for them alone: nobody else needs to see it)
+  N.room.send({ t: 'host', to: id, st: roomState() });
   N.lobby?.advertise(null);
   N.room.hostId = id;
   N.mode = 'client';
@@ -550,11 +1036,19 @@ function takeOver(st) {
   N.roomName = st.name;
   N.members = st.members;
   N.slots = st.slots;
-  N.pass = st.pass ?? '';
+  N.pass = N.heirPass ?? '';
   N.made = st.made ?? Date.now();
   N.playing = false;
+  N.watching = false;
+  N.out = false;
+  N.menu = false;
   N.match = null;
   N.ctl = new Map();
+  N.heirSent = null;
+  noted = null;
+  clearAir();
+  A.state = 'net-room';
+  A.banner = null;
   N.saved ??= { ...A.settings };
   Object.assign(A.settings, st.settings);
   for (const x of N.members) if (x.id === myId()) x.ready = true;
@@ -566,6 +1060,78 @@ function shareRoom() {
   if (N.mode !== 'host') return;
   N.room.send(roomState());
   N.lobby?.advertise(lobbyAd());
+  // whoever'd take over if we went: the room's password goes to them (and no one else)
+  const heir = N.members.find((m) => m.id !== myId()), note = heir ? `${heir.id}|${N.pass}` : null;
+  if (heir && note !== N.heirSent) N.room.send({ t: 'pass', pass: N.pass }, heir.id);
+  N.heirSent = note;
+}
+// (a player) the host's gone: the room carries on - the first of those left takes it over, as everyone can
+// work out for themselves. A match going on is over (the game was on the host's machine), but nobody's thrown out.
+function hostGone(id) {
+  const r = N.room, members = N.members.filter((m) => m.id !== id), heir = members.find((m) => m.id === myId() || r.peers.has(m.id));
+  if (!heir) { leaveRoom(true); say('THE HOST LEFT - THE ROOM IS GONE'); return; }
+  const slots = N.slots.map((x) => (x.k === 'p' && x.id === id ? { k: 'open', id: null } : x));
+  if (heir.id === myId()) {
+    takeOver({ name: N.roomName, members, slots, settings: N.hostSettings ?? { ...A.settings }, made: N.made });
+    return;
+  }
+  r.hostId = heir.id;
+  N.members = members;
+  N.slots = slots;
+  N.playing = false;
+  N.watching = false;
+  N.out = false;
+  N.menu = false;
+  N.snaps = [];
+  N.gotSnap = false;
+  A.state = 'net-room';
+  A.banner = null;
+  for (const x of members) if (x.id === myId()) x.ready = false;
+  say(`THE HOST LEFT - ${heir.name} IS THE HOST NOW`, 3);
+}
+// (the host) someone's really gone: their seat's free, and their fighter drops out of the game
+function dropMember(m) {
+  N.members = N.members.filter((x) => x !== m);
+  for (const x of N.slots) if (x.k === 'p' && x.id === m.id) { x.k = 'open'; x.id = null; }
+  N.ctl.delete(m.id);
+  if (N.playing) for (const f of A.game.fighters) if (f.peer === m.id) { f.lives = 0; f.respawnT = 0; if (f.alive) f.die(null, 'LEFT', 0, 0); }
+  say(`${m.name} LEFT`, 2);
+  shareRoom();
+}
+// The connection's dropped: try to get back in the room, as the same player, for a while. (The host keeps
+// a seat for a player a little while; if we were the host, whoever's taken over lets us in as a player.)
+function losingConnection() {
+  const room = N.room;
+  if (!room) return;
+  N.back = { rid: room.rid, server: N.server, t0: performance.now() };
+  room.c.room = null;
+  N.busy = 'LOST THE CONNECTION - GETTING BACK IN...';
+  N.room = null;
+  N.mode = N.mode === 'host' ? 'client' : N.mode;
+  N.match = null;
+  noted = null;
+  getBack(N.back);
+}
+async function getBack(b) {
+  while (N.back === b && performance.now() - b.t0 < 25000) {
+    try {
+      const r = await GameRoom.open(b.server, null, b.rid);
+      if (N.back !== b) { r.leave(); return; }
+      N.back = null;
+      N.room = r;
+      N.lobby = new Lobby(r.c, b.server);
+      N.mode = 'client';
+      N.welcomed = false;
+      r.hostId = null;   // (whoever answers)
+      hookRoom();
+      r.send({ t: 'hello', name: N.name, skill: N.skill, pass: N.joinPass });
+      setTimeout(() => { if (N.room === r && !N.welcomed) { leaveRoom(true); say('COULD NOT GET BACK IN - THE ROOM IS GONE'); } }, 8000);
+      return;
+    } catch {
+      await new Promise((done) => setTimeout(done, 1500));
+    }
+  }
+  if (N.back === b) { N.back = null; leaveRoom(true, true); say('LOST THE CONNECTION'); }
 }
 
 async function enterServer(server) {
@@ -634,10 +1200,15 @@ async function joinRoom(ad, pass = '') {
     N.busy = '';
   }
 }
-function leaveRoom(quiet = false) {
-  if (!N.room) return;
-  if (N.mode === 'host') { N.room.send({ t: 'close' }); N.lobby?.advertise(null); }
-  N.room.leave();
+function leaveRoom(quiet = false, force = false) {
+  if (!N.room && !N.back && !force) return;
+  N.back = null;
+  if (N.room) {
+    if (N.mode === 'host') { N.room.send({ t: 'close' }); N.lobby?.advertise(null); }
+    else if (N.room.hostId) N.room.send({ t: 'bye' }, N.room.hostId);
+    N.room.c.pump?.();
+    N.room.leave();
+  }
   N.room = null;
   N.mode = null;
   N.members = [];
@@ -652,6 +1223,7 @@ function leaveRoom(quiet = false) {
   N.snaps = [];
   N.gotSnap = false;
   noted = null;
+  clearAir();
   if (N.saved) { Object.assign(A.settings, N.saved); N.saved = null; }
   A.state = N.lobby ? 'net-lobby' : 'net-servers';
   A.banner = null;
@@ -660,76 +1232,76 @@ function leaveRoom(quiet = false) {
 
 function hookRoom() {
   const r = N.room;
+  r.onLost = () => { if (N.room === r) losingConnection(); };
   r.onJoin = (id) => {
     if (N.mode === 'client' && id === r.hostId) r.send({ t: 'hello', name: N.name, skill: N.skill, pass: N.joinPass }, id);
   };
   r.onLeave = (id) => {
-    if (N.mode === 'client' && id === r.hostId) { leaveRoom(true); say('THE HOST LEFT - THE ROOM IS GONE'); return; }
+    if (N.mode === 'client' && id === r.hostId) return hostGone(id);
     if (N.mode !== 'host') return;
     const m = N.members.find((x) => x.id === id);
     if (!m) return;
-    N.members = N.members.filter((x) => x !== m);
-    for (const x of N.slots) if (x.k === 'p' && x.id === id) { x.k = 'open'; x.id = null; }
-    N.ctl.delete(id);
-    // gone mid-game: their fighter drops out
-    for (const f of A.game.fighters) if (f.peer === id) { f.lives = 0; f.respawnT = 0; if (f.alive) f.die(null, 'LEFT', 0, 0); }
-    say(`${m.name} LEFT`, 2);
-    shareRoom();
+    // gone in the middle of a match, without saying so: their seat's kept for a little, in case they're back
+    if (N.playing && A.game.fighters.some((f) => f.peer === id)) { m.away = performance.now(); say(`${m.name} LOST THE CONNECTION`, 2); return; }
+    dropMember(m);
   };
   r.onMsg = (m, from) => (N.mode === 'host' ? hostMsg(m, from) : clientMsg(m, from));
-  r.onCtl = (c, from) => {
-    if (N.mode !== 'host') return;
-    let e = N.ctl.get(from);
-    if (!e) N.ctl.set(from, (e = { held: {}, pressed: {}, at: 0 }));
-    e.at = performance.now();
-    for (const k of PRESSED) if (c[k]) e.pressed[k] = true;
-    // the trigger pulled: kept till a frame here has seen it (a quick click - down and up before this
-    // end's next frame - was lost: a flash on their screen, no shot)
-    if (c.fire && !e.held.fire) e.pressed.fire = true;
-    if (c.slot) e.pressed.slot = c.slot;
-    if (c.cycle) e.pressed.cycle = c.cycle;
-    const held = { ...c };
-    for (const k of PRESSED) delete held[k];
-    delete held.slot;
-    delete held.cycle;
-    delete held.p;
-    e.held = held;
-    if (c.p) { e.pos = c.p; e.posAt = performance.now(); } else e.pos = null;
+  r.onCtl = (p, from) => {
+    if (N.mode !== 'host' || !N.members.some((m) => m.id === from) || !Array.isArray(p?.c)) return;
+    const e = ctlOf(from), now = performance.now();
+    e.at = now;
+    // what they were looking at when they sent this: how long ago that was, here
+    if (Number.isFinite(p.v)) e.rewind = Math.max(0, Math.min(MAX_REWIND, now / 1000 - p.v / 1000));
+    for (const raw of p.c.slice(0, 60)) {
+      const c = decodeCmd(raw);
+      if (c && c.seq > e.last) { e.last = c.seq; e.q.push(c); }
+    }
+    if (e.q.length > 90) e.q.splice(0, e.q.length - 90);
   };
-  r.onSnap = (s, from) => { if (N.mode === 'client' && from === r.hostId && !N.out) N.snaps.push(s); };
+  r.onSnap = (s, from) => {
+    if (N.mode !== 'client' || from !== r.hostId || N.out) return;
+    s._at = performance.now() / 1000;
+    N.snaps.push(s);
+    if (N.snaps.length > 120) N.snaps.shift();
+  };
 }
 function hostMsg(m, from) {
   if (m.t === 'hello') {
-    // into an open slot - or, with the game going or no slot open, in to watch
-    const name = String(m.name).slice(0, 12);
+    // into an open slot - or, with the game going or no slot open, in to watch (their own seat, if they're coming back to it)
+    const name = String(m.name ?? '').slice(0, 12) || 'PLAYER';
+    const had = N.members.find((x) => x.id === from);
     if (N.banned.get(from) > performance.now()) return N.room.send({ t: 'no', why: 'YOU WERE KICKED - TRY AGAIN LATER' }, from);
-    if (!N.members.some((x) => x.id === from) && N.pass && m.pass !== N.pass) return N.room.send({ t: 'no', why: m.pass ? 'WRONG PASSWORD' : 'THAT ROOM HAS A PASSWORD' }, from);
-    if (!N.members.some((x) => x.id === from)) {
+    if (!had && N.pass && m.pass !== N.pass) return N.room.send({ t: 'no', why: m.pass ? 'WRONG PASSWORD' : 'THAT ROOM HAS A PASSWORD' }, from);
+    if (!had) {
       const free = N.playing ? -1 : N.slots.findIndex((x) => x.k === 'open');
       if (free < 0 && watchers().length >= MAX_WATCH) return N.room.send({ t: 'no', why: 'THAT ROOM IS FULL' }, from);
       if (free >= 0) moveTo(from, free);
       N.members.push({ id: from, name, skill: m.skill ?? null, ready: false });
-    }
+    } else { had.away = 0; had.out = false; }
+    N.ctl.delete(from);
     N.room.send({ t: 'welcome' }, from);
     if (N.playing && N.match) {
       // the game as it is: the next state goes out whole (to everyone - it's the same for all)
       N.room.send({ t: 'start', ...N.match }, from);
-      N.sent = new Map();
+      sendAllAgain();
     }
-    say(`${name} ${N.playing ? 'IS WATCHING' : seatOf(from) >= 0 ? 'JOINED' : 'IS WATCHING (ROOM FULL)'}`, 2);
-    shareRoom();
-  } else if (m.t === 'me') {
-    const x = N.members.find((y) => y.id === from);
-    if (!x) return;
-    x.skill = m.skill ?? null;
+    say(`${name} ${had ? 'IS BACK' : N.playing ? 'IS WATCHING' : seatOf(from) >= 0 ? 'JOINED' : 'IS WATCHING (ROOM FULL)'}`, 2);
+    return shareRoom();
+  }
+  const x = N.members.find((y) => y.id === from);
+  if (!x) return;   // (only someone in the room has any say)
+  if (m.t === 'me') {
+    x.skill = typeof m.skill === 'string' ? m.skill : null;
     x.ready = !!m.ready;
     shareRoom();
   } else if (m.t === 'slot') {
-    if (moveTo(from, m.i)) shareRoom();
+    if (!N.playing && moveTo(from, m.i)) shareRoom();
   } else if (m.t === 'out') {
     // back to the room in the middle of the match: their fighter drops out of it
+    x.out = true;
     for (const f of A.game.fighters) if (f.peer === from) { f.lives = 0; f.respawnT = 0; if (f.alive) f.die(null, 'LEFT', 0, 0); }
-  } else if (m.t === 'resync') N.sent = new Map();   // (someone starting to watch again: the next state goes out whole)
+  } else if (m.t === 'resync') { x.out = false; sendAllAgain(); }   // (someone starting to watch again: the next state goes out whole)
+  else if (m.t === 'bye') dropMember(x);
 }
 // (watching) on to the next one still in it (dir -1: the one before)
 function watchNext(dir) {
@@ -738,11 +1310,16 @@ function watchNext(dir) {
   const at = pool.indexOf(A.player);
   A.player = pool[(at + dir + pool.length) % pool.length];
 }
-function clientMsg(m) {
+function clientMsg(m, from) {
+  // (only the host says what goes - coming back, we don't know who that is till they answer)
+  if (N.room.hostId === null && (m.t === 'welcome' || m.t === 'no')) N.room.hostId = from;
+  if (from !== N.room.hostId) return;
   if (m.t === 'welcome') { N.welcomed = true; A.state = 'net-room'; N.busy = ''; }
   else if (m.t === 'no') { leaveRoom(true); say(m.why); }
+  else if (m.t === 'pass') N.heirPass = m.pass ?? '';
   else if (m.t === 'room') {
     N.roomName = m.name;
+    if (m.made) N.made = m.made;
     N.members = m.members;
     N.slots = m.slots ?? [];
     N.playing = m.playing;
@@ -759,8 +1336,7 @@ function clientMsg(m) {
     N.playing = true;
     N.watching = !m.roster.some((r) => r.peer === myId());
     N.deadT = 0;
-    N.ghost = null;
-    N.knock = null;
+    resetOwn();
     A.startNetMatch(m.roster, m.map, myId(), false);
     for (const f of A.game.fighters) N.fighters.set(f.nid, f);
     N.fistsDef ??= A.game.fighters[0]?.melee?.def;
@@ -800,7 +1376,13 @@ function startGame() {
   const map = s.map === 'random' ? A.pick(A.MAP_KEYS) : s.map;
   N.playing = true;
   N.sendT = 0;
-  N.sent = new Map();
+  sendAllAgain();
+  N.ctl = new Map();
+  N.newShots = [];
+  N.liveShots.clear();
+  N.sentRound = -1;
+  N.snapN = 0;
+  for (const m of N.members) m.out = false;
   noted = [];
   A.startNetMatch(roster, map, myId(), true);
   N.match = { roster, map, settings: { ...s } };
@@ -813,7 +1395,8 @@ function backToRoom() {
   N.match = null;
   N.menu = false;
   noted = null;
-  for (const m of N.members) if (m.id !== myId()) m.ready = false;
+  for (const m of [...N.members]) if (m.away) dropMember(m);
+  for (const m of N.members) { m.out = false; if (m.id !== myId()) m.ready = false; }
   // those who came in to watch: into the open slots, first come first in
   for (const m of watchers()) { const free = N.slots.findIndex((x) => x.k === 'open'); if (free >= 0) moveTo(m.id, free); }
   A.state = 'net-room';
@@ -833,6 +1416,12 @@ export function netUpdate(dt) {
   if (N.lobby && !N.lobby.alive && !N.busy) { leaveServer(); say('LOST THE CONNECTION TO THE SERVER - PICK ONE AGAIN'); return; }
   N.lobby?.update(dt);
   N.room?.update(dt);
+  // (for checking: how it's all going, a second at a time - F9 in a match, or arena.online.netStats)
+  if (N.room && (N.statN.t += dt) >= 1) {
+    const c = N.room.c.stat, was = N.statN, sec = was.t;
+    N.stats = { outMsgs: Math.round((c.outN - (was.outN ?? c.outN)) / sec), outKB: +((c.outB - (was.outB ?? c.outB)) / sec / 1024).toFixed(1), inMsgs: Math.round((c.inN - (was.inN ?? c.inN)) / sec), inKB: +((c.inB - (was.inB ?? c.inB)) / sec / 1024).toFixed(1), ping: N.room.ping, behindMs: Math.round((N.delay ?? 0) * 1000), jitterMs: Math.round(N.jit * 1000), waiting: N.pending.length, fixPx: +(N.stats.fix ?? 0).toFixed(1), fix: 0 };
+    N.statN = { t: 0, outN: c.outN, outB: c.outB, inN: c.inN, inB: c.inB };
+  }
   if (N.msgT > 0) N.msgT -= dt;
   if (N.mode === 'host' && N.lobby) N.lobby.advertise(lobbyAd());
 }
@@ -967,6 +1556,8 @@ export function netScreenInput() {
 // In a game: ESC brings up (and puts away) the menu - the game goes on behind it.
 export function netGameInput() {
   const I = A.input, click = A.kit.click;
+  if (I.wasPressed('F9')) N.hud = !N.hud;
+  if (N.back || !N.room) { if (I.wasPressed('Escape')) { leaveRoom(true, true); N.busy = ''; } return; }
   if (A.state === 'match' && N.mode === 'host' && A.stateT > 2 && (click === 'back-room' || I.wasPressed('Enter'))) return backToRoom();
   if (I.wasPressed('Escape') || click === 'net-resume') N.menu = !N.menu;
   else if (N.menu && click === 'net-room') {
@@ -1292,6 +1883,11 @@ export function drawNetOverlay(ctx, u, W, H) {
     k.rect(bx, by, w, u, A.tagColor(f));
     k.text(name, W / 2, by + 4 * u, { size: 2, color: A.tagColor(f), align: 'center' });
     k.text('A / D  OR  CLICK  -  SWITCH PLAYER', W / 2, by + 19 * u, { small: true, color: K.muted, align: 'center' });
+  }
+  if (N.back) k.text(N.busy, W / 2, H * 0.5, { color: K.teal, align: 'center' });
+  if (N.hud) {
+    const t = N.stats, lines = [`OUT ${t.outMsgs ?? 0}/S ${t.outKB ?? 0}KB  IN ${t.inMsgs ?? 0}/S ${t.inKB ?? 0}KB`, N.mode === 'client' ? `PING ${t.ping ?? 0}  BEHIND ${t.behindMs ?? 0}MS  JITTER ${t.jitterMs ?? 0}MS  UNHEARD ${t.waiting ?? 0}  FIX ${t.fixPx ?? 0}PX` : 'HOST'];
+    lines.forEach((l, i) => k.text(l, 6 * u, H - (22 + i * 10) * u, { small: true, color: K.teal }));
   }
   if (N.msgT > 0) k.toast(N.msg);
   if (!N.menu) return;
