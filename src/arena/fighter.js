@@ -31,7 +31,8 @@ const ROLL_TIME = 0.4, ROLL_SPEED = 250, ROLL_COST = 20, ROLL_COOLDOWN = 0.2, RO
 const ROLL_CROUCH_IN = 0.6;   // a roll heading in under something low stays down at least this long after
 // the grapple (skill, Q): the line's speed and reach, how hard it reels in and
 // how fast it can pull, how long it holds on at most, the wait between shots
-const GRAPPLE_SPEED = 1000, GRAPPLE_RANGE = 230, GRAPPLE_PULL = 2600, GRAPPLE_MAX = 430, GRAPPLE_TIME = 1.3, GRAPPLE_CD = 1.4;
+// (three shots saved up, one coming back each GRAPPLE_CD, a short gap between them; aim within this much of someone and it locks on)
+const GRAPPLE_SPEED = 1200, GRAPPLE_RANGE = 360, GRAPPLE_PULL = 2600, GRAPPLE_MAX = 430, GRAPPLE_TIME = 1.6, GRAPPLE_CD = 2.5, GRAPPLE_SHOTS = 3, GRAPPLE_GAP = 0.2, GRAPPLE_LOCK = 26;
 const GRAPPLE_CUT = 48, SPIN_R = 30;   // reeled in through (or right up to) a foe: a spinning slash, this much to every foe this close
 // the cloak (skill, Q): how long it lasts, the wait after it ends, the dash in
 // to a stab (how far it reaches for someone, how fast), and a stab in the back
@@ -249,7 +250,7 @@ export class Fighter {
   reset(x, y) {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
-      padT: 0, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
+      padT: 0, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
       onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
@@ -780,7 +781,9 @@ export class Fighter {
   // in the first solid thing it meets (a wall, a ceiling, a ledge, a catwalk
   // from either side) and reels you in, fast, to just off that spot - up onto
   // the ledge, against the wall, under the ceiling - and lets go there with
-  // some of the speed still on. Q again or a jump lets go early.
+  // some of the speed still on. A jump lets go early; Q again fires the next line
+  // straight off this one (three saved up), or lets go if there are none left.
+  // Aimed close to a foe it locks on, and goes for them wherever they go.
 
   // where the line leaves the hand
   lineFrom() {
@@ -797,34 +800,65 @@ export class Fighter {
     if (solid(px, y) || !solid(x, py)) return { x: 0, y: y > py ? -1 : 1 };
     return { x: x > px ? -1 : 1, y: 0 };
   }
+  // Who a line shot now would lock on to: a foe it can reach, close to the line of the aim or to the cursor.
+  hookTarget() {
+    if (this.skill !== 'grapple' || !(this.charges > 0)) return null;
+    const s = this.lineFrom(), ax = Math.cos(this.aim), ay = Math.sin(this.aim), t = this.aimTarget;
+    let best = null, bs = Infinity;
+    for (const v of this.game.fighters) {
+      if (v === this || !v.alive || v.vanish || v.hidden || !this.game.foes(this, v)) continue;
+      const p = this.seen(v), cx = p.x, cy = p.y - 14, dx = cx - s.x, dy = cy - s.y;
+      if (Math.hypot(dx, dy) > GRAPPLE_RANGE || dx * ax + dy * ay <= 0) continue;
+      const off = Math.min(Math.abs(dx * ay - dy * ax), t ? Math.hypot(t.x - cx, t.y - cy) : Infinity);
+      if (off > GRAPPLE_LOCK || off >= bs || !this.game.los(s.x, s.y, cx, cy)) continue;
+      bs = off;
+      best = v;
+    }
+    return best;
+  }
   updateGrapple(dt, c) {
     let h = this.hook;
     if (h) h.snap += dt;
-    if (h && (this.roll || this.onLadder)) { this.letGo(); h = this.hook; }
-    if (c.skill && h && h.state !== 'back') { this.letGo(); h = this.hook; }
-    else if (c.skill && !h && this.skillCD <= 0 && !this.onLadder && !this.roll) {
-      const s = this.lineFrom();
-      h = this.hook = { state: 'fly', x: s.x, y: s.y, dx: Math.cos(this.aim), dy: Math.sin(this.aim), len: 0, t: 0, slow: 0, snap: 9 };
-      this.skillCD = GRAPPLE_CD;
-      this.game.fx.sparks(s.x, s.y, 4, h.dx, h.dy, '#d8f4ff');
+    this.hookGap -= dt;
+    // the shots saved up, coming back one at a time
+    if (this.charges < GRAPPLE_SHOTS && this.skillCD <= 0) {
+      this.charges++;
+      if (this.charges < GRAPPLE_SHOTS) this.skillCD = GRAPPLE_CD;
     }
+    if (h && (this.roll || this.onLadder)) { this.letGo(); h = this.hook; }
+    if (c.skill && this.charges > 0 && this.hookGap <= 0 && !this.onLadder && !this.roll) {
+      // (on a line already: the next one straight off it)
+      const s = this.lineFrom(), lock = this.hookTarget();
+      h = this.hook = { state: 'fly', x: s.x, y: s.y, dx: Math.cos(this.aim), dy: Math.sin(this.aim), len: 0, t: 0, slow: 0, snap: 9, lock };
+      this.charges--;
+      this.hookGap = GRAPPLE_GAP;
+      if (this.skillCD <= 0) this.skillCD = GRAPPLE_CD;
+      this.game.fx.sparks(s.x, s.y, 4, h.dx, h.dy, '#d8f4ff');
+    } else if (c.skill && h && h.state !== 'back') { this.letGo(); h = this.hook; }
     if (!h) return;
     h.t += dt;
     if (h.state === 'fly') {
       // out along the aim a few px at a time, until it bites (or runs out of line)
       const step = 3;
       for (let i = Math.ceil((GRAPPLE_SPEED * dt) / step); i > 0; i--) {
+        // locked on: it goes for them, wherever they've gone
+        const lk = h.lock?.alive && !h.lock.hidden && !h.lock.vanish ? h.lock : null, lp = lk && this.seen(lk);
+        if (lk) {
+          const ldx = lp.x - h.x, ldy = lp.y - 14 - h.y, ld = Math.hypot(ldx, ldy) || 1;
+          h.dx = ldx / ld;
+          h.dy = ldy / ld;
+        }
         const nx = h.x + h.dx * step, ny = h.y + h.dy * step;
         // someone in the way: it hooks them, and pulls you to them (they don't budge)
-        const v = this.game.fighters.find((o) => o !== this && o.alive && !o.vanish && !o.hidden && o.owner !== this && o.hitPart(nx, ny));
+        const there = lk && Math.hypot(nx - lp.x, ny - (lp.y - 14)) < 10;
+        const v = there ? lk : this.game.fighters.find((o) => o !== this && o.alive && !o.vanish && !o.hidden && o.owner !== this && o.hitPart(nx, ny));
         if (v) {
-          Object.assign(h, { state: 'on', t: 0, x: nx, y: ny, nx: -h.dx, ny: -h.dy, who: v, ox: nx - v.x, oy: ny - v.y });
+          Object.assign(h, { state: 'on', t: 0, x: nx, y: ny, nx: -h.dx, ny: -h.dy, who: v, ox: there ? 0 : nx - v.x, oy: there ? -14 : ny - v.y });
           this.followHooked();
           if (Math.hypot(h.tx - this.x, h.ty - (this.y - 14)) < 14) {
             // right beside you already: no pull - the spin, straight away
             if (this.game.foes(this, v)) this.spinCut();
             h.state = 'back';
-            this.skillCD = Math.min(this.skillCD, 0.5);
             break;
           }
           this.game.fx.sparks(nx, ny, 6, -h.dx, -h.dy, '#9fe6ff');
@@ -841,7 +875,7 @@ export class Fighter {
           this.game.fx.impact(h.x, h.y, n.x, n.y, 3);
           this.game.fx.sparks(h.x, h.y, 6, n.x, n.y, '#9fe6ff');
           // already there (the floor underfoot, a wall right beside): nothing to pull - it just springs back
-          if (Math.hypot(tx - this.x, ty - (this.y - 14)) < 14) { h.state = 'back'; this.skillCD = Math.min(this.skillCD, 0.5); break; }
+          if (Math.hypot(tx - this.x, ty - (this.y - 14)) < 14) { h.state = 'back'; this.charges = Math.min(GRAPPLE_SHOTS, this.charges + 1); break; }   // (the shot back)
           Object.assign(h, { state: 'on', t: 0, nx: n.x, ny: n.y, tx, ty });
           if (this.game.viewer === this) this.game.kick?.(h.dx * 2.5, h.dy * 2.5);
           if (this.onGround && ty < this.y - 30) this.vy = Math.min(this.vy, -80);   // up off the floor
@@ -852,7 +886,7 @@ export class Fighter {
         }
         h.x = nx;
         h.y = ny;
-        if ((h.len += step) >= GRAPPLE_RANGE) { h.state = 'back'; this.skillCD = Math.min(this.skillCD, 0.5); break; }
+        if ((h.len += step) >= GRAPPLE_RANGE) { h.state = 'back'; this.charges = Math.min(GRAPPLE_SHOTS, this.charges + 1); break; }   // (it bit nothing: the shot back)
       }
     } else if (h.state === 'on') {
       if (h.who) {

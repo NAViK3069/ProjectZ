@@ -637,7 +637,7 @@ export class Bot {
   // a second Q would cut the cloak short, say.)
   useSkill(c, t, vis, dist, hpK, enemies) {
     const f = this.f, G = this.game, k = f.skill;
-    if (!k || f.skillCD > 0 || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
+    if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
     if (f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;

@@ -268,7 +268,8 @@ const game = {
   disarm(v, dir) {
     const w = v.dropGun();
     if (!w) return;
-    this.pickups.push({ kind: 'gun', key: w.def.key, ammo: w.ammo, reserve: w.reserve, x: v.x, y: v.y - 14, vx: dir * 110 + rand(-20, 20), vy: -170, beam: 0, life: 25, bob: 0, ready: false, noGrab: 0.5 });
+    // (a shadow clone's gun is part of the shadow: it's gone, or clones would be a way to make guns)
+    if (!v.isDecoy) this.pickups.push({ kind: 'gun', key: w.def.key, ammo: w.ammo, reserve: w.reserve, x: v.x, y: v.y - 14, vx: dir * 110 + rand(-20, 20), vy: -170, beam: 0, life: 25, bob: 0, ready: false, noGrab: 0.5 });
     this.fx.sparks(v.x + dir * 6, v.y - 10, 8, dir, -0.5);
     if (v === player) banner = { text: 'DISARMED!', t: 0.9, color: '#ff8a6a' };
   },
@@ -626,8 +627,9 @@ function playerControl() {
     sprint: running(),
     roll: input.wasPressed('ShiftLeft', 'ShiftRight'),
     target: null,
-    melee: input.wasPressed('KeyF', 'Mouse2'),
-    meleeHeld: input.down('KeyF') || rightHeld,   // held: keep punching
+    melee: input.wasPressed('Mouse2'),
+    meleeHeld: rightHeld,   // held: keep punching
+    grenade: input.wasPressed('KeyF'),           // F: a grenade, there and then, whatever's in hand
     skill: input.wasPressed('KeyQ'),
     crouch: input.down('KeyS', 'ArrowDown') && !f.ladderBelow() && !f.onLadder && !f.overLadder(),
     drop: dropTap(),
@@ -1616,7 +1618,7 @@ function drawWorld() {
     }
   }
   // you, cloaked: whoever's in reach of your stab right now, locked on
-  const mine = player.alive ? player.stabTarget() : null;
+  const mine = player.alive ? player.stabTarget() ?? player.hookTarget() : null;   // (who the stab, or the line, would go for)
   if (mine?.alive) drawMarked(ctx, mine);
   drawCabinetPrompt(ctx);
   // E prompt over a weapon the player could swap to
@@ -1849,7 +1851,7 @@ function drawCards(ctx, u, W) {
     ctx.drawImage(f.parts.head, 5, 0, 22, 21, Math.round((x + 3) * u), Math.round((y + 5) * u), 20 * u, 19 * u);
     // the skill (Q) on the portrait's corner: lit when it's ready, filling back up while it waits
     if (f.skill && f.alive) {
-      const k = Math.max(0, Math.min(1, 1 - f.skillCD / SKILL_CD[f.skill])), ready = k >= 1, on = skillOn(f);
+      const k = f.skill === 'grapple' && f.charges > 0 ? 1 : Math.max(0, Math.min(1, 1 - f.skillCD / SKILL_CD[f.skill])), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
       if (on) { const left = Math.max(0, f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (game.demons.find((d) => d.owner === f)?.life ?? 0) / DEMON_LIFE) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.skill === 'demon' ? '#6a22b0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
@@ -1921,7 +1923,8 @@ const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!
 function drawSkillBox(u, W, H, f) {
   const info = SKILL_INFO.find((k) => k.key === f?.skill);
   if (!info || !f.alive) return;
-  const cd = Math.max(0, f.skillCD ?? 0), total = SKILL_CD[f.skill], on = skillOn(f), ready = cd <= 0 && !on;
+  const shots = f.skill === 'grapple';   // (the line's saved up: ready while there's one left)
+  const cd = Math.max(0, f.skillCD ?? 0), total = SKILL_CD[f.skill], on = skillOn(f), ready = (shots ? f.charges > 0 : cd <= 0) && !on;
   if (ready && f.readySeen === false) f.readyAt = game.time;
   f.readySeen = ready;
   const flash = Math.max(0, 1 - (game.time - (f.readyAt ?? -9)) / 0.7);
@@ -1945,8 +1948,14 @@ function drawSkillBox(u, W, H, f) {
   if (ready) {
     const pulse = 0.6 + 0.4 * Math.sin(game.time * 6);
     ctx.globalAlpha = pulse;
-    kit.text('READY  -  PRESS Q', x + 31 * u, y + 17 * u, { small: true, color: KC.green });
+    kit.text(shots ? 'PRESS Q' : 'READY  -  PRESS Q', x + 31 * u, y + 17 * u, { small: true, color: KC.green });
     ctx.globalAlpha = 1;
+    if (shots) for (let i = 0; i < 3; i++) {
+      // the three shots: full, the one coming back filling up, empty
+      const px = x + w - (5 + (3 - i) * 7) * u + 6 * u, k = i < f.charges ? 1 : i === f.charges ? Math.max(0, 1 - cd / total) : 0;
+      kit.rect(px, y + 17 * u, 5 * u, 5 * u, KC.ink);
+      kit.rect(px + u, y + 18 * u, 3 * u * k, 3 * u, info.color);
+    }
   } else if (on) kit.text('IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
   else {
     // the wait: a bar filling back up, the seconds left beside it
@@ -2101,7 +2110,7 @@ function drawCrosshair(ctx, u) {
 let menuSel = 0;
 const CONTROLS = [
   'A D  WALK      A A / D D  RUN      W / SPACE  JUMP (TWICE IN THE AIR)      S  CROUCH      S S  DROP DOWN',
-  'SHIFT  ROLL      MOUSE  AIM AND SHOOT      R  RELOAD      Q  SKILL      F / RIGHT CLICK  QUICK MELEE',
+  'SHIFT  ROLL      MOUSE  AIM AND SHOOT      R  RELOAD      Q  SKILL      RIGHT CLICK  QUICK MELEE      F  GRENADE',
   '1  MELEE      2  GUN      3  GRENADE      G  THROW WHAT YOU HOLD      E  PICK UP / SWAP',
   'HIT SOMEONE WITH MELEE AS THEY SHOOT AND THEIR GUN FLIES OUT OF THEIR HANDS',
 ];
@@ -2408,7 +2417,7 @@ const NO_SKILL = sprite(9, 9, (g) => {
 
 // Every skill: its name, picture, colour and what it does (for the lists to pick one from, and the skill bay).
 const SKILL_INFO = [
-  { key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, color: '#9ad0ff', desc: 'SHOOT A LINE AND ZIP TO WHERE YOU AIM' },
+  { key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, color: '#9ad0ff', desc: '3 SHOTS SAVED UP - ZIP TO WHERE YOU AIM, OR LOCK ON TO A FOE' },
   { key: 'cloak', name: 'CLOAK', img: CLOAK_ICON, color: '#a89aff', desc: '8 S UNSEEN WITH A KNIFE - ONE STAB, X4.5 IN THE BACK' },
   { key: 'decoy', name: 'SHADOW CLONE', img: CLONE_ICON, color: '#8aa8ff', desc: 'A DOUBLE OUT OF THE MIST FIGHTS FOR YOU, 3 S UNSEEN' },
   { key: 'archery', name: 'ARCHERY', img: BOW_ICON, color: '#7aff8a', desc: 'LOCK ON TO EVERY FOE NEAR, AN ARROW SPLITS FOR THEM ALL' },

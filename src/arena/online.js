@@ -236,14 +236,14 @@ function assign(target, s) {
 const F_RULES = {
   hurtT: 'up', lastFireT: 'up', beamT: 'up', deadT: 'up', flash: 'down', throwT: 'run',
   pose: 'once', animT: 'once', frame: 'once', state: 'once', sq: 'once', sqV: 'once', settle: 'once', tilt: 'once', blinkIn: 'once', blinkLeft: 'once', climbT: 'once', aimTarget: 'once', pickupPressed: 'once', trail: 'once', triggerHeld: 'once',
-  hp: 1, stamina: 1, skillCD: 0.1, shield: 0.1, grenadeCD: 0.1, respawnT: 0.1, staminaRest: 0.02, coyote: 0.01, padT: 0.02, jumpBuf: 0.01, dropT: 0.01, ladderCool: 0.01, rollCool: 0.01, rollCrouch: 0.01, boostT: 0.1,
+  hp: 1, stamina: 1, skillCD: 0.1, shield: 0.1, grenadeCD: 0.1, respawnT: 0.1, staminaRest: 0.02, coyote: 0.01, hookGap: 0.02, padT: 0.02, jumpBuf: 0.01, dropT: 0.01, ladderCool: 0.01, rollCool: 0.01, rollCrouch: 0.01, boostT: 0.1,
 };
 const GUN_RULES = { waitTotal: 'once', cooldown: 'down', recoil: 'down', climb: 'down', flash: 'down', heat: 'down', cycleT: 'down', drawT: 'down', acting: 'down', actDelay: 'down', reload: 'run' };
 const MELEE_RULES = { t: 'run', sinceHit: 'once', climb: 'once', engage: 0.25, holdT: 'once', recoil: 'once', chain: 'once', drawT: 'down', cooldown: 'down', sawing: 'down', reload: 'run' };
 const PROP_RULES = { flash: 'down', rot: 0.05, landed: 'once', dissolve: 'once' };
 const PICKUP_RULES = { life: 'once', bob: 'once', noGrab: 'once', beam: 'once', uid: 'once' };
 const FAST = new Set(['x', 'y', 'vx', 'vy', 'aim', 'facing', 'onGround', 'onLadder', 'crouch', 'gun', 'melee', 'decoy']);
-const CLAMPED = new Set(['padT', 'skillCD', 'shield', 'grenadeCD', 'respawnT', 'staminaRest', 'coyote', 'jumpBuf', 'dropT', 'ladderCool', 'rollCool', 'rollCrouch', 'boostT']);
+const CLAMPED = new Set(['hookGap', 'padT', 'skillCD', 'shield', 'grenadeCD', 'respawnT', 'staminaRest', 'coyote', 'jumpBuf', 'dropT', 'ladderCool', 'rollCool', 'rollCrouch', 'boostT']);
 function changed(key, o, rules = {}, leave = null) {
   const first = !N.sent.has(key), last = N.sent.get(key) ?? {}, out = {};
   for (const k of Object.keys(o)) {
@@ -502,7 +502,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'hook', 'skillCD'];
+const SKILL_KEYS = ['charges', 'hookGap', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
