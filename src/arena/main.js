@@ -15,7 +15,7 @@ import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K he
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
-import { Fighter, MAX_STAMINA, DAMAGE, CLASS_MUL, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW } from './fighter.js';
+import { Fighter, MAX_STAMINA, DAMAGE, gunMul, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier } from './ai.js';
@@ -353,7 +353,9 @@ const game = {
       y = (n.cy + 1) * T;
     }
     const roll = Math.random(), pool = settings.pool;
-    let kind = roll < 0.7 ? (pool === 'guns' ? 'gun' : pool === 'melee' ? 'melee' : Math.random() < 0.68 ? 'gun' : 'melee') : roll < 0.87 ? 'health' : 'nades';
+    const weapon = () => (pool === 'guns' ? 'gun' : pool === 'melee' ? 'melee' : Math.random() < 0.68 ? 'gun' : 'melee');
+    let kind = roll < 0.7 ? weapon() : roll < 0.87 ? 'health' : 'nades';
+    if (kind === 'health' && overtime) kind = weapon();   // (the lab's venting: no more healing turns up)
     const p = { kind, x, y: y - (dropped ? 4 : 18), vy: dropped ? -120 : 0, vx: dropped ? rand(-40, 40) : 0, beam: dropped ? 0 : 0.8, life: 30, bob: Math.random() * 6 };
     if (kind === 'gun') p.key = pick(GUN_POOL);
     if (kind === 'melee') p.key = pick(MELEE_POOL);
@@ -428,6 +430,7 @@ function startRound() {
   game.lights = new Lights(level);
   game.props = placeProps(level.props, level);
   clearDecoys();
+  game.onRound?.();   // (online: anyone coming into the match comes in now)
   // everyone to a spot of their own, shuffled - in TEAMS, each side on its own half of the map
   const sides = new Map();
   for (const f of game.fighters) {
@@ -1407,7 +1410,7 @@ function updatePickups(dt) {
   }
   for (const p of game.pickups) {
     p.beam -= dt;
-    p.life -= dt;
+    if (!(overtime && p.kind === 'health')) p.life -= dt;   // (what healing's left stays till it's used, with no more coming)
     p.noGrab = (p.noGrab ?? 0) - dt;
     p.bob += dt;
     p.ready = p.beam <= 0;
@@ -1995,8 +1998,8 @@ function drawScores(ctx, u, W, H) {
   const list = game.fighters.filter((f) => !f.isDecoy && !f.dummy);
   const order = (a, b) => b.wins - a.wins || b.kills - a.kills || (a.deaths ?? 0) - (b.deaths ?? 0);
   const groups = teamMode() ? [0, 1].map((t) => list.filter((f) => f.team === t).sort(order)) : [list.sort(order)];
-  const rowH = 12 * u, lives = settings.lives > 1;
-  const pw = Math.min(W - 16 * u, 340 * u), ph = 26 * u + 12 * u + groups.reduce((h, g) => h + g.length * rowH + (teamMode() ? 16 * u : 0), 0) + 4 * u;
+  const rowH = 12 * u, lives = settings.lives > 1, watching = online.active ? online.watcherRows : [];
+  const pw = Math.min(W - 16 * u, 340 * u), ph = 26 * u + 12 * u + groups.reduce((h, g) => h + g.length * rowH + (teamMode() ? 16 * u : 0), 0) + (watching.length ? 12 * u + watching.length * rowH : 0) + 4 * u;
   const px = Math.round(W / 2 - pw / 2), py = Math.max(8 * u, Math.round(H / 2 - ph / 2));
   ctx.fillStyle = 'rgba(5, 8, 7, 0.45)';
   ctx.fillRect(0, 0, W, H);
@@ -2019,14 +2022,30 @@ function drawScores(ctx, u, W, H) {
       kit.rect(px + 4 * u, y - 2 * u, pw - 8 * u, rowH, me ? KC.row : i % 2 ? KC.rowAlt : 'rgba(0, 0, 0, 0)');
       kit.rect(px + 10 * u, y, 6 * u, 7 * u, tagColor(f));
       const nw = kit.text(me ? `${f.name === 'YOU' ? 'YOU' : f.name + ' (YOU)'}` : f.name, col.name, y, { color: f.alive ? '#ffffff' : KC.muted });
-      if (f.bot) kit.text('BOT', col.name + nw + 5 * u, y + u, { small: true, color: KC.faint });
-      else if (!f.alive && f.respawnT <= 0) kit.text('OUT', col.name + nw + 5 * u, y + u, { small: true, color: KC.red });
+      const crowned = online.active && f.peer && f.peer === online.hostId;   // (whose room it is)
+      if (crowned) online.drawCrown(kit, u, col.name + nw + 4 * u, y);
+      const tagX = col.name + nw + (crowned ? 15 : 5) * u;
+      if (f.bot) kit.text('BOT', tagX, y + u, { small: true, color: KC.faint });
+      else if (!f.alive && f.respawnT <= 0) kit.text('OUT', tagX, y + u, { small: true, color: KC.red });
       kit.text(f.wins, col.rounds, y, { align: 'right', color: KC.gold });
       kit.text(f.kills, col.kills, y, { align: 'right' });
       kit.text(f.deaths ?? 0, col.deaths, y, { align: 'right', color: KC.muted });
       if (lives) kit.text(f.lives ?? 0, col.lives, y, { align: 'right', color: (f.lives ?? 0) > 0 ? '#ff8a8a' : KC.faint });
+      if (f.peer) online.tabButtons(kit, u, f.peer, col.rounds - 38 * u, y - u, rowH - 3 * u);
       y += rowH;
     });
+  }
+  // in the room, not on the field
+  if (watching.length) {
+    y += 2 * u;
+    kit.text('WATCHING', col.name, y, { small: true, color: KC.faint });
+    y += 10 * u;
+    for (const m of watching) {
+      const nw = kit.text(m.name, col.name, y, { color: KC.muted });
+      if (m.next) kit.text('NEXT ROUND', col.name + nw + 5 * u, y + u, { small: true, color: KC.green });
+      online.tabButtons(kit, u, m.id, col.rounds - 38 * u, y - u, rowH - 3 * u);
+      y += rowH;
+    }
   }
 }
 
@@ -2043,7 +2062,7 @@ function drawCrosshair(ctx, u) {
   // reloading: a ring round the crosshair filling up
   const w = player.weapon;
   if (w && w.reloading) {
-    const k = w.def.reload === 'shells' ? Math.min(1, (w.ammo + Math.max(0, w.reload)) / w.magSize) : Math.max(0, Math.min(1, w.reload));
+    const k = w.reloadShown;
     const R = 10 * u;
     ctx.save();
     ctx.lineWidth = 3 * u;
@@ -2592,7 +2611,7 @@ function drawLocker(ctx, u, W, H) {
     text(it.name + (owned(it) ? '  - YOURS' : ''), x0 + 8, y0 + ph - 24, '#ffd25a');
     let info = it.desc ?? '';
     if (it.kind === 'gun') {
-      const d = it.def, dmg = Math.round(d.damage * DAMAGE * (CLASS_MUL[d.cls] ?? 1) * settings.dmg);
+      const d = it.def, dmg = Math.round(d.damage * DAMAGE * gunMul(d) * settings.dmg);
       info = `${(WEAPON_CLASSES.find((c) => c.cls === d.cls)?.label ?? d.cls).toUpperCase()}  -  DAMAGE ${dmg}${d.pellets > 1 ? ' X' + d.pellets : ''}  -  ${Math.round(60 / d.fireInterval)} RPM${d.auto ? ' AUTO' : ''}  -  MAG ${d.magSize}  -  SLOT ${player.slotFor(d)}`;
     } else if (it.kind === 'melee') info = `MELEE  -  DAMAGE ${Math.round(it.def.damage * 1.5)}  -  REACH ${it.def.reach}  -  ${it.def.hands > 1 ? 'TWO HANDS' : 'ONE HAND'}  -  SLOT 1`;
     text(info, x0 + 8, y0 + ph - 14, '#9aa49c');
@@ -2711,6 +2730,16 @@ function startNetMatch(roster, mapKey, me, host) {
   hintEl.classList.remove('fade');
   setTimeout(() => hintEl.classList.add('fade'), 9000);
 }
+// someone coming into a match that's going on (online; the host): in for the round about to start
+function addNetFighter(r, nid) {
+  const f = new Fighter(game, images, r);
+  f.nid = nid;
+  f.team = r.team;
+  f.peer = r.peer;
+  f.deaths = 0;
+  if (!settings.skills) f.skill = null;
+  game.fighters.push(f);
+}
 // a room setting changed in an online room (no backdrop to redo, as on the setup screen)
 function changeNetSetting(i, dir) {
   const [k, , vals] = OPTIONS[i];
@@ -2720,7 +2749,7 @@ function changeNetSetting(i, dir) {
 }
 initOnline({
   game, settings, OPTIONS, input, renderer, images, IDLE, MAP_KEYS, pick, weapons: WEAPONS, iconOf,
-  drawText, textWidth, centerText, panel, playerControl, startNetMatch, changeNetSetting, kit, tagColor,
+  drawText, textWidth, centerText, panel, playerControl, startNetMatch, addNetFighter, changeNetSetting, kit, tagColor,
   skillItems, skillName, openPicker, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
   get state() { return state; }, set state(v) { state = v; },
   get player() { return player; }, set player(v) { player = v; },
@@ -2807,6 +2836,7 @@ function tick(realDt, draw = true) {
     if (pc.pickup && cabinetNear()) { openLocker(cabinetNear()); pc = IDLE; }
     // TAB in training: everything, wherever you are
     else if (state === 'training' && !cabinetOpen && player.alive && input.wasPressed('Tab')) { openLocker({ use: 'all' }); pc = IDLE; }
+    if (online.tabOpen) pc = { ...pc, fire: false, melee: false };   // (the host, over the scores: the mouse is for KICK and BAN)
     if (pc.pickup) player.pickupPressed = true;
     player.update(dt, pc);
     updateRemotes(dt, live);   // (hosting online: the other players' fighters, by their controls)
@@ -2844,7 +2874,7 @@ function tick(realDt, draw = true) {
     hostFrame(realDt);   // (hosting online: the state of the game out to everyone)
   }
   // the system cursor on the menus (setup, results, pause); in a fight the crosshair takes its place
-  const cursor = onMenu() || picker || state === 'match' || paused || locker || online.menuOpen || online.watching ? 'default' : 'none';
+  const cursor = onMenu() || picker || state === 'match' || paused || locker || online.menuOpen || online.watching || online.tabOpen ? 'default' : 'none';
   if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor;
   if (draw) {
     drawWorld();

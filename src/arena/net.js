@@ -3,16 +3,19 @@
 // everyone who picks the same one meets in its lobby, where every room open
 // there is listed - its name, mode, map, players, as its host keeps them (the
 // room's own properties, shown in the lobby). Joining a room puts you in it
-// with its host; everything between the players goes through Photon's server
+// with its host; everything between the players can go through Photon's server
 // for that region, so anyone can reach anyone, whatever their network. The
 // host's browser still runs the game: the others send their controls in and get
-// the state of the game back (see online.js). The SDK is ours, a copy, in
+// the state of the game back (see online.js). In a game those two go straight
+// between a player and the host where their networks allow it (WebRTC: see Link),
+// which saves the trip by way of the region's server. The SDK is ours, a copy, in
 // src/vendor (it loads when you first go online).
 
 const SDK = new URL('../vendor/photon-realtime.js', import.meta.url).href;
-const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-2';   // (players on different versions don't meet)
+const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-3';   // (players on different versions don't meet)
 const PROPS = ['n', 'm', 'mp', 's', 'mx', 'w', 'p', 'l', 'md', 'h'];   // a room's properties the lobby sees (name, mode, map, seated, max, watchers, playing, locked, made, host)
-const EV = { msg: 1, snap: 2, ctl: 3 };
+const EV = { msg: 1, snap: 2, ctl: 3, rtc: 4 };
+const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];   // (only to find our own address: nothing of the game goes through these)
 
 // For testing a bad connection: `?lag=80&jitter=30` on the address holds everything this page sends
 // back by that many ms (set it on both ends; arena.online.netStats shows what it does to the game).
@@ -80,6 +83,8 @@ class Conn {
     };
     this.lbc.onError = (code, msg) => console.warn('Photon:', code, msg);
     this.lbc.onAppStats = (err, msg, stats) => { if (!err) this.stats = stats; };
+    this.listAt = performance.now();   // when word on the rooms last came in
+    this.lbc.onRoomList = this.lbc.onRoomListUpdate = () => { this.listAt = performance.now(); };
     // a create / join refused: whoever's waiting for it hears why
     this.lbc.onOperationResponse = (err, msg, code) => {
       if (err && (code === 226 || code === 227)) for (const w of this.waits.splice(0)) w[2](Object.assign(new Error(msg || 'refused'), { code: err }));
@@ -136,6 +141,14 @@ class Conn {
   }
   put(code, text, target) {
     if (!this.lbc.isJoinedToRoom()) return;
+    // the game itself: straight there, to whoever we've a direct line to
+    if (this.room?.links.size && (code === EV.snap || code === EV.ctl)) {
+      const to = target ? [].concat(target) : [...this.room.peers], rest = to.filter((id) => !this.room.links.get(id)?.send(code + text));
+      this.stat.outN += to.length - rest.length;
+      if (rest.length < to.length) this.stat.outB += text.length;
+      if (!rest.length) return;
+      target = rest;
+    }
     const opt = {};
     if (target) {
       const nrs = (Array.isArray(target) ? target : [target]).map((t) => this.actorOf(t)).filter((n) => n !== null);
@@ -242,9 +255,56 @@ export class Lobby {
     if (Object.keys(out).length) { try { room.setCustomProperties(out); } catch { /* (the connection's going) */ } }
   }
   update() {}
+  // the whole list over again from the server, now (it sends what's changed by itself, in its own time)
+  refresh() {
+    const lbc = this.c.lbc;
+    if (!lbc.isInLobby()) return;
+    try { lbc.masterPeer.sendOperation(this.c.P.LoadBalancing.Constants.OperationCode.JoinLobby, []); } catch { /* (the connection's going: see alive) */ }
+  }
+  get listAt() {
+    return this.c.listAt;
+  }
   leave() {
     this.c.lbc.disconnect();
     if (conn === this.c) conn = null;
+  }
+}
+
+// ---------- a direct line to another player ----------
+// One to one, player to host, set up by way of the room (Photon carries the offer, the answer and the
+// addresses). In order and reliable like the rest: what's sent over it is the same. If the two can't
+// reach each other, or the line goes, everything just carries on going through Photon.
+class Link {
+  constructor(room, peer) {
+    this.room = room;
+    this.peer = peer;
+    this.dc = null;
+    this.open = false;
+    this.pc = new RTCPeerConnection({ iceServers: ICE });
+    this.pc.onicecandidate = (e) => { if (e.candidate) room.c.raise(EV.rtc, { c: e.candidate }, peer); };
+    this.pc.onconnectionstatechange = () => { if (this.pc.connectionState === 'failed') this.close(); };
+    this.timer = setTimeout(() => { if (!this.open) this.close(); }, 12000);
+    room.links.set(peer, this);
+  }
+  use(dc) {
+    this.dc = dc;
+    dc.onopen = () => { this.open = true; clearTimeout(this.timer); this.room.onLink(this.peer, true); };
+    dc.onclose = () => this.close();
+    dc.onmessage = (e) => this.room._direct(e.data, this.peer);
+  }
+  send(text) {
+    if (!this.open || this.dc.readyState !== 'open' || this.dc.bufferedAmount > 1 << 20) return false;
+    try { this.dc.send(text); return true; } catch { return false; }
+  }
+  close() {
+    if (this.room.links.get(this.peer) !== this) return;
+    this.room.links.delete(this.peer);
+    clearTimeout(this.timer);
+    const was = this.open;
+    this.open = false;
+    try { this.dc?.close(); } catch {}
+    try { this.pc.close(); } catch {}
+    if (was) this.room.onLink(this.peer, false);
   }
 }
 
@@ -268,6 +328,7 @@ export class GameRoom {
     this.me = UID;
     this.rid = rid;
     this.peers = new Set();
+    this.links = new Map();   // direct lines, by who they're to
     this.ping = 0;
     this.onMsg = () => {};
     this.onSnap = () => {};
@@ -275,6 +336,7 @@ export class GameRoom {
     this.onJoin = () => {};
     this.onLeave = () => {};
     this.onLost = null;   // the connection gone (see online.js: it tries to get back in)
+    this.onLink = () => {};   // a direct line opened or lost
     c.room = this;
     const send = (code) => ({ send: (data, opt) => c.raise(code, data, opt?.target) });
     this.snap = send(EV.snap);
@@ -295,7 +357,44 @@ export class GameRoom {
     this.c.pump();
     this.ping = Math.round(this.c.lbc.getRtt?.() ?? 0);   // (to Photon's server and back)
   }
+  // (a player) a direct line to this one, if there isn't one - and if it comes to nothing, no harm done
+  async direct(peer) {
+    if (!peer || peer === UID || this.links.has(peer) || !window.RTCPeerConnection) return;
+    const link = new Link(this, peer);
+    try {
+      link.use(link.pc.createDataChannel('game'));
+      await link.pc.setLocalDescription(await link.pc.createOffer());
+      this.c.raise(EV.rtc, { o: link.pc.localDescription }, peer);
+    } catch { link.close(); }
+  }
+  async _signal(m, from) {
+    try {
+      if (m.o && this.isHost && this.peers.has(from)) {
+        this.links.get(from)?.close();
+        const link = new Link(this, from);
+        link.pc.ondatachannel = (e) => link.use(e.channel);
+        await link.pc.setRemoteDescription(m.o);
+        await link.pc.setLocalDescription(await link.pc.createAnswer());
+        this.c.raise(EV.rtc, { a: link.pc.localDescription }, from);
+      } else if (m.a) await this.links.get(from)?.pc.setRemoteDescription(m.a);
+      else if (m.c) await this.links.get(from)?.pc.addIceCandidate(m.c);
+    } catch { /* (it stays on Photon) */ }
+  }
+  // what's come in over a direct line: the first figure's what it is, as an event's code
+  _direct(text, from) {
+    const code = +text[0];
+    if (code !== EV.snap && code !== EV.ctl) return;
+    let data;
+    try { data = JSON.parse(text.slice(1)); } catch { return; }
+    this.c.stat.inN++;
+    this.c.stat.inB += text.length;
+    this._event(code, data, from);
+  }
+  closeLinks() {
+    for (const link of [...this.links.values()]) link.close();
+  }
   leave() {
+    this.closeLinks();
     if (this.c.room === this) this.c.room = null;
     try { if (this.c.lbc.isJoinedToRoom()) this.c.lbc.leaveRoom(); } catch {}   // (back to the lobby)
   }
@@ -303,6 +402,7 @@ export class GameRoom {
     if (code === EV.msg) this.onMsg(data, from);
     else if (code === EV.snap) this.onSnap(data, from);
     else if (code === EV.ctl) this.onCtl(data, from);
+    else if (code === EV.rtc) this._signal(data, from);
   }
   _join(uid) {
     if (!uid || this.peers.has(uid)) return;
@@ -311,10 +411,12 @@ export class GameRoom {
   }
   _leave(uid) {
     if (!this.peers.delete(uid)) return;
+    this.links.get(uid)?.close();
     this.onLeave(uid);
   }
   // the connection lost: whoever's looking after the room hears; if nobody is, everyone's gone
   _lost() {
+    this.closeLinks();
     if (this.onLost) return this.onLost();
     for (const uid of [...this.peers]) this._leave(uid);
   }

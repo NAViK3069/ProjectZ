@@ -86,7 +86,14 @@ export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIM
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
-export const CLASS_MUL = { sniper: 2.75 };   // ...and some kinds of gun harder than that: a sniper's two body shots and you're down
+// ...and some harder than that. A sniper: three body shots with a bolt gun, two with a .50. Those that fire quickly have
+// less of it, or they'd out-damage everything. A shotgun: all its pellets at close range take well over a third of you
+const CLASS_MUL = { sniper: 2, shotgun: 1.7 };
+const GUN_MUL = {
+  vss: 1.1, dragunov: 1.5, m82a1: 1.6, barrett: 1.6,   // (snipers that don't need the bolt working)
+  m1014: 1.4, s12k: 1.4, saiga12: 1.4, aa12: 1.3, usas12: 1.3,   // (shotguns that don't need the pump working)
+};
+export const gunMul = (d) => GUN_MUL[d.key] ?? CLASS_MUL[d.cls] ?? 1;
 export const HEAD_MUL = 1.15;
 const REGEN_DELAY = 4, REGEN = 15;   // not hurt for 4 s: back 15 HP a second
 // body
@@ -112,7 +119,7 @@ const HELD = {
 const EYES_X = [15, 20], SKIN = 'rgb(249, 226, 219)', LID = 'rgb(24, 22, 22)';
 
 // bare fists here are quicker than in the main game: a brawler's jab, barely a breath between punches
-const ARENA_FISTS = { ...FISTS, time: 0.24, jabRest: 0.03, hookRest: 0.15 };
+export const ARENA_FISTS = { ...FISTS, time: 0.24, jabRest: 0.03, hookRest: 0.15 };
 const STANCE_HEIGHT = 5;   // a melee weapon at rest is held lower, at the waist
 // Bare-hand guard (body-local, facing right): right fist forward at chest
 // height, left a little lower and back.
@@ -447,7 +454,7 @@ export class Fighter {
     if (c.aim !== null && c.aim !== undefined) this.aim = c.aim;
     this.aimTarget = c.target ?? null;
     const prey = this.lunge?.v ?? this.cloak?.prey;
-    if (prey?.alive) this.aim = Math.atan2(prey.y - 14 - (this.y - GUN_HEIGHT), prey.x - this.x);
+    if (prey?.alive) { const s = this.seen(prey); this.aim = Math.atan2(s.y - 14 - (this.y - GUN_HEIGHT), s.x - this.x); }
     if (!this.roll) {
       const cs = Math.cos(this.aim), f = cs > 0.15 ? 1 : cs < -0.15 ? -1 : this.facing;
       if (f !== this.facing) { this.facing = f; this.settle = SETTLE_TIME; }
@@ -581,7 +588,7 @@ export class Fighter {
     if (this.lunge) {
       // the cloak's dash in to a stab: straight at their body - along the floor,
       // down off a ledge, up or down through the air - and the knife goes in when it gets there
-      const L = this.lunge, dx = L.v.x - this.x, dy = L.v.y - this.y, d = Math.hypot(dx, dy);
+      const L = this.lunge, at = this.seen(L.v), dx = at.x - this.x, dy = at.y - this.y, d = Math.hypot(dx, dy);
       if ((L.t -= dt) <= 0 || !L.v.alive || d < 13) {
         this.lunge = null;
         this.vx = 0;   // stops right there, at arm's length (and hangs a moment, in the air)
@@ -643,12 +650,13 @@ export class Fighter {
       this.slot = 1;
       if (stab) {
         k.used = true;
-        this.lunge = this.lungeAt();
         // who it's going for, and whether they've got their back to it - decided
-        // now, as the stab starts (not wherever everyone is by the time it lands)
-        const v = this.lunge?.v ?? this.foeNear(16);
+        // now, as the stab starts (not wherever everyone is by the time it lands);
+        // someone in reach gets the dash, unless they're at arm's length already
+        const v = this.stabVictim(), s = v && this.seen(v);
         k.prey = v;
-        k.backstab = v && (this.x - v.x) * v.facing < 0 ? v : null;
+        k.backstab = v && (this.x - s.x) * (s.facing ?? v.facing) < 0 ? v : null;
+        this.lunge = v && Math.hypot(s.x - this.x, s.y - this.y) >= 13 ? { v, t: 0.35 } : null;
         if (!this.lunge) this.melee.attack();
       }
     }
@@ -690,7 +698,9 @@ export class Fighter {
       }
     } else if (this.weapon) {
       const w = this.weapon;
-      if (c.reload) w.startReload();
+      // (both hands on the rungs: no reloading, and what was going on stops)
+      if (this.onLadder) { w.reloadQueued = false; if (w.reloading) w.cancelReload(); }
+      else if (c.reload) w.startReload();
       w.update(dt);
       for (const e of w.events) this.reloadEvent(e);
       // the main game's tilts: muzzle up mid-reload, down feeding shells, up from the floor when drawn
@@ -971,13 +981,13 @@ export class Fighter {
   // if they're a few steps off, the knife straight in if they're close - a
   // critical if they've got their back to it. Gone out of reach: just seen.
   stabAt(v) {
-    const k = this.cloak, dx = v.x - this.x, d = Math.hypot(dx, v.y - this.y);
+    const k = this.cloak, s = this.seen(v), dx = s.x - this.x, d = Math.hypot(dx, s.y - this.y);
     if (!k || k.out || !v.alive || d > LUNGE_RANGE + 8) return this.uncloak();
     k.used = true;
     k.prey = v;
-    k.backstab = (this.x - v.x) * v.facing < 0 ? v : null;
+    k.backstab = (this.x - s.x) * (s.facing ?? v.facing) < 0 ? v : null;
     this.facing = Math.sign(dx) || this.facing;
-    this.aim = Math.atan2(v.y - 14 - (this.y - GUN_HEIGHT), dx);
+    this.aim = Math.atan2(s.y - 14 - (this.y - GUN_HEIGHT), dx);
     if (d >= 13) this.lunge = { v, t: 0.35 };
     else this.melee.attack();
   }
@@ -987,22 +997,31 @@ export class Fighter {
     let best = null;
     for (const v of this.game.fighters) {
       if (!v.alive || v === this || !this.game.foes(this, v)) continue;
-      const d = Math.hypot(v.x - this.x, v.y - this.y);
-      if (d >= r || !this.game.los(this.x, this.y - 14, v.x, v.y - 14)) continue;
+      const s = this.seen(v), d = Math.hypot(s.x - this.x, s.y - this.y);
+      if (d >= r || !this.game.los(this.x, this.y - 14, s.x, s.y - 14)) continue;
       r = d;
       best = v;
     }
     return best;
   }
+  // Where this fighter has v to go by: online, a player goes by where they saw v on their own
+  // screen, a moment ago (see pastOf in online.js); anyone else, where v is.
+  seen(v) {
+    return (this.rewind && this.game.pastOf?.(v, this.rewind)) || v;
+  }
+  // Who the cloak's stab goes for: the nearest in reach. Online, it's whoever that was on the
+  // player's own screen (preyHint; null for nobody), if that's anywhere near right here too.
+  stabVictim() {
+    const h = this.preyHint;
+    if (h === undefined) return this.foeNear(LUNGE_RANGE);
+    if (!h?.alive || !this.game.foes(this, h)) return null;
+    const s = this.seen(h);
+    return Math.hypot(s.x - this.x, s.y - this.y) < LUNGE_RANGE + 24 && this.game.los(this.x, this.y - 14, s.x, s.y - 14) ? h : null;
+  }
   // cloaked, with the stab still to use: who it could dash in on right now (marked with a "!")
   stabTarget() {
     const k = this.cloak;
     return k && !k.out && !k.used && !this.roll ? this.foeNear(LUNGE_RANGE) : null;
-  }
-  // someone in reach of the stab's dash (but not already at arm's length)
-  lungeAt() {
-    const v = this.foeNear(LUNGE_RANGE);
-    return v && Math.hypot(v.x - this.x, v.y - this.y) >= 13 ? { v, t: 0.35 } : null;
   }
 
   // ---------- the shadow clone (skill, Q) ----------
@@ -1339,7 +1358,8 @@ export class Fighter {
     const p = this.blazeFist();
     for (const v of this.game.fighters) {
       if (v === this || !v.alive || v.vanish || !this.game.foes(this, v)) continue;
-      if (Math.abs(v.x - p.x) > 11 || p.y < v.y - 34 || p.y > v.y + 4) continue;   // the fist anywhere on them, head to feet
+      const s = this.seen(v);
+      if (Math.abs(s.x - p.x) > 11 || p.y < s.y - 34 || p.y > s.y + 4) continue;   // the fist anywhere on them, head to feet
       return this.blazeLand(p.x, p.y, v);
     }
     if (moved < BLAZE_SPEED * dt * 0.35) return this.blazeLand(p.x + ux * 3, p.y + uy * 3, null);   // into a wall (or the floor)
@@ -1611,12 +1631,12 @@ export class Fighter {
     for (let i = 0; i < pellets; i++) {
       const spread = pellets > 1 ? ((i / (pellets - 1)) * 2 - 1 + (rnd() - 0.5) * 0.4) * w.spread : (rnd() * 2 - 1) * w.spread * air;
       const speed = d.bulletSpeed * (pellets > 1 ? 0.85 + rnd() * 0.3 : 1);
-      this.game.fireBullet(this, m.x, m.y, dir + spread, speed, w.damage * DAMAGE * (CLASS_MUL[d.cls] ?? 1) * (this.game.gunDamage ?? 1), d.range ?? 520, d.pierce ?? 0);
+      this.game.fireBullet(this, m.x, m.y, dir + spread, speed, w.damage * DAMAGE * gunMul(d) * (this.game.gunDamage ?? 1), d.range ?? 520, d.pierce ?? 0);
     }
     if (!d.action && !d.keepsShells) this.ejectShell(g);
     this.lastFireT = 0;
     // a shove from the heavy ones, mostly felt in the air
-    const kick = Math.min(110, w.damage * DAMAGE * (CLASS_MUL[d.cls] ?? 1) * pellets * 0.7) * (this.onGround ? 0.25 : 0.8);
+    const kick = Math.min(110, w.damage * DAMAGE * gunMul(d) * pellets * 0.7) * (this.onGround ? 0.25 : 0.8);
     this.vx -= Math.cos(g.a) * kick;
     if (!this.onGround) this.vy -= Math.sin(g.a) * kick * 0.4;
     this.game.muzzle(m.x, m.y, g.a, w, this);
@@ -1956,7 +1976,7 @@ export class Fighter {
   // skill building up - so it moves at the screen's own rate, not twenty times a second. Nothing the
   // host decides changes: ammo, health, what's in hand, whether a reload is done. (limbs: false - our
   // own fighter, whose limbs come from its stand-in; see online.js)
-  // arms false: what's in hand is being run already (our own fighter, online: see stepOwn)
+  // arms false: what's in hand and its skill are being run already (our own fighter, online: see stepOwn)
   coast(dt, limbs = true, arms = true) {
     const game = this.game;
     this.game = quietGame(game);   // (no dust of its own: the host's effects come with its state)
@@ -1968,8 +1988,8 @@ export class Fighter {
       if (!this.alive) { this.deadT += dt; return; }
       if (limbs) this.animate(dt);
       if (limbs && this.onLadder) this.climbT += Math.abs(this.vy) * dt;
-      if (this.hook?.state === 'on') { this.trail.unshift({ x: this.x, y: this.y }); this.trail.length = Math.min(this.trail.length, 9); }
-      else if (this.trail.length) this.trail.pop();
+      if (arms && this.hook?.state === 'on') { this.trail.unshift({ x: this.x, y: this.y }); this.trail.length = Math.min(this.trail.length, 9); }
+      else if (arms && this.trail.length) this.trail.pop();
       if (arms) {
         if (this.throwT >= 0) { this.throwT += dt / 0.35; if (this.throwT >= 1) this.throwT = -1; }
         if (this.slot === 1) {
@@ -1992,10 +2012,12 @@ export class Fighter {
         for (const sl of this.slashes) sl.t += dt;
         for (const c of this.cuts) c.t += dt;
       }
-      for (const k of ['bow', 'mura', 'gal', 'summon']) if (this[k] && typeof this[k].t === 'number') this[k].t += dt;
-      if (this.blaze?.phase === 'charge') this.blaze.t += dt;
-      if (this.cloak && !this.cloak.out) { this.cloak.t -= dt; this.cloak.flick -= dt; }
-      if (this.veil) this.veil.t -= dt;
+      if (arms) {
+        for (const k of ['bow', 'mura', 'gal', 'summon']) if (this[k] && typeof this[k].t === 'number') this[k].t += dt;
+        if (this.blaze?.phase === 'charge') this.blaze.t += dt;
+        if (this.cloak && !this.cloak.out) { this.cloak.t -= dt; this.cloak.flick -= dt; }
+        if (this.veil) this.veil.t -= dt;
+      }
       if (this.roll && limbs) {
         this.roll.t = Math.min(0.99, this.roll.t + dt / ROLL_TIME);
         (this.roll.trail ??= []).unshift({ x: this.x, y: this.y, t: this.roll.t });
@@ -2360,18 +2382,34 @@ export class Fighter {
 
   // On a ladder, seen from behind, facing into the wall: the hands go up the
   // rails hand over hand - the one reaching up shows above the head, the
-  // other is hidden behind it - and the feet take turns stepping up.
+  // other is hidden behind it - and the feet take turns stepping up. Turned the way it's
+  // looking, as ever; the gun's slung across the middle of its back, in plain sight.
   drawClimbing(ctx, x, y, part) {
     const ox = -ORIGIN_X, oy = -ORIGIN_Y, pose = this.pose;
     const s = Math.floor(this.climbT / 8) % 2, reach = (this.climbT % 8) / 8;
     // hands on the rails at about head height, the reaching one a few pixels higher
-    const high = y - 25 - Math.round(reach * 2), low = y - 20;
-    drawHand(ctx, 'grab', x - 9, s ? high : low);
-    drawHand(ctx, 'grab', x + 10, s ? low : high);
-    ctx.drawImage(part('backLegL'), x + ox + pose.legL[0], y + oy - pose.legL[1]);
-    ctx.drawImage(part('backLegR'), x + ox + pose.legR[0], y + oy - pose.legR[1]);
-    ctx.drawImage(part('backBody'), x + ox, y + oy + pose.body);
-    ctx.drawImage(part('backHead'), x + ox, y + oy + pose.head);
+    const high = -25 - Math.round(reach * 2), low = -20;
+    ctx.save();
+    ctx.translate(this.facing < 0 ? x + 1 : x, y);
+    if (this.facing < 0) ctx.scale(-1, 1);
+    drawHand(ctx, 'grab', -9, s ? high : low);
+    drawHand(ctx, 'grab', 10, s ? low : high);
+    ctx.drawImage(part('backLegL'), ox + pose.legL[0], oy - pose.legL[1]);
+    ctx.drawImage(part('backLegR'), ox + pose.legR[0], oy - pose.legR[1]);
+    ctx.drawImage(part('backBody'), ox, oy + pose.body);
+    ctx.drawImage(part('backHead'), ox, oy + pose.head);
+    const g = this.gun;   // (nearest of all, from behind)
+    if (g) {
+      // by the middle of the gun, not its grip: from the muzzle back half its length
+      const { grip } = g.art.points, m = g.muzzle;
+      ctx.save();
+      ctx.translate(0, -15 + pose.body);
+      ctx.rotate(-Math.PI / 4);
+      ctx.translate(artW(g.icon) / 2 - (m.x - grip.x), grip.y - m.y);
+      g.draw(ctx);
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   drawArms(ctx) {

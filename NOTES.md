@@ -18,15 +18,20 @@ It's on GitHub Pages: https://navik3069.github.io/ProjectZ/ (the repo's `main`
 branch, served as it is - there's no build step; `.nojekyll` keeps Pages from
 touching it). Push to `main` and it's live a minute later.
 
-MULTIPLAYER: choose a server, then make a room or join one from the list, set
+MULTIPLAYER: choose a server, then make a room or join one from the list (it keeps
+itself up, every 5 s; REFRESH or R does it now), set
 it up, everyone READY, the host STARTs. A room has 8 slots in two columns (in
 TEAMS, the left BLUE and the right RED - JOIN on a side's banner moves you
 over; each side wears its colour and starts on its own half of the map); the
 host opens or closes each one or puts a bot in it - the only bots are the
-ones in slots - and players click an open slot to move to it. A room that's
-playing (or full) can still be joined, to watch (A / D or a click switches
-who); at the end of the match the watchers get the open slots. Hold TAB in a
-match for the scores. CREATE ROOM asks for a name and an optional password
+ones in slots - and players click an open slot to move to it. A room that's full
+can still be gone into, to watch (A / D or a click switches who), and one that's
+started: its READY is a JOIN then, which takes a slot, watches until the round ends
+and plays from the next (`joinNextRound`, `letJoinersIn`) - in a full room it's WATCH THE
+MATCH, and a JOIN comes up while watching if a slot comes free. A password's asked
+for all the same. At the end of the match the watchers get the open slots. Hold TAB in a
+match for the scores, and who's watching; on it the host has KICK (at once) and BAN (for
+as long as the room lasts; asks SURE? first). Both go by the tab's id: a new tab gets round them. CREATE ROOM asks for a name and an optional password
 (a padlock in the room list; joining asks for it - only the host checks it).
 The host can rename the room or change the password from the room.
 On a player's slot the host has KICK (out, and not back for a minute) and
@@ -55,13 +60,23 @@ the top of the file has the short version):
   everything the player's done (`N.combatSeq`, `N.deferred`).
 - **Lag compensation:** a player's shot or melee hit is judged against where they
   saw everyone (`pastOf`, at most `MAX_REWIND` back).
-- **Skills are still the host's:** starting one waits a trip there and back; once
-  it's going its movement (the grapple's reel, a dash) is predicted like the rest.
+- **Skills:** the stand-in runs the player's skill too (`makeGhost`, `SKILL_KEYS`), so it
+  starts as Q goes down. What it does to others is still the host's: hits, the flame
+  fist's blast, the arrows, the double. If the host didn't agree (it never had the cloak,
+  or they were hurt out of it), its word comes back and what was in hand is put back
+  (`reconcile`).
+- **The cloak's stab:** who it goes for is who it went for on the player's screen; that's
+  in the command (`prey`), and the host takes it if it's anywhere near right (`stabVictim`).
+  The dash, the blow and the back-or-not go by where they saw that fighter (`Fighter.seen`).
+- **Run over again:** a command that's run again goes by what was in hand when it first
+  ran (`cmd.rp`), as a swing or a skill changes how fast you go, and what it did to the
+  skill from the hand side is done again (`cmd.ops`, `redo`).
 
 Testing a bad connection: `?lag=40&jitter=25` on both pages holds back everything
 each one sends. F9 in a match, or `arena.online.netStats`, shows messages and bytes
-a second, how far behind others are drawn, jitter, commands unheard, and FIX (how far
-the last correction moved the player - it should stay near 0).
+a second, DIRECT or PHOTON, how long a command takes to be heard back about (HOST), how
+far behind others are drawn, jitter, commands unheard, and FIX (how far the last correction
+moved the player - near 0, unless they've been knocked).
 
 Skills: YOUR SKILL and BOT SKILLS (RANDOM, one of them, or NONE) are picked
 from a list (the setup screen, and the room for online); SKILLS (Q) OFF turns
@@ -84,20 +99,34 @@ the first time you go online. Players on a different `APP_VERSION` don't meet.
 
 The host's browser runs the game; the others send commands and get states
 30 times a second (20 with more than 5 in the room, to stay under Photon's 500
-messages a second in a room). A state has only what's changed (`changed`, with a
+messages a second in a room). Those two go straight between player and host where
+their networks allow it (WebRTC, `Link` in `net.js`: found with a public STUN server,
+set up by way of Photon, so the two see each other's IP address), with commands then
+sent every step. Where it doesn't work, or the line goes, they go through Photon.
+Everything else always goes through Photon. A state has only what's changed (`changed`, with a
 rule per field for what each screen can carry on by itself; `Fighter.coast`). A
 shot's sent once, and each screen carries it on; how far it got is sent when it
 ends. A hidden tab gets no frames, so online a worker keeps time instead
 (`backupClock` in `src/arena/main.js`) and the game runs on at full speed with
 the host's tab in the background or minimised; and however slowly frames come,
-the game makes up the time in 1/30 s steps (`runFor`).
+the game makes up the time in 1/30 s steps (`runFor`). A player's commands that
+have queued up on the host (it stalled, or the network did) are worked off at up to 4
+times the rate, so the delay doesn't stay; they can't run faster than real time for long
+(`bank`, up to `MAX_BANK`).
+
+There's no server of our own: Photon only passes messages on, and its plugins that could
+run a game are for its Enterprise plan. To have one, the game would have to run without
+a page (fighters and main.js draw and read images as they go) on a machine that's paid for.
 
 If the host's connection or tab goes, the first of the others in the room takes it
 over (`hostGone`): the match is over, as the game ran on that machine, but the room,
 its slots and its settings carry on. CLOSE THE ROOM still ends it for everyone. A
 player whose connection drops is taken back in by themselves (`getBack`), keeps their
 id for the tab (`sessionStorage`), and the host keeps their seat for `SEAT_HOLD` s,
-so a reload can also come back to it from the lobby.
+so a reload can also come back to it from the lobby. A player who leaves a match, or whose
+connection goes, dies at once and their fighter's gone from the game a moment later
+(`retire`), including from the rounds to come. If they're back in time they sit out the rest
+of that round and play on from the next.
 
 ## The 2.5D top-down game is shelved, not deleted
 

@@ -528,7 +528,7 @@ export function longGun(o) {
   if (o.double) {
     // break action: the barrels swing down on a hinge under their back end
     art.hinge = { x: hx, y: cy + 8 };
-    art.breakParts = ['barrel'];
+    art.breakParts = ['barrel', 'post'];   // (the bead's on the barrels)
     art.points.breech = { x: hx + 2, y: cy + 3 };
   }
   if (magType === 'top') art.magDir = -1;

@@ -101,6 +101,7 @@ export const RELOAD_EVENTS = { magOut: 0.15, magIn: 0.64, rack: 0.88 };
 const MAG_SLIDE = 0.08;    // mag starts sliding out
 const MAG_SEAT = 0.58;     // new mag appears at the well
 const MAG_DROP = 4;        // px the mag slides before it falls / when it's seated
+const MAG_RESUME = 0.2;    // a reload picked up again with the old mag already gone: from the hand going for a new one
 // Within one shell's load cycle, when the shell goes in.
 export const SHELL_IN = 0.82;
 // Within an action cycle (pump/bolt), when the spent case flies out.
@@ -120,6 +121,7 @@ export class Weapon {
     this.climb = 0;       // current muzzle climb in radians
     this.flash = 0;
     this.reload = -1;     // reload progress 0..1 (per shell for 'shells'), or -1 when not reloading
+    this.magless = false; // the old mag's been thrown away and the new one isn't in yet (it stays so if the reload's cut short)
     this.cycle = 0;       // which shell we're on during a shell reload
     this.acting = 0;      // seconds left in a pump/bolt stroke
     this.actDelay = 0;
@@ -186,6 +188,16 @@ export class Weapon {
 
   get reloading() {
     return this.reload >= 0;
+  }
+
+  // How far along the reload is, for a meter, 0..1. A shell at a time: the mag filling up (a shell's only
+  // counted in the ammo part way through its cycle, so that part's taken back off, or the meter goes on a
+  // shell ahead and back again); as many as there are to load, if that's not a full mag.
+  get reloadShown() {
+    const t = Math.max(0, this.reload);
+    if (this.def.reload !== 'shells') return Math.min(1, t);
+    const done = t >= SHELL_IN ? this.ammo - 1 : this.ammo;
+    return Math.min(1, (done + t) / Math.max(1, Math.min(this.magSize, this.ammo + this.reserve)));
   }
 
   // 0..1 through the current pump/bolt stroke, or -1.
@@ -277,9 +289,17 @@ export class Weapon {
       if (name === 'rack' && this.def.noRack) continue;
       if (before < at && this.reload >= at) this.events.push(name);
     }
+    if (before < RELOAD_EVENTS.magOut && this.reload >= RELOAD_EVENTS.magOut) {
+      // out it comes - what was left in it goes back with the spare rounds (a mag's not wasted), and there's nothing to fire
+      this.magless = true;
+      if (this.ammo > 0 && this.ammoSource) this.ammoSource.give(this.def.caliber, this.ammo);
+      this.ammo = 0;
+    }
+    if (before < RELOAD_EVENTS.magIn && this.reload >= RELOAD_EVENTS.magIn) {
+      this.magless = false;
+      this.ammo += this.ammoSource ? this.ammoSource.take(this.def.caliber, this.magSize - this.ammo) : 0;
+    }
     if (this.reload >= 1) {
-      const want = this.magSize - this.ammo;
-      this.ammo += this.ammoSource ? this.ammoSource.take(this.def.caliber, want) : 0;
       this.reload = -1;
       if (this.def.noRack) this.startAction();   // sniper: work the bolt to chamber a round
     }
@@ -316,7 +336,7 @@ export class Weapon {
       return false;
     }
     if (this.reloading || this.ammo >= this.magSize || this.reserve <= 0) return false;
-    this.reload = 0;
+    this.reload = this.magless ? MAG_RESUME : 0;
     this.cycle = 0;
     return true;
   }
@@ -395,7 +415,8 @@ export class Weapon {
   }
 
   get magDrop() {
-    if (!this.reloading || this.def.reload !== 'mag') return 0;
+    if (this.def.reload !== 'mag') return 0;
+    if (!this.reloading) return this.magless ? null : 0;
     const t = this.reload, { magOut, magIn } = RELOAD_EVENTS;
     if (t < MAG_SLIDE) return 0;
     if (t < magOut) return Math.round(((t - MAG_SLIDE) / (magOut - MAG_SLIDE)) * MAG_DROP);
