@@ -400,6 +400,7 @@ let round = 0, roundT = 0, stateT = 0, slow = 1, banner = null, overtime = false
 let winner = null, champion = null, pickupT = 0;
 
 function startRound() {
+  spectating = null;
   round++;
   roundT = 0;
   overtime = false;
@@ -1475,7 +1476,10 @@ function updateCamera(dt) {
   } else {
     let f = player.alive ? player : null;
     if (!f) {
-      if (!spectating || !spectating.alive) spectating = (player.killer?.alive && player.killer) || game.fighters.find((o) => o.alive) || player;
+      // someone still in this game to watch - who got you, if they're about (not a shadow clone, nor
+      // someone from a match before: kept from one to the next, the camera sat where they'd last been)
+      const ok = (o) => o && o.alive && !o.isDecoy && !o.dummy && game.fighters.includes(o);
+      if (!ok(spectating)) spectating = (ok(player.killer?.owner ?? player.killer) && (player.killer.owner ?? player.killer)) || game.fighters.find(ok) || player;
       f = spectating;
     }
     const target = f.alive ? f : f.corpse ?? f;
