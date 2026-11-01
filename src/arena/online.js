@@ -964,7 +964,7 @@ function runOwn(f, dt) {
   if (c.slot) N.latch.slot = c.slot;
   if (c.cycle) N.latch.cycle = c.cycle;
   // (not while its skill has the aim: a stab on its way in, the flame fist's dash)
-  if (c.aim !== null && c.aim !== undefined && !gh.lunge && !gh.cloak?.prey && !gh.blaze && !gh.mura) f.aim = c.aim;
+  if (c.aim !== null && c.aim !== undefined && !gh.lunge && !gh.cloak?.prey && !gh.blaze) f.aim = c.aim;
   f.aimTarget = c.target ?? null;
   N.acc = Math.min(N.acc + dt, STEP * 12);
   while (N.acc >= STEP) {
@@ -1436,6 +1436,8 @@ function hostMsg(m, from) {
     // back to the room in the middle of the match: their fighter drops out of it
     x.out = true;
     retire(from);
+  } else if (m.t === 'die') {
+    if (A.state === 'fight') A.game.fighters.find((f) => f.peer === from && f.alive)?.die(null, 'RESET', 0, 0);
   } else if (m.t === 'watch' || m.t === 'join') {
     // in a match going on: to watch it - and, if they're joining and there's a slot, to play from the next round
     if (!N.playing || !N.match) return;
@@ -1760,7 +1762,12 @@ export function netGameInput() {
   if (N.mode === 'host' && click?.startsWith('tab-ban:')) { if (sure(click)) kick(click.slice(8), true); return; }
   if (N.watching && click === 'net-join') return N.room.send({ t: 'join' }, N.room.hostId);
   if (I.wasPressed('Escape') || click === 'net-resume') N.menu = !N.menu;
-  else if (N.menu && click === 'net-room') {
+  else if (N.menu && canReset() && (click === 'net-kill' || I.wasPressed('KeyK'))) {
+    // stuck somewhere? out of it the hard way
+    if (N.mode === 'host') A.player.die(null, 'RESET', 0, 0);
+    else N.room.send({ t: 'die' }, N.room.hostId);
+    N.menu = false;
+  } else if (N.menu && click === 'net-room') {
     // the host: the match ends, everyone back to the room. A player: out of this match, back to the room (it goes on without them)
     if (N.mode === 'host') backToRoom();
     else {
@@ -1778,6 +1785,8 @@ export function netGameInput() {
     if (dir) watchNext(dir);
   }
 }
+
+const canReset = () => A.state === 'fight' && !N.watching && A.player?.alive;
 
 // (TAB, in a match; the host's) KICK and BAN on a player's row, ending at x (BAN asks SURE? first)
 function tabButtons(k, u, id, x, y, h) {
@@ -2117,12 +2126,16 @@ export function drawNetOverlay(ctx, u, W, H) {
   if (N.msgT > 0) k.toast(N.msg);
   if (!N.menu) return;
   k.shade(0.65);
-  const host = N.mode === 'host', pw = 220 * u, ph = 26 * u + 16 * u + 3 * 23 * u + 10 * u, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
+  const host = N.mode === 'host', reset = canReset(), pw = 220 * u, ph = 26 * u + 16 * u + (reset ? 4 : 3) * 23 * u + 10 * u, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
   let y = k.panel(px, py, pw, ph, { title: N.roomName.slice(0, 20) });
   k.text('THE GAME GOES ON WHILE THIS IS OPEN', W / 2, y, { small: true, color: K.muted, align: 'center' });
   y += 14 * u;
   k.button('net-resume', px + 8 * u, y, pw - 16 * u, 18 * u, 'BACK TO THE GAME', { kind: 'primary' });
   y += 23 * u;
+  if (reset) {
+    k.button('net-kill', px + 8 * u, y, pw - 16 * u, 18 * u, 'RESET CHARACTER (DIE) - K');
+    y += 23 * u;
+  }
   k.button('net-room', px + 8 * u, y, pw - 16 * u, 18 * u, host ? 'END THE MATCH - ALL TO THE ROOM' : 'BACK TO THE ROOM');
   y += 23 * u;
   const ask = asking('net-leave');

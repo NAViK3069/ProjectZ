@@ -1117,7 +1117,7 @@ function updateDemons(dt) {
     // the nearest foe that can be seen within reach
     let tgt = null, best = DEMON_RANGE;
     if (!over) for (const v of game.fighters) {
-      if (!v.alive || v.vanish || !game.foes(o, v) || v.hidden) continue;
+      if (!v.alive || v.vanish || !game.foes(o, v) || (v.hidden && !v.glimpsed)) continue;
       const dd = Math.hypot(v.x - d.x, v.y - 14 - d.y);
       if (dd < best && game.los(d.x, d.y, v.x, v.y - 14)) { best = dd; tgt = v; }
     }
@@ -1626,7 +1626,7 @@ function drawWorld() {
     }
   }
   // you, cloaked: whoever's in reach of your stab right now, locked on
-  const mine = player.alive ? player.stabTarget() ?? player.skillLock() : null;   // (who the stab, or the skill, would go for)
+  const mine = player.alive ? player.stabTarget() ?? player.hookTarget() : null;   // (who the stab, or the line, would go for)
   if (mine?.alive) drawMarked(ctx, mine);
   drawCabinetPrompt(ctx);
   // E prompt over a weapon the player could swap to
@@ -1800,9 +1800,14 @@ function drawBanner(ctx, u, H) {
 }
 
 // The pause menu: buttons (or their keys).
-const pauseItems = () => (state === 'training'
-  ? [['resume', 'RESUME', 'ESC'], ['reset', 'RESET THE RANGE', 'R'], ['menu', 'MAIN MENU', 'Q']]
-  : [['resume', 'RESUME', 'ESC'], ['restart', 'RESTART THE MATCH', 'R'], ['setup', 'ROOM SETUP', 'S'], ['menu', 'MAIN MENU', 'Q']]);
+const canReset = () => (state === 'fight' || state === 'training') && player.alive;   // (stuck somewhere? out of it the hard way)
+const pauseItems = () => [
+  ['resume', 'RESUME', 'ESC'],
+  ...(canReset() ? [['kill', 'RESET CHARACTER (DIE)', 'K']] : []),
+  ...(state === 'training'
+    ? [['reset', 'RESET THE RANGE', 'R'], ['menu', 'MAIN MENU', 'Q']]
+    : [['restart', 'RESTART THE MATCH', 'R'], ['setup', 'ROOM SETUP', 'S'], ['menu', 'MAIN MENU', 'Q']]),
+];
 function drawPause(ctx, u, W, H) {
   kit.shade(0.7);
   const items = pauseItems(), pw = 200 * u, bh = 18 * u, ph = 26 * u + items.length * (bh + 5 * u), px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
@@ -1816,6 +1821,7 @@ function drawPause(ctx, u, W, H) {
 function pauseInput() {
   const c = kit.click?.startsWith('pause:') ? kit.click.slice(6) : null;
   if (c === 'resume') paused = false;
+  else if (canReset() && (input.wasPressed('KeyK') || c === 'kill')) { paused = false; player.die(null, 'RESET', 0, 0); }
   else if (input.wasPressed('KeyQ') || c === 'menu') { paused = false; state = 'menu'; banner = null; }
   else if (input.wasPressed('KeyR') || c === 'restart' || c === 'reset') { paused = false; if (state === 'training') startTraining(); else startMatch(); }
   else if ((input.wasPressed('KeyS') && state !== 'training') || c === 'setup') { paused = false; state = 'title'; banner = null; }

@@ -79,9 +79,8 @@ const RED_BLUE = 0.42, MERGE = 0.74, MURA_CHARGE = 1.1, MURA_CD = 18;
 // flame fist (skill, Q): the fire builds on the fists (BLAZE_CHARGE), then the dash - this fast, this far at most -
 // and the punch, and a moment to come out of it; the punch's hit; the wait after
 const BLAZE_CHARGE = 0.7, BLAZE_SPEED = 560, BLAZE_RANGE = 180, BLAZE_RECOVER = 0.3, BLAZE_DMG = 150, BLAZE_CD = 9;
-// galaxy (skill, Q): the cast (at a point this far off at most - where you aim), the wait after
-const GAL_CAST = 0.8, GAL_RANGE = 240, GAL_CD = 16;
-const MURA_LOCK = 420;   // (how far murasaki's aim locks on)
+// galaxy (skill, Q): the cast (at a point this far off at most - where you aim), the wait after; how far short of a wall it opens
+const GAL_CAST = 0.8, GAL_RANGE = 240, GAL_CD = 16, GAL_WALL = 8;
 // the abyss fists (skill, Q): the calling-up, the wait once they're all gone (the fists themselves: see main.js)
 const SUM_CAST = 0.6, SUM_CD = 15;
 export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD };
@@ -108,11 +107,13 @@ export const gunMul = (d) => GUN_MUL[d.key] ?? CLASS_MUL[d.cls] ?? 1;
 export const HEAD_MUL = 1.15;
 const REGEN_DELAY = 4, REGEN = 15;   // not hurt for 4 s: back 15 HP a second
 // body
+const MOVE_STEP = 6;   // the most a body moves at a time, however fast it's going: never far enough to pass through something
+const UNSTICK = [[0, -1], [-1, 0], [1, 0], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]];   // (which way out first, when caught inside something)
 const HALF_W = 5, HEIGHT = 28, ROLL_H = 14, CROUCH_H = 22, CROUCH_DROP = 5;
 const CROUCH_BODY = 3;   // crouched: the body sinks 3 px, the head 2 more (5 in all) - tucked into the shoulders
 // the main game's gun handling
 const GUN_HEIGHT = 9, GUN_REACH = 4, RELOAD_TILT = 0.55, SHELL_TILT = -0.4, RAISE_TILT = -1.1, STEP_TILT = -0.3, CLIMB_KEEP = 0.35;
-const FLIP_TIME = 0.45;   // the second jump's somersault
+const FLIP_TIME = 0.5, FLIP_LAND = 0.12;   // the second jump's somersault; how soon it finishes once it's landed
 const WALK_FPS = 16, IDLE_PERIOD = 1.5, SETTLE_TIME = 0.1;
 const SPRING_K = 420, SPRING_D = 14;   // the body's squash-and-stretch spring (bouncy: it overshoots)
 const BELT = { x: -2, y: -5 };
@@ -469,11 +470,6 @@ export class Fighter {
     this.aimTarget = c.target ?? null;
     const prey = this.lunge?.v ?? this.cloak?.prey;
     if (prey?.alive) { const s = this.seen(prey); this.aim = Math.atan2(s.y - 14 - (this.y - GUN_HEIGHT), s.x - this.x); }
-    // a skill's aim while it builds: onto someone close to it
-    if (this.mura || this.blaze?.phase === 'charge') {
-      const v = this.assistTarget(this.mura ? MURA_LOCK : BLAZE_RANGE + 20), s = v && this.seen(v);
-      if (v) this.aim = Math.atan2(s.y - 14 - (this.y - GUN_HEIGHT), s.x - this.x);
-    }
     if (!this.roll) {
       const cs = Math.cos(this.aim), f = cs > 0.15 ? 1 : cs < -0.15 ? -1 : this.facing;
       if (f !== this.facing) { this.facing = f; this.settle = SETTLE_TIME; }
@@ -612,8 +608,8 @@ export class Fighter {
       const L = this.lunge, at = this.seen(L.v), dx = at.x - this.x, dy = at.y - this.y, d = Math.hypot(dx, dy);
       if ((L.t -= dt) <= 0 || !L.v.alive || d < 13) {
         this.lunge = null;
-        this.vx = 0;   // stops right there, at arm's length (and hangs a moment, in the air)
-        this.vy = Math.min(this.vy, 0);
+        this.vx = 0;   // stops right there, at arm's length (none of the dash's speed left to carry it on up)
+        this.vy = 0;
         this.melee.attack();
       } else {
         this.vx = (dx / d) * LUNGE_SPEED;
@@ -644,7 +640,8 @@ export class Fighter {
       if (fall > 250) this.game.fx.dust(this.x, this.y, 5);
     }
     if (this.onGround) { this.airJumps = 1; this.airRoll = true; }
-    if (this.onGround || this.onLadder || this.roll) this.flipT = -1;
+    if (this.onLadder || this.roll) this.flipT = -1;
+    else if (this.onGround && this.flipT >= 0 && (this.flipT += dt / FLIP_LAND) >= 1) this.flipT = -1;   // (down part way round: it finishes turning, quickly, rather than snap upright)
     // on a jump pad: up you go
     this.padT -= dt;
     if (this.onGround && !this.onLadder && !this.roll && L.padAt(this.x, this.y)) {
@@ -812,30 +809,16 @@ export class Fighter {
     if (solid(px, y) || !solid(x, py)) return { x: 0, y: y > py ? -1 : 1 };
     return { x: x > px ? -1 : 1, y: 0 };
   }
-  // Who the line shot now would lock on to.
+  // Who a line shot now would lock on to: a foe it can reach, close to the line of the aim or to the cursor,
+  // nothing solid between. Not someone unseen - only in the moment the cloak glitches and shows them.
   hookTarget() {
-    return this.skill === 'grapple' && this.charges > 0 ? this.assistTarget(GRAPPLE_RANGE) : null;
-  }
-  // Who this fighter's skill would go for, right now (what's shown as locked on, for whoever's playing).
-  skillLock() {
-    const ready = this.skillCD <= 0 && !this.fistsOut;
-    switch (this.skill) {
-      case 'grapple': return this.hookTarget();
-      case 'murasaki': return ready || this.mura ? this.assistTarget(MURA_LOCK) : null;
-      case 'blaze': return ready || this.blaze?.phase === 'charge' ? this.assistTarget(BLAZE_RANGE + 20) : null;
-      case 'galaxy': return ready && !this.gal ? this.assistTarget(GAL_RANGE + 40) : null;
-      default: return null;
-    }
-  }
-  // Aim assist, for the skills: a foe in reach, close to the line of the aim or to the cursor, nothing solid
-  // between. Not someone unseen: they aren't there to aim at.
-  assistTarget(range) {
+    if (this.skill !== 'grapple' || !(this.charges > 0)) return null;
     const s = this.lineFrom(), ax = Math.cos(this.aim), ay = Math.sin(this.aim), t = this.aimTarget;
     let best = null, bs = Infinity;
     for (const v of this.game.fighters) {
-      if (v === this || !v.alive || v.vanish || v.hidden || !this.game.foes(this, v)) continue;
+      if (v === this || !v.alive || v.vanish || (v.hidden && !v.glimpsed) || !this.game.foes(this, v)) continue;
       const p = this.seen(v), cx = p.x, cy = p.y - 14, dx = cx - s.x, dy = cy - s.y;
-      if (Math.hypot(dx, dy) > range || dx * ax + dy * ay <= 0) continue;
+      if (Math.hypot(dx, dy) > GRAPPLE_RANGE || dx * ax + dy * ay <= 0) continue;
       const off = Math.min(Math.abs(dx * ay - dy * ax), t ? Math.hypot(t.x - cx, t.y - cy) : Infinity);
       if (off > GRAPPLE_LOCK || off >= bs || !this.game.los(s.x, s.y, cx, cy)) continue;
       bs = off;
@@ -856,7 +839,7 @@ export class Fighter {
     if (c.skill && this.charges > 0 && this.hookGap <= 0 && !this.onLadder && !this.roll) {
       // (on a line already: the next one straight off it)
       const s = this.lineFrom(), lock = this.hookTarget();
-      h = this.hook = { state: 'fly', x: s.x, y: s.y, dx: Math.cos(this.aim), dy: Math.sin(this.aim), len: 0, t: 0, slow: 0, snap: 9, lock };
+      h = this.hook = { state: 'fly', x: s.x, y: s.y, dx: Math.cos(this.aim), dy: Math.sin(this.aim), len: 0, t: 0, slow: 0, snap: 9, lock, onUnseen: !!lock?.hidden };   // (onUnseen: caught as they glitched - it stays on them when that's over)
       this.charges--;
       this.hookGap = GRAPPLE_GAP;
       if (this.skillCD <= 0) this.skillCD = GRAPPLE_CD;
@@ -869,7 +852,7 @@ export class Fighter {
       const step = 3;
       for (let i = Math.ceil((GRAPPLE_SPEED * dt) / step); i > 0; i--) {
         // locked on: it goes for them, wherever they've gone
-        const lk = h.lock?.alive && !h.lock.hidden && !h.lock.vanish ? h.lock : null, lp = lk && this.seen(lk);
+        const lk = h.lock?.alive && (!h.lock.hidden || h.onUnseen) && !h.lock.vanish ? h.lock : null, lp = lk && this.seen(lk);
         if (lk) {
           const ldx = lp.x - h.x, ldy = lp.y - 14 - h.y, ld = Math.hypot(ldx, ldy) || 1;
           h.dx = ldx / ld;
@@ -878,8 +861,9 @@ export class Fighter {
         const nx = h.x + h.dx * step, ny = h.y + h.dy * step;
         // someone in the way: it hooks them, and pulls you to them (they don't budge)
         const there = lk && Math.hypot(nx - lp.x, ny - (lp.y - 14)) < 10;
-        const v = there ? lk : this.game.fighters.find((o) => o !== this && o.alive && !o.vanish && !o.hidden && o.owner !== this && o.hitPart(nx, ny));
+        const v = there ? lk : this.game.fighters.find((o) => o !== this && o.alive && !o.vanish && (!o.hidden || o.glimpsed) && o.owner !== this && o.hitPart(nx, ny));
         if (v) {
+          if (v.hidden) h.onUnseen = true;
           Object.assign(h, { state: 'on', t: 0, x: nx, y: ny, nx: -h.dx, ny: -h.dy, who: v, ox: there ? 0 : nx - v.x, oy: there ? -14 : ny - v.y });
           this.followHooked();
           if (Math.hypot(h.tx - this.x, h.ty - (this.y - 14)) < 14) {
@@ -918,7 +902,7 @@ export class Fighter {
     } else if (h.state === 'on') {
       if (h.who) {
         // hooked on someone: the claw goes where they go (and lets go if they're gone)
-        if (!h.who.alive || h.who.vanish || h.who.hidden) { this.letGo(); return; }
+        if (!h.who.alive || h.who.vanish || (h.who.hidden && !h.onUnseen)) { this.letGo(); return; }
         this.followHooked();
       }
       this.trail.unshift({ x: this.x, y: this.y });
@@ -1022,6 +1006,10 @@ export class Fighter {
   get glimpsed() {
     return !!this.cloak && !this.cloak.out && this.cloak.flick > 0;
   }
+  // (or was just now: online, a player went for them in that moment, and word of it took a moment to get here)
+  get glimpsedLately() {
+    return !!this.cloak && !this.cloak.out && this.cloak.flick > -0.4;
+  }
   updateCloak(dt, c) {
     const k = this.cloak;
     if (!k) {
@@ -1039,7 +1027,7 @@ export class Fighter {
   }
   goCloak() {
     if (this.weapon?.reloading) this.weapon.cancelReload();
-    this.cloak = { t: CLOAK_TIME, saved: this.melee, slot: this.slot, out: false, used: false, prey: null, flick: 0, flickIn: FLICKER_EVERY };
+    this.cloak = { t: CLOAK_TIME, saved: this.melee, slot: this.slot, out: false, used: false, prey: null, flick: -9, flickIn: FLICKER_EVERY };
     this.melee = new MeleeWeapon(SHADE_KNIFE);
     this.melee.drawT = 0;   // (out at once)
     this.slot = 1;
@@ -1080,7 +1068,7 @@ export class Fighter {
   foeNear(r) {
     let best = null;
     for (const v of this.game.fighters) {
-      if (!v.alive || v === this || v.hidden || !this.game.foes(this, v)) continue;
+      if (!v.alive || v === this || (v.hidden && !v.glimpsed) || !this.game.foes(this, v)) continue;   // (the unseen: only as the cloak glitches)
       const s = this.seen(v), d = Math.hypot(s.x - this.x, s.y - this.y);
       if (d >= r || !this.game.los(this.x, this.y - 14, s.x, s.y - 14)) continue;
       r = d;
@@ -1098,7 +1086,7 @@ export class Fighter {
   stabVictim() {
     const h = this.preyHint;
     if (h === undefined) return this.foeNear(LUNGE_RANGE);
-    if (!h?.alive || h.hidden || !this.game.foes(this, h)) return null;
+    if (!h?.alive || (h.hidden && !h.glimpsedLately) || !this.game.foes(this, h)) return null;
     const s = this.seen(h);
     return Math.hypot(s.x - this.x, s.y - this.y) < LUNGE_RANGE + 24 && this.game.los(this.x, this.y - 14, s.x, s.y - 14) ? h : null;
   }
@@ -1559,13 +1547,17 @@ export class Fighter {
   // rolling); cast, a black hole opens in it, drags everyone near in and goes
   // off (see main.js). You're free the moment it's cast.
 
-  // where it's being cast: the aim point, no further than GAL_RANGE from your chest
+  // where it's being cast: the aim point, no further than GAL_RANGE from your chest, and on this side of
+  // any wall in the way (catwalks don't count)
   galPoint() {
-    // (aimed close to someone: on them)
-    const v = this.assistTarget(GAL_RANGE + 40), vs = v && this.seen(v);
-    const sx = this.x, sy = this.y - 16, t = (vs && { x: vs.x, y: vs.y - 12 }) ?? this.aimTarget ?? { x: sx + Math.cos(this.aim) * 140, y: sy + Math.sin(this.aim) * 140 };
-    const dx = t.x - sx, dy = t.y - sy, d = Math.hypot(dx, dy);
-    return d > GAL_RANGE ? { x: sx + (dx / d) * GAL_RANGE, y: sy + (dy / d) * GAL_RANGE } : { x: t.x, y: t.y };
+    const sx = this.x, sy = this.y - 16, t = this.aimTarget ?? { x: sx + Math.cos(this.aim) * 140, y: sy + Math.sin(this.aim) * 140 };
+    const dx = t.x - sx, dy = t.y - sy, d = Math.hypot(dx, dy) || 1, r = Math.min(d, GAL_RANGE), L = this.game.level;
+    for (let at = 2; at < r + 2; at += 2) {
+      if (!L.solidAt(sx + (dx / d) * Math.min(at, r), sy + (dy / d) * Math.min(at, r))) continue;
+      const back = Math.max(0, Math.min(at, r) - GAL_WALL);
+      return { x: sx + (dx / d) * back, y: sy + (dy / d) * back };
+    }
+    return { x: sx + (dx / d) * r, y: sy + (dy / d) * r };
   }
   updateGalaxy(dt, c) {
     const m = this.gal;
@@ -1808,6 +1800,28 @@ export class Fighter {
   }
 
   move(dt) {
+    this.unstick();
+    const n = Math.max(1, Math.ceil((Math.max(Math.abs(this.vx), Math.abs(this.vy)) * dt) / MOVE_STEP));
+    for (let i = 0; i < n; i++) this.moveStep(dt / n);
+  }
+
+  // Caught inside something (a crate thrown onto it, standing up under a ceiling): out to the nearest place the
+  // body fits - on this side of the wall, never out through it, unless it's in so deep there's no other way.
+  unstick() {
+    const h = this.h, fits = (x, y) => !this.hits(x - HALF_W, y - h, x + HALF_W, y);
+    if (fits(this.x, this.y)) return;
+    const deep = !!this.hits(this.x - HALF_W, this.y - 1, this.x + HALF_W, this.y);
+    let any = null;
+    for (let r = 2; r <= 40; r += 2) for (const [ux, uy] of UNSTICK) {
+      const x = this.x + ux * r, y = this.y + uy * r;
+      if (!fits(x, y)) continue;
+      if (this.game.los(this.x, this.y - 1, x, y - 1)) { this.x = x; this.y = y; return; }
+      any ??= { x, y };
+    }
+    if (any && deep) { this.x = any.x; this.y = any.y; }
+  }
+
+  moveStep(dt) {
     const dx = this.vx * dt;
     if (dx) {
       const nx = this.x + dx, b = this.box, hit = this.hits(nx - HALF_W, b.t, nx + HALF_W, b.b - 0.5);
@@ -1836,6 +1850,7 @@ export class Fighter {
     } else {
       this.onGround = !!this.hits(this.x - HALF_W, this.y, this.x + HALF_W, this.y + 1) || (this.dropT <= 0 && !this.onLadder && this.platTop(this.y - 0.5, this.y + 1) !== null);
     }
+    if (this.y - this.h < 0) { this.y = this.h; this.vy = Math.max(0, this.vy); }   // the top of the map's as far up as anyone goes (outdoors, there's no roof)
     if (this.onLadder) this.onGround = false;
   }
 
@@ -2076,7 +2091,7 @@ export class Fighter {
       if (this.beamT !== undefined) this.beamT += dt;
       this.flash -= dt;
       this.exposeT -= dt;
-      if (limbs && this.flipT >= 0) { this.flipT += dt / FLIP_TIME; if (this.flipT >= 1 || this.onGround) this.flipT = -1; }
+      if (limbs && this.flipT >= 0) { this.flipT += dt / (this.onGround ? FLIP_LAND : FLIP_TIME); if (this.flipT >= 1 || this.onLadder) this.flipT = -1; }
       if (!this.alive) { this.deadT += dt; return; }
       if (limbs) this.animate(dt);
       if (limbs && this.onLadder) this.climbT += Math.abs(this.vy) * dt;
@@ -2406,10 +2421,11 @@ export class Fighter {
     else put(g, -Math.PI * 0.75, 3, 13);                         // across the back at 45 degrees
   }
 
-  // The second jump's somersault: the whole character drawn off to the side and turned once, about the middle of the body.
+  // The second jump's somersault: the whole character drawn off to the side and turned once about the middle of
+  // the body - smoothly, slow into it and slow out.
   drawFlip(ctx, x, y) {
     this.rollCanvas ??= makeCanvas(64, 64);
-    const [c, rc] = this.rollCanvas, FX = 32, FY = 46, MID = 13, t = this.flipT;
+    const [c, rc] = this.rollCanvas, FX = 32, FY = 46, MID = 12, t = this.flipT;
     rc.clearRect(0, 0, 64, 64);
     rc.save();
     rc.translate(FX - x, FY - y);
@@ -2419,7 +2435,7 @@ export class Fighter {
     rc.restore();
     ctx.save();
     ctx.translate(x, y - MID);
-    ctx.rotate(Math.round((this.flipDir * smooth(t) * Math.PI * 2) / (Math.PI / 8)) * (Math.PI / 8));   // (in steps, like the roll)
+    ctx.rotate(this.flipDir * smooth(t) * Math.PI * 2);
     ctx.drawImage(c, -FX, -(FY - MID));
     ctx.restore();
   }
