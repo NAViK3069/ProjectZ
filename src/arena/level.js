@@ -30,6 +30,10 @@ export const THEMES = {
   office: { ambient: '#9a968c', back: 'office', solid: ['#4e4a52', '#423e46', '#7a6a5e', '#a08c7a', '#5e5048'], plat: ['#9aa0a8', '#5a6068', '#6a7078'] },
   roof: { ambient: '#7c88a8', back: 'sky', sky: ['#0d1430', '#2a2350', '#5a3a62'], night: true, solid: ['#5a3a30', '#4a302a', '#7e7a72', '#a8a49a', '#5a5650'], plat: ['#7a8288', '#3a4046', '#4a5056'] },
   site: { ambient: '#c8b8a4', back: 'sky', sky: ['#3a5a8a', '#c87a5a', '#f2b070'], night: false, solid: ['#9a3a2a', '#7a2e22', '#b84a36', '#e06a4a', '#6a2a20'], plat: ['#b8864a', '#6a4a26', '#8a6a42'], ground: ['#6a5238', '#5a4430', '#8a6e4a', '#a8885a', '#4a3a28'] },
+  metro: { ambient: '#8e9298', back: 'tile', solid: ['#3c4248', '#32383e', '#8c9298', '#c4c8cc', '#5c6268'], plat: ['#c8a23a', '#6e5a22', '#5a5850'] },
+  mine: { ambient: '#6a6258', back: 'rock', solid: ['#3e342a', '#342b22', '#6e5e48', '#8e7c60', '#4e4234'], plat: ['#8a6a42', '#4a3620', '#5a4630'] },
+  sand: { ambient: '#d0bc9c', back: 'sky', sky: ['#4a86b8', '#a8c8d0', '#f0d8a8'], night: false, brick: '#6a553c', solid: ['#a88a5e', '#927650', '#c8aa78', '#e4cc9c', '#7e6644'], plat: ['#8a6a42', '#4a3620', '#6a5030'], ground: ['#b89a68', '#a88a5a', '#d8bc84', '#ecd6a4', '#8e744c'] },
+  harbor: { ambient: '#7c88a8', back: 'sky', sky: ['#0a1228', '#1a2648', '#34466a'], night: true, sea: '#12304a', brick: '#2a3038', solid: ['#2a3a4e', '#223040', '#6a7a88', '#94a4b0', '#4a5a68'], plat: ['#c8783a', '#6a3e20', '#4a4640'] },
 };
 
 export class Level {
@@ -209,6 +213,11 @@ export class Level {
         x += w + ((hash(x, layer, 6) * 8) | 0);
       }
     }
+    // (by the sea: the water, up to the quay)
+    if (th.sea) {
+      rect(g, th.sea, 0, PH - T * 3, PW, T * 3);
+      for (let i = 0; i < 120; i++) rect(g, 'rgba(160, 200, 230, 0.22)', (hash(i, 21) * PW) | 0, PH - T * 3 + ((hash(i, 22) * T * 3) | 0), 6 + ((hash(i, 23) * 20) | 0), 1);
+    }
   }
 
   drawBack(g, cx, cy) {
@@ -235,9 +244,19 @@ export class Level {
       if (hash(cx, cy, 9) < 0.08) rect(g, 'rgba(40, 36, 36, 0.25)', x + 6, y + 3, 2, 2);
       if (this.get(cx, cy + 1) === SOLID) { rect(g, '#3a3434', x, y + 12, T, 4); rect(g, '#7a706a', x, y + 12, T, 1); }
       if (this.get(cx, cy - 1) === SOLID) { rect(g, '#c8c4bc', x, y, T, 3); rect(g, '#8a8680', x, y + 3, T, 1); }
+    } else if (kind === 'tile') {
+      // a station's wall: small tiles, a coloured band along it
+      rect(g, (cx + cy) % 2 ? '#465054' : '#434c50', x, y, T, T);
+      rect(g, '#343c40', x, y, T, 1);
+      rect(g, '#343c40', x, y, 1, T);
+      if (cy % 8 === 3) rect(g, '#b8863a', x, y + 5, T, 6);
+    } else if (kind === 'rock') {
+      // bare rock, dug out
+      rect(g, '#241d17', x, y, T, T);
+      for (let i = 0; i < 3; i++) rect(g, hash(cx, cy, i) < 0.5 ? '#2e251d' : '#1a1510', x + ((hash(cx, cy, i + 3) * 12) | 0), y + ((hash(cx, cy, i + 6) * 14) | 0), 2 + ((hash(cx, cy, i + 9) * 5) | 0), 2);
     } else {
       // outdoors, a building's wall behind: brick, the odd dark window
-      rect(g, this.themeKey === 'site' ? '#4a3e38' : '#3a2a28', x, y, T, T);
+      rect(g, this.theme.brick ?? (this.themeKey === 'site' ? '#4a3e38' : '#3a2a28'), x, y, T, T);
       for (let j = 0; j < T; j += 4) {
         rect(g, 'rgba(0, 0, 0, 0.25)', x, y + j, T, 1);
         rect(g, 'rgba(0, 0, 0, 0.25)', x + ((j / 4 + cy) % 2 ? 7 : 0), y + j, 1, 4);
@@ -245,7 +264,7 @@ export class Level {
       if ((cx % 3 === 1) && (cy % 3 === 1)) { rect(g, '#14181e', x + 3, y + 3, 10, 10); rect(g, this.theme.night && hash(cx, cy) < 0.4 ? '#d8b860' : '#2a3442', x + 4, y + 4, 8, 8); rect(g, '#14181e', x + 7, y + 4, 1, 8); }
     }
     // a hazard band along the bottom of the wall, indoors
-    if (kind !== 'sky' && kind !== 'office' && this.get(cx, cy + 1) === SOLID && this.get(cx, cy) !== SOLID) {
+    if (kind !== 'sky' && kind !== 'office' && kind !== 'tile' && kind !== 'rock' && this.get(cx, cy + 1) === SOLID && this.get(cx, cy) !== SOLID) {
       rect(g, '#14201e', x, y + 12, T, 4);
       for (let i = 0; i < T; i += 4) rect(g, (i / 4 + cx) % 2 ? '#c9a83a' : '#1b1f1c', x + i, y + 13, 4, 2);
     }

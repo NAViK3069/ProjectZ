@@ -231,6 +231,165 @@ export const MAPS = {
     },
   },
 
+  // A subway station: three platforms with the tracks between, a carriage standing at each (walk through it, or run along
+  // its roof), the concourse above, the street level up top.
+  metro: {
+    name: 'SUBWAY', w: 96, h: 30, theme: 'metro', desc: 'PLATFORMS, TRACKS AND A CONCOURSE',
+    build(L) {
+      L.shell();
+      L.fill(1, 27, 94, 28, SOLID);                                                // the track bed
+      for (const [x0, x1] of [[1, 30], [42, 53], [65, 94]]) L.fill(x0, 24, x1, 26, SOLID);   // the platforms
+      for (const [x0, x1] of [[33, 40], [55, 62]]) { L.row(22, x0, x1); L.fill(x0, 23, x0, 24, SOLID); L.fill(x1, 23, x1, 24, SOLID); }   // the carriages
+      L.row(18, 1, 26); L.row(18, 69, 94); L.row(18, 38, 57, PLAT);                // the concourse, the bridge
+      L.row(16, 28, 35, PLAT); L.row(16, 60, 67, PLAT); L.row(13, 24, 31, PLAT); L.row(13, 64, 71, PLAT);
+      L.row(10, 1, 20); L.row(10, 75, 94); L.row(10, 40, 55, PLAT);                // the street level
+      for (const x of [31, 41, 54, 64]) L.ladder(x, 24, 26);                       // up out of the tracks
+      for (const x of [8, 22, 73, 87]) L.ladder(x, 18, 23);
+      for (const x of [4, 16, 79, 91]) L.ladder(x, 10, 17);
+      L.ladder(47, 18, 23); L.ladder(47, 10, 17);
+      L.fill(14, 22, 15, 23, SOLID); L.fill(80, 22, 81, 23, SOLID); L.fill(11, 16, 12, 17, SOLID); L.fill(83, 16, 84, 17, SOLID); L.fill(9, 8, 10, 9, SOLID); L.fill(85, 8, 86, 9, SOLID);
+      L.pad(28, 24); L.pad(67, 24); L.pad(44, 24);
+      for (const x of [6, 22, 47, 73, 89]) L.lamp(x, 1);
+      for (const x of [6, 19, 76, 89]) { L.lamp(x, 11); L.lamp(x, 19); }
+      for (const x of [47, 37, 58]) L.lamp(x, 19);
+      L.deco.push(
+        { kind: 'sign', x: 10, y: 20.5, text: 'LINE 3' }, { kind: 'sign', x: 76, y: 20.5, text: 'LINE 3' }, { kind: 'sign', x: 44, y: 20.5, text: 'MIND THE GAP' }, { kind: 'sign', x: 10, y: 13, text: 'WAY OUT' }, { kind: 'sign', x: 76, y: 13, text: 'WAY OUT' },
+        { kind: 'clock', x: 47, y: 5 }, { kind: 'door', x: 24, y: 20.2 }, { kind: 'door', x: 69, y: 20.2 }, { kind: 'vent', x: 30, y: 4 }, { kind: 'vent', x: 62, y: 4 }, { kind: 'pipes', y: 1 },
+      );
+      for (const [k, x, y] of [['table', 5, 24], ['chair', 18, 24], ['cooler', 25, 24], ['barrel', 48, 24], ['cooler', 70, 24], ['chair', 77, 24], ['table', 90, 24],
+        ['wcrate', 2, 18], ['cabinet', 19, 18], ['cabinet', 76, 18], ['wcrate', 93, 18], ['barrel', 43, 18], ['barrel', 52, 18],
+        ['crate', 2, 10], ['barrel', 18, 10], ['crate', 44, 10], ['crate', 51, 10], ['barrel', 77, 10], ['crate', 93, 10], ['pallet', 36, 27], ['pallet', 59, 27]]) L.prop(k, x, y);
+      L.spawn(6, 10); L.spawn(6, 18); L.spawn(8, 24); L.spawn(21, 24);
+      L.spawn(89, 10); L.spawn(89, 18); L.spawn(87, 24); L.spawn(74, 24);
+    },
+  },
+
+  // Two towers at night with bridges between them, a room on every floor - fall between them and you're gone.
+  towers: {
+    name: 'TWIN TOWERS', w: 88, h: 40, theme: 'roof', openBottom: true, desc: 'OUTDOORS - BRIDGES BETWEEN TWO TOWERS',
+    build(L) {
+      for (const [x0, x1] of [[6, 26], [61, 81]]) {
+        L.wall(x0, 6, x1, 33);
+        L.fill(x0, 34, x1, 39, SOLID);
+        for (const f of [6, 13, 20, 27]) {
+          L.row(f, x0, x1);
+          L.fill(x0, f + 1, x0, f + 3, SOLID); L.fill(x1, f + 1, x1, f + 3, SOLID);   // (the walls: a doorway under each)
+        }
+      }
+      L.row(27, 15, 17, PLAT); L.row(27, 70, 72, PLAT);                            // (a way up from the jump pads below)
+      for (const [x, a] of [[10, 27], [22, 20], [10, 13], [22, 6]]) { L.ladder(x, a, a + 6); L.ladder(87 - x, a, a + 6); }
+      L.row(27, 27, 60, PLAT); L.row(13, 27, 60, PLAT);                            // the long bridges
+      L.row(20, 27, 33, PLAT); L.row(20, 54, 60, PLAT); L.fill(38, 20, 49, 21, SOLID);   // the broken one, its middle still standing
+      L.fill(42, 11, 45, 12, SOLID);
+      L.fill(38, 33, 49, 35, SOLID); L.ladder(40, 27, 32); L.ladder(47, 27, 32);   // a slab hanging below it all
+      L.row(20, 1, 5, PLAT); L.row(27, 1, 5, PLAT); L.row(20, 82, 86, PLAT); L.row(27, 82, 86, PLAT);   // balconies
+      L.ladder(3, 20, 26); L.ladder(84, 20, 26);
+      L.row(8, 28, 31, PLAT); L.row(8, 56, 59, PLAT); L.row(6, 34, 53, PLAT);      // the high wire
+      L.row(3, 12, 20, PLAT); L.row(3, 67, 75, PLAT);
+      L.pad(16, 34); L.pad(71, 34); L.pad(43, 33);
+      for (const x of [12, 20, 67, 75]) for (const y of [7, 14, 21, 28]) L.lamp(x, y);
+      for (const [x, y] of [[29, 26], [58, 26], [29, 12], [58, 12], [41, 19], [46, 19]]) L.lamp(x, y, true);
+      L.deco.push(
+        { kind: 'antenna', x: 8, y: 2, h: 4 }, { kind: 'antenna', x: 79, y: 2, h: 4 }, { kind: 'sign', x: 12, y: 30.5, text: 'TOWER A' }, { kind: 'sign', x: 67, y: 30.5, text: 'TOWER B' },
+        { kind: 'citywindow', x: 14, y: 9, w: 5, h: 2 }, { kind: 'citywindow', x: 68, y: 9, w: 5, h: 2 }, { kind: 'citywindow', x: 13, y: 16, w: 5, h: 2 }, { kind: 'citywindow', x: 69, y: 16, w: 5, h: 2 },
+      );
+      for (const [k, x, y] of [['ac', 9, 6], ['wcrate', 18, 6], ['ac', 77, 6], ['wcrate', 69, 6],
+        ['desk', 15, 13], ['monitor', 15, 13], ['cabinet', 24, 13], ['desk', 71, 13], ['monitor', 71, 13], ['cabinet', 63, 13],
+        ['bookshelf', 8, 20], ['table', 15, 20], ['bookshelf', 79, 20], ['table', 71, 20],
+        ['cooler', 24, 27], ['wcrate', 8, 27], ['cooler', 63, 27], ['wcrate', 79, 27],
+        ['barrel', 8, 34], ['wcrate', 24, 34], ['barrel', 79, 34], ['wcrate', 63, 34], ['wcrate', 41, 20], ['barrel', 47, 20], ['sandbags', 36, 13], ['sandbags', 51, 13], ['barrel', 2, 20], ['barrel', 85, 20]]) L.prop(k, x, y);
+      L.spawn(9, 13); L.spawn(20, 20); L.spawn(9, 27); L.spawn(20, 34);
+      L.spawn(78, 13); L.spawn(67, 20); L.spawn(78, 27); L.spawn(67, 34);
+    },
+  },
+
+  // A mine dug out of solid rock: three galleries each side of a great cavern, acid in its floor, scaffolds across it -
+  // and, for those who know, a crawlway under the acid from one side to the other.
+  mine: {
+    name: 'THE MINE', w: 92, h: 36, theme: 'mine', desc: 'GALLERIES, A CAVERN AND A CRAWLWAY UNDER THE ACID',
+    build(L) {
+      L.fill(0, 0, 91, 35, SOLID);
+      for (const [x0, y0, x1, y1] of [[27, 4, 64, 31], [3, 5, 26, 11], [3, 15, 27, 21], [3, 25, 28, 31], [65, 5, 88, 11], [64, 15, 88, 21], [63, 25, 88, 31]]) L.fill(x0, y0, x1, y1, EMPTY);
+      L.row(31, 38, 53, ACID);
+      L.fill(44, 4, 47, 7, SOLID);                                                 // a great stalactite
+      L.row(28, 40, 51, PLAT); L.row(27, 30, 36, PLAT); L.row(27, 55, 61, PLAT); L.row(23, 38, 53, PLAT);   // the scaffolds
+      L.row(19, 30, 36, PLAT); L.row(19, 55, 61, PLAT); L.row(15, 38, 53, PLAT); L.row(15, 29, 33, PLAT); L.row(15, 58, 62, PLAT); L.row(10, 40, 51, PLAT);
+      for (const x of [6, 20, 71, 85]) { L.ladder(x, 12, 21); L.ladder(x, 22, 31); }
+      L.ladder(45, 15, 22); L.ladder(45, 10, 14);
+      L.row(33, 25, 66, LOW); L.row(34, 25, 66, EMPTY); L.ladder(24, 32, 34); L.ladder(67, 32, 34);   // the crawlway
+      L.fill(13, 30, 14, 31, SOLID); L.fill(77, 30, 78, 31, SOLID); L.fill(12, 20, 13, 21, SOLID); L.fill(78, 20, 79, 21, SOLID); L.fill(11, 10, 12, 11, SOLID); L.fill(79, 10, 80, 11, SOLID);   // fallen rock
+      L.pad(34, 32); L.pad(57, 32);
+      for (const x of [9, 22, 69, 82]) { L.lamp(x, 5); L.lamp(x, 15); L.lamp(x, 25); }
+      for (const x of [34, 57]) L.lamp(x, 4);
+      for (const [x, y] of [[32, 26], [59, 26], [32, 18], [59, 18], [41, 22], [50, 22], [41, 14], [50, 14]]) L.lamp(x, y, true);
+      L.deco.push(
+        { kind: 'sign', x: 8, y: 7, text: 'SHAFT 1' }, { kind: 'sign', x: 74, y: 7, text: 'SHAFT 2' }, { kind: 'sign', x: 9, y: 17, text: 'DANGER' }, { kind: 'sign', x: 74, y: 27, text: 'NO LAMPS NO WORK' },
+        { kind: 'sign', x: 26, y: 28, text: 'CRAWLWAY' }, { kind: 'sign', x: 42, y: 25, text: 'KEEP OFF' }, { kind: 'pipes', y: 5 },
+      );
+      for (const [k, x, y] of [['wcrate', 3, 12], ['barrel', 17, 12], ['toolbox', 23, 12], ['barrel', 74, 12], ['toolbox', 68, 12], ['wcrate', 88, 12],
+        ['wcrate', 3, 22], ['pallet', 16, 22], ['sandbags', 24, 22], ['sandbags', 67, 22], ['pallet', 75, 22], ['wcrate', 88, 22],
+        ['wcrate', 3, 32], ['pipes', 10, 32], ['barrel', 18, 32], ['barrel', 73, 32], ['pipes', 81, 32], ['wcrate', 88, 32], ['barrel', 29, 32], ['barrel', 62, 32], ['wcrate', 42, 15], ['wcrate', 49, 15], ['crate', 40, 23], ['crate', 51, 23]]) L.prop(k, x, y);
+      L.spawn(4, 12); L.spawn(9, 22); L.spawn(8, 32); L.spawn(18, 12);
+      L.spawn(87, 12); L.spawn(82, 22); L.spawn(83, 32); L.spawn(73, 12);
+    },
+  },
+
+  // A sandstone arena under the sun: the stands stepping down to the sand, a passage running inside them, the gates at the top.
+  colosseum: {
+    name: 'COLOSSEUM', w: 88, h: 30, theme: 'sand', desc: 'OUTDOORS - THE STANDS, THE SAND, THE PASSAGE BENEATH',
+    build(L) {
+      L.fill(0, 28, 87, 29, SOLID);
+      L.fill(0, 0, 0, 27, SOLID); L.fill(87, 0, 87, 27, SOLID);
+      L.wall(1, 6, 7, 27); L.wall(80, 6, 86, 27); L.wall(1, 24, 36, 27); L.wall(51, 24, 86, 27);
+      for (const [x0, x1, top] of [[1, 7, 10], [8, 13, 13], [14, 19, 16], [20, 25, 19], [26, 31, 22], [32, 36, 25]]) { L.fill(x0, top, x1, 27, SOLID); L.fill(87 - x1, top, 87 - x0, 27, SOLID); }   // the stands
+      L.fill(1, 24, 31, 27, EMPTY); L.fill(56, 24, 86, 27, EMPTY); L.fill(32, 26, 36, 27, EMPTY); L.fill(51, 26, 55, 27, EMPTY);   // the passage, its arches
+      for (const [x, a] of [[11, 13], [23, 19]]) { L.ladder(x, a, 27); L.ladder(87 - x, a, 27); }
+      L.fill(41, 24, 46, 27, SOLID);                                               // the plinth
+      L.row(20, 34, 53, PLAT); L.row(14, 38, 49, PLAT); L.ladder(43, 14, 19); L.ladder(43, 20, 23);
+      L.row(7, 2, 6, PLAT); L.row(7, 81, 85, PLAT);
+      L.pad(38, 28); L.pad(49, 28);
+      for (const [x, y] of [[2, 9], [85, 9], [15, 15], [72, 15], [27, 21], [60, 21], [36, 19], [51, 19]]) L.lamp(x, y, true);
+      for (const x of [6, 19, 68, 81]) L.lamp(x, 24);
+      L.deco.push({ kind: 'sign', x: 3, y: 25, text: 'GATE A' }, { kind: 'sign', x: 76, y: 25, text: 'GATE B' }, { kind: 'cones', x: 39, y: 27 }, { kind: 'cones', x: 47, y: 27 });
+      for (const [k, x, y] of [['sandbags', 5, 10], ['sandbags', 82, 10], ['wcrate', 12, 13], ['wcrate', 75, 13], ['barrel', 15, 16], ['barrel', 72, 16], ['sandbags', 22, 19], ['sandbags', 65, 19], ['barrel', 28, 22], ['barrel', 59, 22],
+        ['wcrate', 3, 28], ['wcrate', 84, 28], ['pipes', 16, 28], ['pipes', 71, 28], ['barrel', 27, 28], ['barrel', 60, 28], ['wcrate', 40, 28], ['wcrate', 47, 28], ['crate', 37, 20], ['crate', 50, 20], ['wcrate', 42, 24], ['toolbox', 45, 14]]) L.prop(k, x, y);
+      L.spawn(4, 10); L.spawn(10, 13); L.spawn(17, 16); L.spawn(22, 19);
+      L.spawn(83, 10); L.spawn(77, 13); L.spawn(70, 16); L.spawn(65, 19);
+    },
+  },
+
+  // A cargo ship at the quay by night: a pier each side, gangways to the deck, a hold to drop into, the bridge at the stern -
+  // and the water under the gangways: fall in and you're gone.
+  harbor: {
+    name: 'CARGO SHIP', w: 104, h: 30, theme: 'harbor', openBottom: true, desc: 'OUTDOORS AT NIGHT - THE DECK, THE HOLD, THE WATER',
+    build(L) {
+      L.fill(0, 24, 14, 29, SOLID); L.fill(89, 24, 103, 29, SOLID);                // the piers
+      L.fill(24, 22, 79, 29, SOLID);                                               // the hull
+      L.row(23, 15, 23, PLAT); L.row(23, 80, 88, PLAT);                            // the gangways
+      L.fill(38, 22, 65, 26, EMPTY); L.row(22, 46, 57, PLAT);                      // the hold, a grating over it
+      L.ladder(40, 22, 26); L.ladder(63, 22, 26);
+      L.fill(42, 25, 45, 26, SOLID); L.fill(58, 25, 61, 26, SOLID);
+      L.fill(30, 20, 35, 21, SOLID); L.fill(30, 17, 33, 19, SOLID);                // containers on deck
+      L.wall(68, 12, 77, 21);                                                      // the bridge
+      L.row(17, 68, 77); L.row(12, 68, 77);
+      for (const x of [68, 77]) { L.fill(x, 13, x, 14, SOLID); L.fill(x, 18, x, 19, SOLID); }
+      L.ladder(72, 17, 21); L.ladder(72, 12, 16);
+      L.row(8, 70, 75, PLAT);
+      L.row(13, 40, 60, PLAT); L.ladder(50, 13, 21);                               // the deck crane's gantry
+      L.row(17, 36, 39, PLAT); L.row(17, 61, 64, PLAT);
+      L.row(16, 3, 12, PLAT); L.row(16, 91, 100, PLAT); L.ladder(2, 16, 23); L.ladder(101, 16, 23);   // the quay cranes
+      L.pad(12, 24); L.pad(91, 24);
+      for (const [x, y] of [[5, 23], [14, 23], [25, 21], [37, 21], [66, 21], [79, 21], [89, 23], [98, 23], [45, 12], [55, 12]]) L.lamp(x, y, true);
+      L.lamp(72, 13); L.lamp(72, 18); for (const x of [46, 57]) L.lamp(x, 23);
+      L.deco.push({ kind: 'crane', x: 6, y: 2, h: 22 }, { kind: 'crane', x: 94, y: 2, h: 22 }, { kind: 'antenna', x: 74, y: 3, h: 5 }, { kind: 'sign', x: 42, y: 28, text: 'ZX-7 CARGO' }, { kind: 'sign', x: 4, y: 26, text: 'QUAY 4' }, { kind: 'sign', x: 93, y: 26, text: 'QUAY 5' }, { kind: 'monitors', x: 70, y: 14 });
+      for (const [k, x, y] of [['wcrate', 1, 24], ['barrel', 9, 24], ['pallet', 5, 24], ['pallet', 96, 24], ['barrel', 94, 24], ['wcrate', 102, 24],
+        ['barrel', 25, 22], ['sandbags', 37, 22], ['sandbags', 66, 22], ['barrel', 79, 22], ['barrel', 35, 20], ['wcrate', 50, 27], ['barrel', 41, 27], ['pipes', 54, 27], ['barrel', 62, 27],
+        ['cabinet', 74, 17], ['table', 70, 12], ['chair', 75, 12], ['wcrate', 47, 13], ['wcrate', 56, 13], ['wcrate', 10, 16], ['wcrate', 93, 16]]) L.prop(k, x, y);
+      L.spawn(4, 24); L.spawn(7, 16); L.spawn(31, 17); L.spawn(26, 22);
+      L.spawn(99, 24); L.spawn(96, 16); L.spawn(74, 12); L.spawn(70, 17);
+    },
+  },
+
   // TRAINING: a big test room in four parts - the ARMORY (cabinets: every
   // gun and melee weapon, the skills, medkits and drinks), the FIRING RANGE
   // (dummies near, far, high and walking), the MOVEMENT COURSE upstairs (a low
@@ -298,4 +457,4 @@ export const MAPS = {
   },
 };
 
-export const MAP_KEYS = ['lab', 'warehouse', 'office', 'rooftops', 'site', 'reactor', 'yard'];
+export const MAP_KEYS = ['lab', 'warehouse', 'office', 'rooftops', 'site', 'reactor', 'yard', 'metro', 'towers', 'mine', 'colosseum', 'harbor'];

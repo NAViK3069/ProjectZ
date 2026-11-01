@@ -14,7 +14,7 @@ a "coming soon" page (`MODES` in `src/arena/main.js`).
 
 ## The maps and the bots
 
-Seven maps (`src/arena/maps.js`), made for up to eight: about 85-100 x 30-36 cells, several floors
+Twelve maps (`src/arena/maps.js`), made for up to eight: about 85-100 x 30-36 cells, several floors
 joined several ways. A jump gets you up 3 rows, a double jump 6, a jump pad (`L.pad`, new) about 8. Bots
 work out their routes (`Nav` in `ai.js`) by flying each jump with the real numbers (`arc`), so a route
 they plan is one they can make; a bot that stops getting nearer drops that step and goes another way
