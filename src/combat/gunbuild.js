@@ -633,6 +633,8 @@ export function handgun(o) {
   const fr = sk('frame').rect(4, fy, L - 4, 3, F[1]).rect(4, fy, L - 4, 1, F[2]).rect(L - 2, fy, 2, 3, F[0]);
   if (o.rail) for (let i = 0; i < 6; i++) fr.set(L - 9 + i, fy + 2, i % 2 ? F[0] : 'h');
   sk('barrel').rect(L - 2, SH - 4, 4, 3, 'd').rect(L - 2, SH - 4, 4, 1, 'c').set(L + 1, SH - 3, 'h');
+  // (on back under the slide, down to the frame: with the slide held open it's one long barrel, no gap showing)
+  sk('barrel').rect(L - 8, SH - 4, 6, 4, 'd').rect(L - 8, SH - 4, 6, 1, 'c').rect(L - 8, SH - 1, 6, 1, 'f');
   if (o.comp) sk('comp').shade(L, -1, 6, SH + 1, ['e', 'd', 'c']).rect(L + 2, 1, 2, 2, 'h');
   grip(2, fy + 3, o.gripN ? o.gripN * 2 : 8);
   if (o.hammer) sk('hammer').rows(-2, 1, ['ff', 'ff', '.f']);
