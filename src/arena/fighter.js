@@ -21,7 +21,7 @@ import { drawFlame } from './flame.js';
 import { drawVisor } from './visor.js';
 import { drawOctoArms, drawOctoGuns, drawOctoGlow, octoRoot } from './octo.js';
 import { GUN_ART } from '../combat/gunart.js';
-import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
+import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
 export const GRAVITY = 720, WALK = 86, AIR_ACCEL = 650, JUMP = 290, JUMP2 = 250, PAD_JUMP = 430;   // (the bots work out their routes by these)
@@ -112,6 +112,12 @@ const SANDE_TIME = 2, SANDE_CD = 24;
 export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
 const BAT_CAST = 0.35, BAT_CD = 20, WRAITH_TIME = 2.5, WRAITH_SPEED = 1.5;   // (wraith form: how long at most, how much faster)
+// skill thief (skill, Q): how far it reaches for someone, how far they can get before it snaps; how long the hack takes;
+// the wait after (and after a hack broken off); how long what's taken can be held unused; how long they lose their own
+// skill; slower on your feet hacking; skills that can't be taken
+const STEAL_RANGE = 280, STEAL_BREAK = 340, STEAL_LOCK = 0.9, STEAL_CD = 14, STEAL_AFTER = 1.15, STEAL_BROKE_CD = 3, STEAL_HOLD = 15, STEAL_HACK = 1.5, STEAL_SLOW = 0.55;
+// (STEAL_AFTER: a skill taken and done with, the wait's that skill's own, and this much longer)
+const UNSTEALABLE = ['grapple', 'steal'];   // (they can be hacked - cut off a moment - but there's nothing to take)
 // octo arms (skill, Q): reaching out for the guns, how long they're out at most, the wait after; how hard their shots
 // are next to the same gun in hand; what kinds of gun they grab
 const OCTO_REACH = 0.9, OCTO_TIME = 6, OCTO_CD = 22, OCTO_DMG = 0.6, OCTO_GONE = 0.55, OCTO_KINDS = ['pistol', 'smg', 'rifle', 'shotgun', 'lmg'];
@@ -129,8 +135,8 @@ const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can tur
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
 // the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
 const LOCK_TIME = 3, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME };
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -303,7 +309,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, dropT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -610,23 +616,32 @@ export class Fighter {
     if (this.game.noCooldown?.(this)) this.skillCD = Math.min(this.skillCD, 0);   // (training: skills can go without their wait)
     this.updateBuffs(dt, c);
     if (this.hackedT > 0) { this.hackedT -= dt; c = { ...c, skill: false }; }   // (hacked: Q does nothing)
-    if (this.skill === 'grapple') this.updateGrapple(dt, c);
-    else if (this.skill === 'cloak') this.updateCloak(dt, c);
-    else if (this.skill === 'decoy') this.updateDecoy(dt, c);
-    else if (this.skill === 'archery') this.updateArchery(dt, c);
-    else if (this.skill === 'murasaki') this.updateMurasaki(dt, c);
-    else if (this.skill === 'blaze') this.updateBlaze(dt, c);
-    else if (this.skill === 'galaxy') this.updateGalaxy(dt, c);
-    else if (this.skill === 'demon') this.updateSummon(dt, c);
-    else if (this.skill === 'lock') this.updateLock(dt, c);
-    else if (this.skill === 'shield') this.updateBarrier(dt, c);
-    else if (this.skill === 'cards') this.updateCard(dt, c);
-    else if (this.skill === 'hack') this.updateHack(dt, c);
-    else if (this.skill === 'sande') this.updateSande(dt, c);
-    else if (this.skill === 'vampire') this.updateBats(dt, c);
-    else if (this.skill === 'deflect') this.updateDeflect(dt, c);
-    else if (this.skill === 'chidori') this.updateChidori(dt, c);
-    else if (this.skill === 'octo') this.updateOcto(dt, c);
+    const sk = this.usingSkill;   // (their own, or one they've taken)
+    if (sk === 'grapple') this.updateGrapple(dt, c);
+    else if (sk === 'cloak') this.updateCloak(dt, c);
+    else if (sk === 'decoy') this.updateDecoy(dt, c);
+    else if (sk === 'archery') this.updateArchery(dt, c);
+    else if (sk === 'murasaki') this.updateMurasaki(dt, c);
+    else if (sk === 'blaze') this.updateBlaze(dt, c);
+    else if (sk === 'galaxy') this.updateGalaxy(dt, c);
+    else if (sk === 'demon') this.updateSummon(dt, c);
+    else if (sk === 'lock') this.updateLock(dt, c);
+    else if (sk === 'shield') this.updateBarrier(dt, c);
+    else if (sk === 'cards') this.updateCard(dt, c);
+    else if (sk === 'hack') this.updateHack(dt, c);
+    else if (sk === 'sande') this.updateSande(dt, c);
+    else if (sk === 'vampire') this.updateBats(dt, c);
+    else if (sk === 'deflect') this.updateDeflect(dt, c);
+    else if (sk === 'chidori') this.updateChidori(dt, c);
+    else if (sk === 'octo') this.updateOcto(dt, c);
+    else if (sk === 'steal') this.updateSteal(dt, c);
+    // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
+    const st = this.stolen;
+    if (st) {
+      st.t += dt;
+      if (this.skillCD > 0 || this.skillBusy) st.used = true;
+      if (((st.used || (st.left -= dt) <= 0) && !this.skillBusy)) { this.stolen = null; this.skillCD = this.stealWait = (SKILL_CD[st.skill] ?? STEAL_CD) * STEAL_AFTER; }
+    }
     if (this.hook?.state !== 'on' && this.trail.length) this.trail.pop();   // the grapple's afterimages catching up once it lets go
     const reeling = this.hook?.state === 'on';
     this.updateWall(c, reeling);
@@ -684,7 +699,7 @@ export class Fighter {
         this.wall = null;
       }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -786,7 +801,7 @@ export class Fighter {
 
   updateCombat(dt, c) {
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -1964,6 +1979,8 @@ export class Fighter {
     if (this.deflect) { this.deflect = null; this.skillCD = DEFLECT_CD; }
     if (this.chidori) { this.chidori = null; this.skillCD = CHIDORI_CD; }
     if (this.octo) this.octoEnd();
+    this.steal = null;
+    this.stolen = null;
     if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
     this.breakBarrier(false, true);
     if (this.allyCard) { this.allyCard = null; }
@@ -2054,6 +2071,75 @@ export class Fighter {
     this.flipT = -1;
     this.bounce(40);
     this.game.fx.dust(this.x + dir * HALF_W, this.y - 10, 4);
+  }
+
+  // The skill in use: their own, or one they've taken off someone (skill thief).
+  get usingSkill() {
+    return this.stolen?.skill ?? this.skill;
+  }
+  // Anything of a skill still going on - to the very end of it (the bow still there a moment after it's loosed, the
+  // time unseen after a shadow clone): a skill taken isn't handed back till all of it's done with, or what's left of
+  // it would be left with nothing to finish it.
+  get skillBusy() {
+    return !!(this.cloak || this.decoy || this.veil || this.lunge || this.bow || this.mura || this.blaze || this.gal || this.summon || this.batCast || this.wraith || this.chidori || this.octo
+      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal);
+  }
+
+  // ---------- skill thief (skill, Q) ----------
+  // Q: a hack reaches out for the foe nearest the mouse (in reach, in sight, with a skill worth having) and takes hold:
+  // a moment holding it on them - slower on your feet, no shooting - and it's done: they're cut off (whatever they had
+  // going stops, no skill of their own for a moment) and you've a copy of their skill for the next Q. Out of sight, or
+  // too far, or Q again: it's broken off. Used (or held too long), it's back to taking them.
+  updateSteal(dt, c) {
+    const m = this.steal;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
+        const v = this.stealTarget(c);
+        if (v) this.steal = { t: 0, target: v, seed: Math.random() * 10 };
+        else {
+          this.skillCD = 0.5;   // (nobody to take from: a fizzle)
+          this.game.fx.sparks(this.x + this.facing * 6, this.y - 17, 5, this.facing, -0.5, '#ff6ad8');
+        }
+      }
+      return;
+    }
+    const v = m.target;
+    m.t += dt;
+    const ok = v?.alive && !v.vanish && !v.wraith && !(v.hidden && !v.glimpsed) && Math.hypot(v.x - this.x, v.y - this.y) < STEAL_BREAK && this.stealSees(v);
+    if (!ok || (c.skill && m.t > 0.2)) {
+      this.steal = null;
+      this.skillCD = STEAL_BROKE_CD;
+      this.game.fx.sparks(this.x + this.facing * 6, this.y - 17, 6, this.facing, -0.5, '#c05aff');
+      return;
+    }
+    if (m.t < STEAL_LOCK) return;
+    this.steal = null;
+    // a skill that can't be taken (another thief's, a grapple): they're hacked all the same, and that's all - the wait
+    if (UNSTEALABLE.includes(v.usingSkill)) this.skillCD = this.stealWait = STEAL_CD;
+    else {
+      this.stolen = { skill: v.usingSkill, left: STEAL_HOLD, used: false, t: 0 };
+      this.skillCD = 0;
+    }
+    this.game.stealHit?.(this, v);
+  }
+  // Who a hack could go for: the foes in reach and in sight with a skill (one that can't be taken still gets them hacked).
+  stealable() {
+    return this.game.fighters.filter((v) => v !== this && v.alive && !v.vanish && !v.wraith && this.game.foes(this, v) && !(v.hidden && !v.glimpsed)
+      && v.usingSkill && Math.hypot(v.x - this.x, v.y - this.y) <= STEAL_RANGE && this.stealSees(v));
+  }
+  // In sight for a hack: a clear line chest to chest, or head to head (over low cover).
+  stealSees(v) {
+    return this.game.los(this.x, this.y - 17, v.x, v.y - 14) || this.game.los(this.x, this.y - 25, v.x, v.y - 24);
+  }
+  // ...and which of them it does go for: the one nearest the mouse (at: where that is; else out along the aim).
+  stealTarget(c, list = this.stealable()) {
+    const at = c.target ?? { x: this.x + Math.cos(this.aim) * 120, y: this.y - 14 + Math.sin(this.aim) * 120 };
+    let best = null, bd = Infinity;
+    for (const v of list) {
+      const d = Math.hypot(v.x - at.x, v.y - 14 - at.y);
+      if (d < bd) { bd = d; best = v; }
+    }
+    return best;
   }
 
   // ---------- octo arms (skill, Q) ----------
@@ -2598,6 +2684,8 @@ export class Fighter {
     this.wraith = null;
     this.chidori = null;
     if (this.octo) this.octoEnd(true);
+    this.steal = null;
+    this.stolen = null;
     this.deflect = null;
     this.alive = false;
     this.hp = 0;
@@ -3091,6 +3179,11 @@ export class Fighter {
     if (this.guardT > 0) drawGuard(ctx, this.x, this.y, this.guardT, t);
     if (this.batCast) drawBatCast(ctx, this.x, this.y - 16, Math.min(1, this.batCast.t / BAT_CAST), t);
     if (this.octo) drawOctoGlow(ctx, this, t);
+    if (this.steal?.target) {
+      const v = this.steal.target;
+      drawStealTether(ctx, this.x + this.facing * 6, this.y + this.pose.body - 17, v.x, v.y - 14, Math.min(1, this.steal.t / STEAL_LOCK), t, this.steal.seed ?? 0, v.labelY(8));
+    }
+    if (this.stolen) drawStolen(ctx, this.x, this.stolen.t < 1.8 ? this.labelY(10) : 0, this.stolen.name ?? this.stolen.skill.toUpperCase(), this.stolen.color, this.stolen.t, t, this.y + this.pose.head - 22);
     const ch = this.chidori;
     if (ch) {
       const h = this.chidoriHand(), tr = (this._zapTrail ??= []), now = performance.now();

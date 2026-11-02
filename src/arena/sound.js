@@ -204,7 +204,7 @@ class Sound {
         this.once.add(n);
         if (list === game.blasts) this.play('boom', at(n, { vol: Math.min(1, (n.r ?? 60) / 60), gap: 0.05 }));
         else if (list === game.punches) this.play('stab', at(n));
-        else if (list === game.bursts) this.play(n.kind === 'hack' || n.kind === 'chidori' ? 'hack' : n.kind === 'cut' ? 'katana' : 'shield_burst', at(n));
+        else if (list === game.bursts) this.play(n.kind === 'hack' || n.kind === 'chidori' || n.kind === 'steal' ? 'hack' : n.kind === 'cut' ? 'katana' : 'shield_burst', at(n));
         else if (list === game.numbers) this.play(n.big ? 'hit_big' : 'hit', at(n, { gap: 0.05 }));
         else if (list === game.grenades) this.play('throw', at(n));
         else if (list === game.arrows) this.play('arrow', at(n, { gap: 0.05 }));
@@ -256,6 +256,7 @@ class Sound {
         if (f.wraith && !s.wraith) this.play('charge_low', here);
         if (f.chidori && !s.chidori) this.play('hack_cast', here);
         if (f.octo && !s.octo) this.play('summon', here);
+        if (f.steal && !s.steal) this.play('hack_cast', here);
         if (!f.wraith && s.wraith) this.play('dash', here);
         if (f.deflect && !s.deflect) this.play('charge_low', here);
         if (f.deflect?.phase === 'dash' && s.deflectPhase !== 'dash') this.play('dash', here);
@@ -265,7 +266,7 @@ class Sound {
         if (!f.sande && s.sande) this.play('sande_off', { vol: 0.9 });
         if (f === viewer && f.skill && (s.cd ?? 0) > 0 && !(f.skillCD > 0)) this.play('ready', { vol: 0.7, gap: 0.3 });
       }
-      Object.assign(s, { wraith: !!f.wraith, chidori: !!f.chidori, octo: !!f.octo, alive: f.alive, ground: f.onGround || f.onLadder, vy: f.vy, padT: f.padT, flipT: f.flipT, roll: !!f.roll, slashes: f.slashes?.length ?? 0, gunIs: f.gun, reloadAt: f.gun?.reloading ? f.gun.reload : -1, ammo: f.gun?.ammo, acting: f.gun?.acting, hook: !!f.hook, cloak: !!f.cloak, decoy: !!f.decoy, bow: !!f.bow, mura: !!f.mura, blaze: !!f.blaze, gal: !!f.gal, summon: !!f.summon, lockOn: !!f.lockOn, lockTarget: f.lockOn?.target ?? null, barrier: !!f.barrier, barrierHit: f.barrier?.hit ?? 0, card: !!f.card, cardOn: !!f.card?.on, hackCast: !!f.hackCast, batCast: !!f.batCast, deflect: !!f.deflect, deflectPhase: f.deflect?.phase, spark: f.deflect?.spark ?? 0, hackedT: f.hackedT ?? 0, sande: !!f.sande, cd: f.skillCD });
+      Object.assign(s, { wraith: !!f.wraith, chidori: !!f.chidori, octo: !!f.octo, steal: !!f.steal, alive: f.alive, ground: f.onGround || f.onLadder, vy: f.vy, padT: f.padT, flipT: f.flipT, roll: !!f.roll, slashes: f.slashes?.length ?? 0, gunIs: f.gun, reloadAt: f.gun?.reloading ? f.gun.reload : -1, ammo: f.gun?.ammo, acting: f.gun?.acting, hook: !!f.hook, cloak: !!f.cloak, decoy: !!f.decoy, bow: !!f.bow, mura: !!f.mura, blaze: !!f.blaze, gal: !!f.gal, summon: !!f.summon, lockOn: !!f.lockOn, lockTarget: f.lockOn?.target ?? null, barrier: !!f.barrier, barrierHit: f.barrier?.hit ?? 0, card: !!f.card, cardOn: !!f.card?.on, hackCast: !!f.hackCast, batCast: !!f.batCast, deflect: !!f.deflect, deflectPhase: f.deflect?.phase, spark: f.deflect?.spark ?? 0, hackedT: f.hackedT ?? 0, sande: !!f.sande, cd: f.skillCD });
     }
   }
 }

@@ -688,10 +688,10 @@ export class Bot {
   // Q, when it's worth it - each skill has its moment. (Not while one's still going:
   // a second Q would cut the cloak short, say.)
   useSkill(c, t, vis, dist, hpK, enemies) {
-    const f = this.f, G = this.game, k = f.skill;
+    const f = this.f, G = this.game, k = f.usingSkill;   // (its own, or one it's taken)
     if (f.hackedT > 0) return;   // (Q does nothing, and it knows it)
     if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.wraith || f.chidori || f.octo || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
+    if (f.wraith || f.chidori || f.octo || f.steal || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;
     const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
@@ -719,6 +719,10 @@ export class Bot {
         break;
       case 'vampire':    // the bats go every way: best with someone close, better still with several, or when it needs the blood
         go = near.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 170).length >= (hpK < 0.6 ? 1 : 2) || (vis && dist < 110);
+        break;
+      case 'steal':      // someone in reach with a skill worth having
+        go = vis && dist < 250 && !!t.usingSkill && t.usingSkill !== 'grapple' && t.usingSkill !== 'steal';
+        if (go) c.target = { x: t.x, y: t.y - 14 };
         break;
       case 'octo':       // a fight on: four more guns in it
         go = vis && dist < 420;

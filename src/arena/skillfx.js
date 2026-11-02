@@ -645,6 +645,146 @@ export function drawBatCast(ctx, x, y, k, t) {
   });
 }
 
+// ---------- skill thief ----------
+const STEAL = { hot: '#ff6ad8', mid: '#c05aff', deep: '#6a2ac8', white: '#ffe8ff', cyan: '#6af0ff' };
+// A hexagon of pixels round (x, y), r across, turned by a.
+function hexLine(ctx, x, y, r, a) {
+  for (let i = 0; i < 6; i++) {
+    const a0 = a + (i * Math.PI) / 3, a1 = a0 + Math.PI / 3;
+    pixLine(ctx, x + Math.cos(a0) * r, y + Math.sin(a0) * r, x + Math.cos(a1) * r, y + Math.sin(a1) * r);
+  }
+}
+// The hack going on: threads of it from the hand (x0, y0) out to them (x1, y1), drawing tighter as it takes - one bright,
+// two fainter strung either side like silk - pulses of light running along them into them, bits of it flaking off; a
+// ring of hexes at the hand; on them, a hexagon turning, brackets closing in, the hack's progress going round, and how far.
+// k: 0 .. 1 of the hack.
+export function drawStealTether(ctx, x0, y0, x1, y1, k, t, seed, textY = y1 - 30) {
+  const tick = Math.floor(t * 24), d = Math.hypot(x1 - x0, y1 - y0) || 1, ux = (x1 - x0) / d, uy = (y1 - y0) / d, nx = -uy, ny = ux;
+  glowAt(ctx, x1, y1, 26 + k * 18, [[0, `rgba(255, 90, 220, ${0.22 + k * 0.3})`], [1, 'rgba(160, 60, 255, 0)']]);
+  glowAt(ctx, x0, y0, 14, [[0, 'rgba(255, 110, 230, 0.4)'], [1, 'rgba(160, 60, 255, 0)']]);
+  lit(ctx, () => {
+    // the threads: hanging slack at first, drawn tight as it takes
+    const sag = (1 - k) * 16 + 2;
+    for (const [off, col, a] of [[0, STEAL.hot, 1], [-5 * (1 - k) - 1, STEAL.mid, 0.6], [5 * (1 - k) + 1, STEAL.mid, 0.6]]) {
+      const pt = (q) => {
+        const w = Math.sin(q * Math.PI), j = hash(tick, Math.floor(q * 9), seed + off) < 0.12 ? (hash(tick, 3, seed) - 0.5) * 4 : 0;   // (a glitch: a stretch of it jumps aside)
+        return [x0 + (x1 - x0) * q + nx * (off * w + j), y0 + (y1 - y0) * q + ny * (off * w + j) + sag * w];
+      };
+      ctx.globalAlpha = a;
+      ctx.fillStyle = col;
+      let [px, py] = pt(0);
+      const n = Math.max(6, Math.ceil(d / 6));
+      for (let i = 1; i <= n; i++) { const [qx, qy] = pt(i / n); pixLine(ctx, px, py, qx, qy); if (off === 0) pixLine(ctx, px, py + 1, qx, qy + 1); px = qx; py = qy; }   // (the main one two thick)
+      // pulses running along it, into them
+      if (off === 0) for (let i = 0; i < 6; i++) {
+        const q = (t * 1.6 + i / 6) % 1, [qx, qy] = pt(q);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = i % 2 ? STEAL.white : STEAL.cyan;
+        ctx.fillRect(Math.round(qx) - 1, Math.round(qy) - 1, 3, 2);
+      }
+    }
+    // bits flaking off it
+    for (let i = 0; i < 10; i++) {
+      const q = hash(i, 1, seed), ph = (t * 1.3 + hash(i, 2, seed)) % 1, w = Math.sin(q * Math.PI);
+      ctx.globalAlpha = (1 - ph) * 0.8;
+      ctx.fillStyle = i % 3 ? STEAL.hot : STEAL.cyan;
+      ctx.fillRect(Math.round(x0 + (x1 - x0) * q + nx * (ph * 8 - 4)), Math.round(y0 + (y1 - y0) * q + sag * w - ph * 10), 1, 1);
+    }
+    // the hand: hexes going round it
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = STEAL.hot;
+    for (let i = 0; i < 6; i++) {
+      const a = t * 4 + (i * Math.PI) / 3;
+      ctx.fillRect(Math.round(x0 + Math.cos(a) * 6), Math.round(y0 + Math.sin(a) * 6), 1, 1);
+    }
+    // on them: the hexagon, the brackets closing in, the progress going round
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = STEAL.mid;
+    hexLine(ctx, x1, y1, 14 - k * 3, t * 2);
+    ctx.fillStyle = STEAL.hot;
+    hexLine(ctx, x1, y1, 9, -t * 3);
+    const B = 20 - k * 6, L = 5;
+    ctx.fillStyle = STEAL.white;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      pixLine(ctx, x1 + sx * B, y1 + sy * B, x1 + sx * (B - L), y1 + sy * B);
+      pixLine(ctx, x1 + sx * B, y1 + sy * B, x1 + sx * B, y1 + sy * (B - L));
+    }
+    ctx.fillStyle = STEAL.cyan;
+    pixArc(ctx, x1, y1, 17, 17, 0, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2);
+  });
+  const pct = `HACKING ${Math.round(k * 100)}%`;
+  drawText(ctx, pct, Math.round(x1 - textWidth(pct) / 2), Math.round(textY), 1, tick % 6 === 0 ? STEAL.cyan : STEAL.hot, '#12041a');
+}
+// On someone the skill thief could hack, round (x, y) their chest: brackets, a hexagon turning in them. The one Q would
+// go for now (picked) bright, the hexagon double and brackets in white, pulsing; the rest faint. Cooling down, all faint.
+export function drawStealMark(ctx, x, y, picked, ready, t) {
+  const X = Math.round(x), Y = Math.round(y), on = picked && ready, pulse = 0.5 + 0.5 * Math.sin(t * 7);
+  if (on) glowAt(ctx, X, Y, 22, [[0, `rgba(255, 90, 220, ${0.16 + pulse * 0.12})`], [1, 'rgba(160, 60, 255, 0)']]);
+  lit(ctx, () => {
+    ctx.globalAlpha = on ? 1 : ready ? 0.55 : 0.3;
+    const B = on ? 15 - pulse : 15, L = on ? 5 : 3;
+    ctx.fillStyle = on ? STEAL.white : STEAL.mid;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      pixLine(ctx, X + sx * B, Y + sy * B, X + sx * (B - L), Y + sy * B);
+      pixLine(ctx, X + sx * B, Y + sy * B, X + sx * B, Y + sy * (B - L));
+    }
+    ctx.fillStyle = on ? STEAL.hot : STEAL.mid;
+    hexLine(ctx, X, Y, on ? 9 : 7, t * (on ? 2.4 : 1));
+    if (on) { ctx.fillStyle = STEAL.cyan; hexLine(ctx, X, Y, 5, -t * 3); }
+  });
+}
+// It's taken: on them, hexagons bursting out, glitched bars of colour, and a stream of what was theirs pouring back along
+// the line to (x0, y0) - the thief. k: 0 .. 1 of it.
+export function drawStealBurst(ctx, x, y, x0, y0, k, seed) {
+  const e = ease(k), tick = Math.floor(k * 30);
+  glowAt(ctx, x, y, 60 * (1 - k) + 12, [[0, `rgba(255, 100, 230, ${0.7 * (1 - k)})`], [1, 'rgba(120, 40, 255, 0)']]);
+  lit(ctx, () => {
+    ctx.globalAlpha = 1 - k;
+    ctx.fillStyle = STEAL.white;
+    hexLine(ctx, x, y, 6 + e * 40, seed);
+    ctx.fillStyle = STEAL.hot;
+    hexLine(ctx, x, y, 4 + e * 26, seed + 0.5);
+    ctx.fillStyle = STEAL.cyan;
+    hexLine(ctx, x, y, 2 + e * 14, seed + 1);
+    // glitched bars
+    for (let i = 0; i < 9; i++) {
+      if (hash(tick, i, seed) < 0.35) continue;
+      ctx.fillStyle = i % 3 === 0 ? STEAL.cyan : i % 3 === 1 ? STEAL.hot : STEAL.white;
+      ctx.fillRect(Math.round(x + (hash(i, 1, seed) - 0.5) * 34 * (0.5 + e)), Math.round(y + (hash(i, 2, seed) - 0.5) * 30), Math.round(4 + hash(i, 3, seed) * 14), 1);
+    }
+    // the stream home
+    for (let i = 0; i < 16; i++) {
+      const q = Math.min(1, e * 1.4 - (i / 16) * 0.5);
+      if (q <= 0) continue;
+      const px = x + (x0 - x) * q, py = y + (y0 - y) * q - Math.sin(q * Math.PI) * 12 + (hash(i, 4, seed) - 0.5) * 6;
+      ctx.globalAlpha = 1 - q * 0.6;
+      ctx.fillStyle = i % 2 ? STEAL.hot : STEAL.white;
+      ctx.fillRect(Math.round(px), Math.round(py), 2, 2);
+    }
+  });
+}
+// The skill just taken, over the thief's head (top at (x, y), clear of the name): its name, in its colour, a glitch of
+// it beside it. k: seconds since. And for as long as it's held unused, a few motes of the thief's colour going round
+// the head (headY).
+export function drawStolen(ctx, x, y, name, color, k, t, headY) {
+  if (k < 1.8) {
+    const a = Math.min(1, (1.8 - k) / 0.4), rise = Math.min(1, k / 0.2) * 3, text = `STOLEN: ${name}`, tx = Math.round(x - textWidth(text) / 2), ty = Math.round(y + 3 - rise);
+    ctx.save();
+    ctx.globalAlpha = a;
+    if (Math.floor(t * 18) % 4 === 0) drawText(ctx, text, tx + 1, ty, 1, STEAL.cyan, null);
+    drawText(ctx, text, tx, ty, 1, color ?? STEAL.hot, '#12041a');
+    ctx.restore();
+  }
+  lit(ctx, () => {
+    for (let i = 0; i < 5; i++) {
+      const a = t * 2.6 + (i * Math.PI * 2) / 5;
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 5 + i);
+      ctx.fillStyle = i % 2 ? STEAL.hot : STEAL.cyan;
+      ctx.fillRect(Math.round(x + Math.cos(a) * 11), Math.round(headY + Math.sin(a) * 3), 1, 1);
+    }
+  });
+}
+
 // ---------- chidori ----------
 // One crack of lightning out of (x, y) along a: a few jagged steps, now and then a fork off it. Two passes - a wide
 // blue one under, a thin white one over - so it burns. (Same seed, same shape: it's redrawn many times a second anyway.)
