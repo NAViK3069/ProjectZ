@@ -511,6 +511,13 @@ export class Bot {
     // in wraith form itself: nothing that would end it. And no wasting shots on someone else's: they go through.
     if (f.wraith || t?.wraith) { c.fire = false; c.melee = false; c.grenade = false; c.throwWeapon = false; }
     if (f.wraith) c.roll = false;
+    // in the other place: away from them a while, then the way back opened behind
+    if (f.phase) {
+      c.fire = false;
+      if (t) c.move = -Math.sign(t.x - f.x) || 1;
+      c.sprint = true;
+      c.skill = f.phase.age > 2;
+    }
     // chidori in hand: straight at them, running, and the lunge once it's close
     if (f.chidori && t) {
       c.fire = false;
@@ -691,7 +698,7 @@ export class Bot {
     const f = this.f, G = this.game, k = f.usingSkill;   // (its own, or one it's taken)
     if (f.hackedT > 0) return;   // (Q does nothing, and it knows it)
     if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.wraith || f.chidori || f.octo || f.steal || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
+    if (f.wraith || f.chidori || f.octo || f.steal || f.phase || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;
     const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
@@ -719,6 +726,9 @@ export class Bot {
         break;
       case 'vampire':    // the bats go every way: best with someone close, better still with several, or when it needs the blood
         go = near.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 170).length >= (hpK < 0.6 ? 1 : 2) || (vis && dist < 110);
+        break;
+      case 'jumper':     // to get out of it, hurt: into the other place, away from them, and the way back left open behind
+        go = hpK < 0.5 && f.hurtT < 1;
         break;
       case 'steal':      // someone in reach with a skill worth having
         go = vis && dist < 140 && !!t.usingSkill && t.usingSkill !== 'grapple' && t.usingSkill !== 'steal';

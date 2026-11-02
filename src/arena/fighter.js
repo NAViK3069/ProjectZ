@@ -21,6 +21,7 @@ import { drawFlame } from './flame.js';
 import { drawVisor } from './visor.js';
 import { drawOctoArms, drawOctoGuns, drawOctoGlow, octoRoot } from './octo.js';
 import { drawArcheryCast, drawArcheryMark } from './archery.js';
+import { drawPhased } from './rift.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
@@ -113,6 +114,8 @@ const SANDE_TIME = 2, SANDE_CD = 24;
 export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
 const BAT_CAST = 0.35, BAT_CD = 20, WRAITH_TIME = 2.5, WRAITH_SPEED = 1.5;   // (wraith form: how long at most, how much faster)
+// jumper (skill, Q): how long you can be in the other place laying the path, how much quicker there, the wait after
+const PHASE_TIME = 3, PHASE_SPEED = 1.35, JUMPER_CD = 24;
 // skill thief (skill, Q): how far it reaches for someone, how far they can get before it snaps; how long the hack takes;
 // the wait after (and after a hack broken off); how long what's taken can be held unused; how long they lose their own
 // skill; slower on your feet hacking; skills that can't be taken
@@ -136,8 +139,8 @@ const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can tur
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
 // the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
 const LOCK_TIME = 3, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK };
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -310,7 +313,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, dropT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -397,7 +400,7 @@ export class Fighter {
   // 27 over the feet), the body, or nothing (rolling: just the ball).
   hitPart(x, y) {
     const dx = (x - this.x) * this.facing;
-    if (this.vanish || this.phantom || this.wraith) return null;   // (shots go right through smoke)
+    if (this.vanish || this.phantom || this.wraith || this.phase || this.jump) return null;   // (shots go right through smoke, the other place, light)
     if (this.roll) return Math.abs(dx) <= 7 && y > this.y - ROLL_H && y <= this.y ? 'body' : null;
     const d = this.crouch ? CROUCH_DROP : 0;   // ducked down: the head's lower, the body shorter
     if (dx >= -8 && dx <= 7 && y >= this.y - 27 + d && y < this.y - 12 + d) return 'head';
@@ -523,6 +526,15 @@ export class Fighter {
     this.exposeT -= dt;
     if (this.flipT >= 0 && (this.flipT += dt / FLIP_TIME) >= 1) this.flipT = -1;
     if (!this.alive) return this.updateCorpse(dt);
+    // going through a rift, as light: carried along the path (see main.js: updateRifts), nothing else till it's out
+    if (this.jump) {
+      this.vx = this.vy = 0;
+      this.onLadder = false;
+      this.roll = null;
+      this.wall = null;
+      this.skillCD -= dt;
+      return;
+    }
     if (this.beamT !== undefined) this.beamT += dt;
     // the spawn shield: running down, and gone the moment you attack
     if (this.shield > 0) this.shield = c.fire || c.melee || c.grenade || c.skill ? 0 : this.shield - dt;
@@ -574,7 +586,7 @@ export class Fighter {
     // ladders: grab one by pushing up / down in front of it
     const ladderHere = this.overLadder();
     this.ladderCool -= dt;
-    if (!this.onLadder && !this.octo && !this.steal && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
+    if (!this.onLadder && !this.octo && !this.steal && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
       this.onLadder = true;
       this.x += (ladderHere.x - this.x) * 0.6;
       this.vx = 0;
@@ -636,6 +648,7 @@ export class Fighter {
     else if (sk === 'chidori') this.updateChidori(dt, c);
     else if (sk === 'octo') this.updateOcto(dt, c);
     else if (sk === 'steal') this.updateSteal(dt, c);
+    else if (sk === 'jumper') this.updateJumper(dt, c);
     // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
     const st = this.stolen;
     if (st) {
@@ -700,7 +713,7 @@ export class Fighter {
         this.wall = null;
       }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -710,7 +723,7 @@ export class Fighter {
         this.coyote = 0;
         this.bounce(-95);   // springs up: stretched
         this.game.fx.dust(this.x, this.y, 4);
-      } else if (this.jumpBuf > 0 && this.airJumps > 0 && !this.onGround && !this.octo && !this.steal) {
+      } else if (this.jumpBuf > 0 && this.airJumps > 0 && !this.onGround && !this.octo && !this.steal && !(this.bow && !this.bow.fired)) {
         this.vy = -JUMP2;
         this.jumpBuf = 0;
         this.airJumps--;
@@ -777,7 +790,7 @@ export class Fighter {
       if (fall > 250) this.game.fx.dust(this.x, this.y, 5);
     }
     if (this.onGround) { this.airJumps = 1; this.airRoll = true; this.wallGrabs = 1; }
-    if (this.onLadder || this.roll || this.wraith || this.octo || this.steal) this.flipT = -1;
+    if (this.onLadder || this.roll || this.wraith || this.octo || this.steal || (this.bow && !this.bow.fired)) this.flipT = -1;
     else if (this.onGround && this.flipT >= 0 && (this.flipT += dt / FLIP_LAND) >= 1) this.flipT = -1;   // (down part way round: it finishes turning, quickly, rather than snap upright)
     // on a jump pad: up you go
     this.padT -= dt;
@@ -802,7 +815,7 @@ export class Fighter {
 
   updateCombat(dt, c) {
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -1153,7 +1166,7 @@ export class Fighter {
     return !!v && (v === this || !this.game.foes(v, this));
   }
   get hidden() {
-    return this.stealthed && !(this.exposeT > 0);
+    return (this.stealthed && !(this.exposeT > 0)) || !!this.jump;   // (going through a rift: nothing to see but the light)
   }
   // the cloak glitching: seen (as a flickering hologram) by everyone, just for a moment
   get glimpsed() {
@@ -1918,6 +1931,7 @@ export class Fighter {
     if (this.octo) this.octoEnd();
     this.steal = null;
     this.stolen = null;
+    if (this.phase) { this.phase = null; this.skillCD = JUMPER_CD; }   // (the rift's laid as far as it got: see main.js)
     if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
     this.breakBarrier(false, true);
     if (this.allyCard) { this.allyCard = null; }
@@ -2019,7 +2033,26 @@ export class Fighter {
   // it would be left with nothing to finish it.
   get skillBusy() {
     return !!(this.cloak || this.decoy || this.veil || this.lunge || this.bow || this.mura || this.blaze || this.gal || this.summon || this.batCast || this.wraith || this.chidori || this.octo
-      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal);
+      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase);
+  }
+
+  // ---------- jumper (skill, Q) ----------
+  // Q: a rift tears open where you stand and you step through it into the other place - nothing touches you there,
+  // you're quicker, and you can't shoot - and wherever you go is the path (see main.js: updateRifts, which lays it).
+  // Q again, or the time's up, and a second rift opens where you are, the two joined: anyone at all, either side, who
+  // steps into one goes along the path as light and out of the other, for as long as the rifts last.
+  updateJumper(dt, c) {
+    const m = this.phase;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll && !this.jump) {
+        this.phase = { t: PHASE_TIME, age: 0 };
+        this.onLadder = false;
+        this.game.openRift?.(this);
+      }
+      return;
+    }
+    m.age += dt;
+    if ((m.t -= dt) <= 0 || (c.skill && m.age > 0.3)) { this.phase = null; this.skillCD = JUMPER_CD; }
   }
 
   // ---------- skill thief (skill, Q) ----------
@@ -2562,7 +2595,7 @@ export class Fighter {
   hurt(dmg, from, kx, ky, head = false) {
     if (!this.alive || this.vanish) return false;
     if (this.roll && this.roll.t < ROLL_SAFE && !this.blast) return false;   // diving under it
-    if (this.shield > 0 || this.phantom || this.wraith || this.guardT > 0) return false;   // just beamed back in; the purple card; the shield just gone
+    if (this.shield > 0 || this.phantom || this.wraith || this.phase || this.jump || this.guardT > 0) return false;   // just beamed back in; the purple card; the shield just gone
     let d = dmg * (head ? HEAD_MUL : 1) * (this.hackedT > 0 ? HACK_HURT : 1);
     // whoever hit them with a clone's charge on: it counts for more, the once (a shotgun's pellets all count as the one)
     const hitter = from?.powered;
@@ -2626,6 +2659,8 @@ export class Fighter {
     if (this.octo) this.octoEnd(true);
     this.steal = null;
     this.stolen = null;
+    this.phase = null;
+    this.jump = null;
     this.deflect = null;
     this.alive = false;
     this.hp = 0;
@@ -2850,7 +2885,7 @@ export class Fighter {
   drawBody(ctx) {
     if (!this.alive) return this.drawCorpse(ctx);
     if (this.fade && !this.painting && !(this.fade.secret && this.game.viewer !== this)) return this.drawFade(ctx);
-    if (this.wraith && !this.painting) return;   // (nothing but smoke: drawn after the lighting - see drawSkillLooks)
+    if ((this.wraith || this.phase || this.jump) && !this.painting) return;   // (smoke; the other place; light: all drawn after the lighting)
     if (this.hidden && !this.painting) {
       if (this.glimpsed && !this.seesThrough) return;   // (drawn after the lighting, glowing: see drawGlimpse)
       if (!this.seesThrough) return;
@@ -3119,6 +3154,7 @@ export class Fighter {
     if (this.guardT > 0) drawGuard(ctx, this.x, this.y, this.guardT, t);
     if (this.batCast) drawBatCast(ctx, this.x, this.y - 16, Math.min(1, this.batCast.t / BAT_CAST), t);
     if (this.octo) drawOctoGlow(ctx, this, t);
+    if (this.phase) drawPhased(ctx, this.paintSelf(0.85, '150, 90, 255')[0], this.x, this.y, t, mine);
     if (this.steal?.target) {
       const v = this.steal.target;
       drawStealTether(ctx, this.x + this.facing * 6, this.y + this.pose.body - 17, v.x, v.y - 14, Math.min(1, this.steal.t / STEAL_LOCK), t, this.steal.seed ?? 0, v.labelY(8));

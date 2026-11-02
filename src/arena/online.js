@@ -68,7 +68,7 @@ const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost thei
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
-  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], [null, 'NO SKILL'],
+  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], [null, 'NO SKILL'],
 ];
 
 const N = {
@@ -295,7 +295,7 @@ function handDelta(f, out) {
   N.sent.set(f, last);
 }
 // Lists sent whole, while there's anything in them and it's changed (things few and short-lived)
-const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets'], ['ba', 'bats'], ['bo', 'bloods']];
+const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets'], ['ba', 'bats'], ['bo', 'bloods'], ['ri', 'rifts']];
 // Things that happen once and run their course on each screen: sent the once
 const ONCE = [['nu', 'numbers'], ['bl', 'blasts'], ['pu', 'punches'], ['bu', 'bursts'], ['fi', 'fists'], ['fe', 'feed']];
 const LIFE = { numbers: 0.9, blasts: 0.35, punches: 0.45, bursts: 0.7, fists: 0.6 };
@@ -482,7 +482,7 @@ function applyHeader(h) {
     N.later = [];
     N.pickups.clear();
     N.trk.clear();
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'numbers', 'blasts', 'punches', 'bursts', 'fists', 'feed']) g[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'numbers', 'blasts', 'punches', 'bursts', 'fists', 'feed']) g[name] = [];
   }
   if ('st' in h) A.state = h.st;
   if ('sT' in h) A.stateT = h.sT;
@@ -506,7 +506,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'steal', 'stolen', 'deflect', 'hook', 'skillCD'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'steal', 'stolen', 'phase', 'jump', 'riftCool', 'deflect', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
@@ -871,7 +871,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)
@@ -1081,7 +1081,7 @@ function resetOwn() {
 // What a screen that was only drawing the game has in the air: it isn't the real thing, and can't be run as if it was
 function clearAir() {
   const g = A.game;
-  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'blasts', 'punches', 'bursts', 'fists', 'numbers']) g[name] = [];
+  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'blasts', 'punches', 'bursts', 'fists', 'numbers']) g[name] = [];
   N.shots = [];
   N.local = [];
   N.later = [];
