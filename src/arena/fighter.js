@@ -19,7 +19,7 @@ import { T, SOLID, PLAT, LADDER, ACID, LOW, LOW_H } from './level.js';
 import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
 import { drawFlame } from './flame.js';
 import { drawVisor } from './visor.js';
-import { drawShieldBubble, drawCard, drawCardAura, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, drawWallSling, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
+import { drawShieldBubble, drawCard, drawCardAura, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
 export const GRAVITY = 720, WALK = 86, AIR_ACCEL = 650, JUMP = 290, JUMP2 = 250, PAD_JUMP = 430;   // (the bots work out their routes by these)
@@ -145,7 +145,7 @@ const HALF_W = 5, HEIGHT = 28, ROLL_H = 14, CROUCH_H = 22, CROUCH_DROP = 5;
 const CROUCH_BODY = 3;   // crouched: the body sinks 3 px, the head 2 more (5 in all) - tucked into the shoulders
 // the main game's gun handling
 const GUN_HEIGHT = 9, GUN_REACH = 4, RELOAD_TILT = 0.55, SHELL_TILT = -0.4, RAISE_TILT = -1.1, STEP_TILT = -0.3, CLIMB_KEEP = 0.35;
-// On a wall: in the air, falling, pushed against it - once a jump. A short line holds on while it slides slowly down,
+// On a wall: in the air, falling, pushed against it - once a jump. It slides slowly down,
 // gathering speed gently. Getting on gives the second jump back; a jump off it is that second jump, straight up as usual.
 const WALL_GRAVITY = 90, WALL_MAX = 110;
 const FLIP_TIME = 0.5, FLIP_LAND = 0.12;   // the second jump's somersault; how soon it finishes once it's landed
@@ -2856,7 +2856,7 @@ export class Fighter {
         while (len < DEFLECT_REACH && !L.solidAt(this.x + ux * (len + 4), this.y - 14 + uy * (len + 4))) len += 4;
       }
       drawDeflectAim(ctx, this.x, this.y - 14, this.aim, dm.age, t, dm.spark, len);
-      drawDeflectBar(ctx, this.x, Math.round(this.labelY(5)), 1 - dm.t / DEFLECT_TIME, dm.age > 0.25);
+      drawDeflectBar(ctx, this.x, Math.round(this.labelY(3)), 1 - dm.t / DEFLECT_TIME, dm.age > 0.25);
     }
     else if (dm?.phase === 'dash' && dm.trail.length) {
       // the band of light, and copies of the body strung along it, in the colour of the field
@@ -2878,7 +2878,11 @@ export class Fighter {
     this.drawBlaze(ctx);
     this.drawGalCast(ctx);
     this.drawSumCast(ctx);
-    if (this.alive && this.lockOn && !this.roll && this.flipT < 0) drawVisor(ctx, this.x, this.y + this.pose.head - 17, this.facing, this.lockOn.k, this.lockOn.t, this.game.time);
+    if (this.alive && this.lockOn && !this.roll && this.flipT < 0) {
+      // (the cone looks at whoever's locked, while they can be seen; otherwise along the aim)
+      const v = this.lockOn.target, y = this.y + this.pose.head - 17, look = v?.alive && !v.vanish && !v.stealthed ? Math.atan2(v.y - 14 - y, v.x - this.x) : this.aim;
+      drawVisor(ctx, this.x, y, this.facing, this.lockOn.k, this.lockOn.t, this.game.time, 18, look);
+    }
     this.drawSkillLooks(ctx);
     if (this.alive && this.glimpsed && !this.seesThrough) this.drawGlimpse(ctx);
     this.drawArchery(ctx);
@@ -3055,11 +3059,6 @@ export class Fighter {
   }
 
   drawArms(ctx) {
-    if (this.wall) {
-      // (from over the head, down the side of the body to the belt: clear of the face)
-      const y = Math.round(this.y + this.pose.body), d = this.wall.dir;
-      drawWallSling(ctx, this.x + d * 4, y - 8, this.x + d * (HALF_W + 3), y - 34);
-    }
     if (this.bow && !this.onLadder) return this.drawBowArms(ctx);
     if (this.mura) return this.drawMuraArms(ctx);
     if (this.blaze) return this.drawBlazeArms(ctx);

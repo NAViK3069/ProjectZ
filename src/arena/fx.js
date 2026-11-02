@@ -1,6 +1,6 @@
 // Side-view effects: dust and puffs, brass, blood that sticks where it lands,
 // sparks, splinters, smoke, fireballs, guns flung away. Everything has weight
-// and bounces off the level; blood stays painted on it, scorch marks fade away in a while.
+// and bounces off the level; blood stays on it a while and fades away, and so do scorch marks.
 
 import { makeCanvas } from '../engine/pixel.js';
 import { artW, artH } from '../combat/gunart.js';
@@ -8,6 +8,7 @@ import { T, SOLID, PLAT, ACID } from './level.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SCORCH_HOLD = 6, SCORCH_FADE = 5;   // a scorch mark stays this long, then takes this long to fade out
+const BLOOD_HOLD = 6, BLOOD_FADE = 8, BLOOD_MAX = 3000;   // a drop of blood on something stays this long, then takes this long to fade; at most this many at once
 const pick = (l) => l[(Math.random() * l.length) | 0];
 
 
@@ -15,9 +16,7 @@ export class Fx {
   constructor(level) {
     this.level = level;
     this.items = [];
-    const [c, g] = makeCanvas(level.w * T, level.h * T);
-    this.stains = c;   // blood on walls and floors
-    this.sg = g;
+    this.stains = [];   // blood on walls and floors, fading: { x, y, w, h, color, t }
     this.scorches = [];   // burn marks, fading: { img, x, y, t }
   }
 
@@ -118,7 +117,15 @@ export class Fx {
     this.scorches.push({ img, x: Math.round(x) - r, y: Math.round(y) - r, t: 0 });
     if (this.scorches.length > 40) this.scorches.shift();
   }
-  // (with the stains, under everything else)
+  // (with the scorches, under everything else)
+  drawStains(ctx) {
+    for (const s of this.stains) {
+      ctx.globalAlpha = 0.85 * (s.t < BLOOD_HOLD ? 1 : 1 - (s.t - BLOOD_HOLD) / BLOOD_FADE);
+      ctx.fillStyle = s.color;
+      ctx.fillRect(s.x, s.y, s.w, s.h);
+    }
+    ctx.globalAlpha = 1;
+  }
   drawScorches(ctx) {
     for (const s of this.scorches) {
       ctx.globalAlpha = s.t < SCORCH_HOLD ? 1 : 1 - (s.t - SCORCH_HOLD) / SCORCH_FADE;
@@ -132,6 +139,8 @@ export class Fx {
   update(dt) {
     for (const s of this.scorches) s.t += dt;
     this.scorches = this.scorches.filter((s) => s.t < SCORCH_HOLD + SCORCH_FADE);
+    for (const s of this.stains) s.t += dt;
+    this.stains = this.stains.filter((s) => s.t < BLOOD_HOLD + BLOOD_FADE);
     const L = this.level;
     const solid = (x, y) => L.solidAt(x, y);
     const floorAt = (x, y0, y1) => {
@@ -175,14 +184,11 @@ export class Fx {
     this.items = this.items.filter((p) => p.life > 0 && !p.stuck);
   }
 
-  // Blood that hits something stays on it.
+  // Blood that hits something stays on it, for a while.
   stick(p) {
     p.stuck = true;
-    const g = this.sg;
-    g.fillStyle = p.color;
-    g.globalAlpha = 0.85;
-    g.fillRect(Math.round(p.x), Math.round(p.y) - 1, p.size + (Math.random() < 0.4 ? 1 : 0), p.size);
-    g.globalAlpha = 1;
+    this.stains.push({ x: Math.round(p.x), y: Math.round(p.y) - 1, w: p.size + (Math.random() < 0.4 ? 1 : 0), h: p.size, color: p.color, t: 0 });
+    if (this.stains.length > BLOOD_MAX) this.stains.shift();
   }
 
   draw(ctx) {

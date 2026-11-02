@@ -11,8 +11,8 @@ const ease = (k) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
 // The visor on the eyes at (x, y), looking toward `face` (1 / -1). k: seconds it's been on; left: seconds it has left.
 // A burst of light as it boots; rings of hologram turning round the head; the band across the eyes, burning white at
 // the middle, with a trace of light streaming off behind it; a wide screen thrown out in front, with figures and a
-// sight on it; a line of scan going down the body.
-export function drawVisor(ctx, x, y, face, k, left, t, feet = 18) {
+// sight on it, turned to look along `look`; a line of scan going down the body.
+export function drawVisor(ctx, x, y, face, k, left, t, feet = 18, look = face > 0 ? 0 : Math.PI) {
   const open = ease(k / 0.22) * Math.min(1, left / 0.25);
   if (open <= 0.02) return;
   if ((k < 0.28 || left < 0.25) && Math.sin(t * 90) < -0.2) return;
@@ -71,39 +71,44 @@ export function drawVisor(ctx, x, y, face, k, left, t, feet = 18) {
   // the sensor on its side, pulsing red
   ctx.fillStyle = Math.sin(t * 10) > 0 ? 'rgba(255, 70, 85, 1)' : 'rgba(255, 170, 170, 1)';
   ctx.fillRect(l - 2, -2, 3, 3);
-  // the screen, thrown out in front: narrow at the eye, opening wide
-  const sx = 10, ex = sx + 19 * open, h0 = 3, h1 = 3 + 12 * open;
-  // (a column of pixels at a time: brighter at the eye, its top and bottom edges lit)
-  for (let cx = sx; cx <= ex; cx++) {
-    const q = (cx - sx) / Math.max(1, ex - sx), hh = Math.round(h0 + (h1 - h0) * q);
-    ctx.fillStyle = `rgba(80, 210, 255, ${((0.5 - 0.36 * q) * shine).toFixed(2)})`;
-    ctx.fillRect(cx, -hh, 1, hh * 2);
-    ctx.fillStyle = 'rgba(150, 240, 255, 0.8)';
-    ctx.fillRect(cx, -hh, 1, 1);
-    ctx.fillRect(cx, hh, 1, 1);
-  }
-  if (open > 0.6) {
-    const ex0 = Math.round(ex), H = Math.round(h1);
-    // its corners, brighter
-    ctx.fillStyle = 'rgba(235, 253, 255, 1)';
-    ctx.fillRect(ex0 - 1, -H - 1, 3, 2);
-    ctx.fillRect(ex0 - 1, H, 3, 2);
-    ctx.fillRect(ex0, -H, 1, H * 2);
-    // figures running down it
-    const tick = Math.floor(t * 11);
-    for (let i = 0; i < 6; i++) {
-      const n = (Math.sin(tick * 3.1 + i * 7.7) * 0.5 + 0.5) * 9, ly = -H + 3 + i * 4;
-      ctx.fillStyle = i === (tick % 6) ? 'rgba(255, 255, 255, 1)' : 'rgba(120, 235, 255, 0.85)';
-      ctx.fillRect(ex0 - 2 - Math.round(n), ly, Math.round(n), 1);
+  ctx.restore();
+  // the screen, thrown out from the eye along `look`: narrow there, opening wide. Worked out world pixel by world
+  // pixel, so that at any angle it's still square pixels.
+  const sx = 10, ex = sx + 19 * open, h0 = 3, h1 = 3 + 12 * open, ca = Math.cos(look), sa = Math.sin(look);
+  const reach = Math.ceil(Math.hypot(ex, h1)) + 1, front = open > 0.6, tick = Math.floor(t * 11), H = Math.round(h1), ex0 = Math.round(ex);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.translate(X, Y);
+  const body = [0, 1, 2, 3].map((i) => `rgba(80, 210, 255, ${((0.5 - 0.12 * i) * shine).toFixed(2)})`);
+  for (let wy = -reach; wy <= reach; wy++) for (let wx = -reach; wx <= reach; wx++) {
+    const lx = wx * ca + wy * sa, ly = wy * ca - wx * sa;
+    if (lx < sx || lx > ex) continue;
+    const q = (lx - sx) / Math.max(1, ex - sx), hh = h0 + (h1 - h0) * q, a = Math.abs(ly);
+    if (a > hh) continue;
+    let col = body[Math.min(3, Math.floor(q * 4))];
+    if (front && lx > ex - 1.1) col = 'rgba(235, 253, 255, 1)';   // its far edge
+    else if (a > hh - 1) col = 'rgba(150, 240, 255, 0.8)';   // its top and bottom
+    else if (front) {
+      // figures running down it
+      const row = (ly + H - 3) / 4, i = Math.floor(row);
+      if (i >= 0 && i < 6 && row - i < 0.25) {
+        const n = (Math.sin(tick * 3.1 + i * 7.7) * 0.5 + 0.5) * 9;
+        if (lx > ex - 2 - n && lx < ex - 2) col = i === tick % 6 ? 'rgba(255, 255, 255, 1)' : 'rgba(120, 235, 255, 0.85)';
+      }
     }
+    ctx.fillStyle = col;
+    ctx.fillRect(wx, wy, 1, 1);
+  }
+  if (front) {
+    const plot = (lx, ly, size, col) => { ctx.fillStyle = col; ctx.fillRect(Math.round(lx * ca - ly * sa) - (size >> 1), Math.round(lx * sa + ly * ca) - (size >> 1), size, size); };
+    // its corners, brighter
+    plot(ex0, -H, 3, 'rgba(235, 253, 255, 1)');
+    plot(ex0, H, 3, 'rgba(235, 253, 255, 1)');
     // the sight turning at its edge, a dot at its heart
-    const a = t * 3.4;
-    ctx.fillStyle = 'rgba(255, 90, 105, 1)';
-    for (let i = 0; i < 6; i++) ctx.fillRect(Math.round(ex0 + 8 + Math.cos(a + i * 1.05) * 5), Math.round(Math.sin(a + i * 1.05) * 5), 1, 1);
-    ctx.fillRect(ex0 + 7, -1, 2, 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.fillRect(ex0 + 2, 0, 3, 1);
-    ctx.fillRect(ex0 + 11, 0, 3, 1);
+    const spin = t * 3.4;
+    for (let i = 0; i < 6; i++) plot(ex0 + 8 + Math.cos(spin + i * 1.05) * 5, Math.sin(spin + i * 1.05) * 5, 1, 'rgba(255, 90, 105, 1)');
+    plot(ex0 + 8, 0, 2, 'rgba(255, 90, 105, 1)');
+    for (const at of [3, 4, 12, 13]) plot(ex0 + at, 0, 1, 'rgba(255, 255, 255, 0.8)');
   }
   ctx.restore();
 }

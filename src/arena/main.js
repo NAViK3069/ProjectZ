@@ -1814,7 +1814,7 @@ function drawWorld() {
   renderer.beginWorld();
   ctx.drawImage(level.back, 0, 0);
   ctx.drawImage(level.front, 0, 0);
-  ctx.drawImage(game.fx.stains, 0, 0);
+  game.fx.drawStains(ctx);
   game.fx.drawScorches(ctx);
   for (const p of game.props) p.draw(ctx);
   drawThrown(ctx);

@@ -645,30 +645,13 @@ export function drawDeflectAim(ctx, x, y, a, age, t, spark, len) {
     ctx.fillRect(ex, ey - 3, 1, 7);
   });
 }
-// How near the draw is, over the head: fills as the stance runs out, dim until Q can call the dash, white at the end.
+// How near the draw is, over the head: a sliver that fills as the stance runs out, dim until Q can call the dash.
 export function drawDeflectBar(ctx, x, y, k, ready) {
-  const w = 26, l = Math.round(x - w / 2);
-  ctx.fillStyle = '#06100c';
-  ctx.fillRect(l - 1, y - 1, w + 2, 5);
-  ctx.fillStyle = '#17352a';
-  ctx.fillRect(l, y, w, 3);
+  const w = 14, l = Math.round(x - w / 2);
+  ctx.fillStyle = 'rgba(6, 16, 12, 0.8)';
+  ctx.fillRect(l - 1, y - 1, w + 2, 3);
   ctx.fillStyle = k > 0.8 ? '#ffffff' : ready ? '#5af0b8' : '#2a8a68';
-  ctx.fillRect(l, y, Math.round(w * k), 3);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
   ctx.fillRect(l, y, Math.round(w * k), 1);
-}
-// The short line that holds you on a wall: a plate bitten into it, a steel line down to the belt.
-export function drawWallSling(ctx, x0, y0, x1, y1) {
-  ctx.fillStyle = '#0d1418';
-  pixLine(ctx, x0, y0 + 1, x1, y1 + 1);
-  ctx.fillStyle = '#b8d4e0';
-  pixLine(ctx, x0, y0, x1, y1);
-  ctx.fillStyle = '#20282e';
-  ctx.fillRect(Math.round(x1) - 1, Math.round(y1) - 2, 3, 5);
-  ctx.fillStyle = '#9fe6ff';
-  ctx.fillRect(Math.round(x1), Math.round(y1) - 1, 1, 2);
-  ctx.fillStyle = '#20282e';
-  ctx.fillRect(Math.round(x0) - 1, Math.round(y0) - 1, 2, 2);
 }
 // The dash: a band of light where it's been, widest at the body, along the line.
 export function drawDeflectDash(ctx, trail, a) {
