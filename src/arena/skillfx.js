@@ -996,7 +996,7 @@ export function drawChidoriHit(ctx, x, y, a, k, seed) {
 
 // ---------- wraith form ----------
 // A blood sigil, standing behind the one in wraith form, round (x, y): two rings with runes running between them,
-// turning, a pentagram turning the other way inside, a bat at each quarter, blood dripping off the bottom of it.
+// turning, a pentagram turning the other way inside, a bat at each quarter.
 // r: how big; k: how much of it there is (opening, going).
 function bloodSigil(ctx, x, y, r, k, t) {
   if (r < 3) return;
@@ -1043,14 +1043,6 @@ function bloodSigil(ctx, x, y, r, k, t) {
     ctx.fillStyle = '#ff6a7a';
     ctx.fillRect(X - 1, Y, 3, 1);
     ctx.fillRect(X, Y - 1, 1, 3);
-    // blood running off the bottom of it
-    for (let i = 0; i < 7; i++) {
-      const ph = (t * (0.6 + hash(i, 1, 6) * 0.5) + hash(i, 2, 6)) % 1, a = Math.PI / 2 + (hash(i, 3, 6) - 0.5) * 1.6;
-      const dx = X + Math.cos(a) * r, dy = Y + Math.sin(a) * r + ph * 16;
-      ctx.globalAlpha = k * (1 - ph);
-      ctx.fillStyle = ph < 0.3 ? '#ff3a4a' : '#a01226';
-      ctx.fillRect(Math.round(dx), Math.round(dy), 1, 2 + Math.round((1 - ph) * 2));
-    }
   });
 }
 // Wraith form: the body gone to black smoke with a red edge to it, coming apart towards the feet, smoke pouring off it

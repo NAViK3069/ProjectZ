@@ -121,7 +121,7 @@ const STEAL_RANGE = 150, STEAL_BREAK = 190, STEAL_LOCK = 0.9, STEAL_CD = 14, STE
 const UNSTEALABLE = ['grapple', 'steal'];   // (they can be hacked - cut off a moment - but there's nothing to take)
 // octo arms (skill, Q): reaching out for the guns, how long they're out at most, the wait after; how hard their shots
 // are next to the same gun in hand; what kinds of gun they grab
-const OCTO_REACH = 0.9, OCTO_TIME = 6, OCTO_CD = 22, OCTO_DMG = 0.6, OCTO_GONE = 0.55, OCTO_KINDS = ['pistol', 'smg', 'rifle', 'shotgun', 'lmg'];
+const OCTO_REACH = 0.9, OCTO_TIME = 4, OCTO_CD = 22, OCTO_DMG = 0.6, OCTO_GONE = 0.55, OCTO_KINDS = ['pistol', 'smg', 'rifle', 'shotgun', 'lmg'];
 // where each gun hangs, from the feet, facing right (x forward): two up over the head, two out behind; and which way each
 // arm reaches first, for its gun
 const OCTO_SLOTS = [[11, -45], [-9, -50], [-27, -35], [-27, -15]], OCTO_REACH_AT = [[30, -34], [-6, -58], [-44, -30], [-40, 4]];
@@ -2125,9 +2125,9 @@ export class Fighter {
     let x, y;
     if (m.gone >= 0) {
       // (the gun flung off first, then the arm drawn back in, a little after the one before)
-      const q = ease(Math.max(0, (m.gone - 0.1 - i * 0.04) / 0.36));
-      x = slot.x + (root.x - slot.x) * q;
-      y = slot.y + (root.y - slot.y) * q;
+      const q = ease(Math.max(0, (m.gone - 0.1 - i * 0.04) / 0.36)), from = m.from?.[i] ? { x: this.x + m.from[i].x, y: this.y + m.from[i].y } : slot;
+      x = from.x + (root.x - from.x) * q;
+      y = from.y + (root.y - from.y) * q;
     } else if (k < 0.32) { const q = ease(k / 0.32); x = root.x + (reach.x - root.x) * q; y = root.y + (reach.y - root.y) * q; }
     else { const q = ease((k - 0.32) / 0.38); x = reach.x + (slot.x - reach.x) * q; y = reach.y + (slot.y - reach.y) * q; }
     const ang = Math.atan2(m.ty - y, m.tx - x);
@@ -2147,18 +2147,21 @@ export class Fighter {
     if (art.shell) this.game.fx.casing({ x: tip.x, y: tip.y - 1 }, { x: -ux * 0.3, y: -0.8 }, art.shell, 0.8);
     this.lastFireT = 0;
   }
-  // Over: each arm flings its gun away, spinning, then they draw back in with a hiss of steam off the back. quick: gone
-  // at once (dead).
+  // Over: each arm flings its gun away, spinning, then they draw back in with a hiss of steam off the back - put away
+  // before they'd all got their guns, they're drawn back in from wherever they'd reached. quick: gone at once (dead).
   octoEnd(quick = false) {
     const m = this.octo;
     if (!m) return;
     this.skillCD = OCTO_CD;
-    if (quick || !m.on) { this.octo = null; return; }
+    if (quick) { this.octo = null; return; }
     if (m.gone < 0) {
+      // (where each claw is now - out reaching still, or hanging in place - for it to be drawn back in from there)
+      m.from = m.arms.map((_, i) => { const p = this.octoTip(i); return { x: p.x - this.x, y: p.y - this.y, held: p.held }; });
       m.gone = 0;
       const r = octoRoot(this), W = this.game.weapons;
       this.game.fx.smoke(r.x - this.facing * 4, r.y, 5);
       m.arms.forEach((a, i) => {
+        if (!m.from[i].held) return;   // (not got hold of its gun yet: nothing to throw)
         // (thrown out the way the arm was holding it from you, up and spinning)
         const tip = this.octoTip(i), dx = tip.x - r.x, dy = tip.y - r.y, d = Math.hypot(dx, dy) || 1, icon = (OCTO_ICONS[a.key] ??= new Weapon(W[a.key]).icon);
         this.game.fx.add({ x: tip.x, y: tip.y, vx: (dx / d) * (120 + Math.random() * 70), vy: (dy / d) * 90 - 170 - Math.random() * 60, life: 5, img: icon, grav: 700, bounce: 0.3, drag: 0.6, vrot: (Math.random() - 0.5) * 26, kind: 'debris' });
