@@ -203,6 +203,14 @@ export class TouchControls {
     if (fire && !I.mouse.down) I.pressed.add('Mouse0');
     if (!fire && I.mouse.down) I.pressed.add('Mouse0Up');
     I.mouse.down = fire;
+    // the cards fanned out: the stick leans the mouse from their middle toward one
+    const pin = this.how.pin?.();
+    if (pin) {
+      I.mouse.active = true;
+      I.mouse.x = pin.x + (a.m > AIM_AT ? this.dir.x * 30 * pin.k : 0);
+      I.mouse.y = pin.y + (a.m > AIM_AT ? this.dir.y * 30 * pin.k : 0);
+      return;
+    }
     // the crosshair, out along the gun: to the game, that's the mouse
     const s = this.how.aimFrom();
     I.mouse.active = true;

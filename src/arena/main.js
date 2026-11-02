@@ -24,7 +24,7 @@ import { drawBlast } from './flame.js';
 import { drawCircle, drawHole, drawBoom } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
 import { drawLockBeam, drawLockMark } from './visor.js';
-import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBlood, drawDeflectCut, DEFLECT_R, CARDS } from './skillfx.js';
+import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBlood, drawDeflectCut, drawChidoriHit, DEFLECT_R, CARDS, CARD_LEAN, CARD_PICK, cardToward } from './skillfx.js';
 import { sound } from './sound.js';
 import { TouchControls, isPhone } from './touch.js';
 import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
@@ -78,8 +78,8 @@ const OPTIONS = [
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
-  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], [null, 'NO SKILL']]],
-  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], [null, 'NONE']]],
+  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], [null, 'NO SKILL']]],
+  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -174,7 +174,41 @@ const game = {
     }
   },
   hackBurst: (f) => hackBurst(f),
-  pickCard: () => pick(Object.keys(CARDS)),
+  // chidori, run (or lunged) into someone: driven into them, there and then - the hurt now, and the two of them held
+  // there a moment (chidoriHold), then they're thrown off it (chidoriRelease). Whoever the body's up against, that's who.
+  chidoriStrike(f, m) {
+    for (const o of this.fighters) {
+      if (o === f || !o.alive || o.vanish || o.wraith || !this.foes(f, o) || (o.hidden && !o.glimpsed)) continue;
+      if (Math.abs(o.x - f.x) > 15 || Math.abs(o.y - f.y) > 22) continue;
+      const dir = Math.sign(o.x - f.x) || f.facing, a = m.phase === 'lunge' ? m.a : dir > 0 ? 0 : Math.PI;
+      o.hitHow = 'CHIDORI';
+      if (!o.hurt(CHIDORI_DMG, f, Math.cos(a) * 60, -30)) continue;   // (rolled under it)
+      m.pin = { x: o.x, y: o.y, fx: o.x - Math.cos(a) * 12, fy: f.y };
+      this.fx.sparks(o.x, o.y - 14, 30, Math.cos(a), Math.sin(a), '#ffffff');
+      this.lights.flash(o.x, o.y - 14, 200, '170, 220, 255', 0.5);
+      if (f === player || o === player) renderer.kick(Math.cos(a) * 5, Math.sin(a) * 5);
+      return o;
+    }
+    return null;
+  },
+  chidoriHold(f, m) {
+    const v = m.victim, p = m.pin;
+    if (!p) return;
+    f.x = p.fx;
+    if (v?.alive) { v.x = p.x; v.y = p.y; v.vx = v.vy = 0; if (m.t < 0.4) v.flash = 0; }   // (the white of the hit, only for an instant: then the body, jolting)
+    if (Math.random() < 0.5) this.fx.sparks(p.x, p.y - 14, 1, Math.cos(m.a), Math.sin(m.a), '#9fe6ff');
+  },
+  chidoriRelease(f, m) {
+    const v = m.victim, a = m.a, p = m.pin ?? { x: f.x, y: f.y };
+    if (v?.alive) { v.vx = Math.cos(a) * 420; v.vy = Math.sin(a) * 140 - 190; v.onGround = false; }
+    f.vx = -Math.cos(a) * 90;
+    this.bursts.push({ kind: 'chidori', x: p.x, y: p.y - 14, a, t: 0, seed: Math.random() * 100 });
+    this.fx.sparks(p.x, p.y - 14, 24, Math.cos(a), Math.sin(a), '#bfefff');
+    this.lights.flash(p.x, p.y - 14, 160, '150, 210, 255', 0.35);
+    if (f === player || v === player) renderer.kick(Math.cos(a) * 8, Math.sin(a) * 8);
+  },
+  // your own buff cards: where on the screen they were put, in the world as the camera is now
+  cardPin: (f) => (f === player && cardPin && !online.watching ? renderer.screenToWorld(cardPin.x, cardPin.y) : null),
   // the card's turned: teammates near by get their share of it
   shareCard(f, kind) {
     for (const o of this.fighters) {
@@ -448,7 +482,7 @@ function makeFighters() {
   bots = game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.9 + i * 0.04) * settings.skill));
 }
 // a bot's skill, by the setting: the one picked, or one at random
-const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon', 'lock', 'shield', 'cards', 'hack', 'sande', 'vampire', 'deflect'];
+const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon', 'lock', 'shield', 'cards', 'hack', 'sande', 'vampire', 'deflect', 'chidori'];
 const botSkill = () => (settings.botskill === 'random' ? pick(BOT_SKILLS) : settings.botskill ?? null);
 const teamMode = () => settings.mode === 'teams' && state !== 'training';   // (training's just you and the dummies, whatever the room says)
 const tagColor = (f) => (teamMode() ? TEAMS[f.team]?.color ?? f.color : f.color);
@@ -694,8 +728,16 @@ function playerControl() {
     c.aim = Math.atan2(m.y - s.y, m.x - s.x);
     c.target = m;   // the gun zeroes on the cursor, like the main game
   } else if (c.move) c.aim = c.move > 0 ? 0 : Math.PI;
+  // the buff cards fanned out: they're held still on the screen where the mouse was, and the mouse leans from there
+  if (f.card?.pick && input.mouse.active) {
+    cardPin ??= { x: input.mouse.x, y: input.mouse.y };
+    const k = renderer.dpr / renderer.scale, dx = (input.mouse.x - cardPin.x) * k, dy = (input.mouse.y - cardPin.y) * k, d = Math.hypot(dx, dy);
+    c.cardHover = d > CARD_LEAN ? cardToward(dx, dy) : null;
+    c.cardPick = d >= CARD_PICK ? c.cardHover : null;
+  } else if (!f.card?.fly) cardPin = null;
   return c;
 }
+let cardPin = null;   // (css px)
 // the right mouse button held down (the input only tracks the left one)
 let rightHeld = false;
 canvas.addEventListener('pointerdown', (e) => { if (e.button === 2) rightHeld = true; });
@@ -1344,6 +1386,7 @@ function drawBats(ctx) {
 }
 
 // ---------- the blue shield's burst, the hack's wave ----------
+const CHIDORI_DMG = 120;   // what chidori does, driven through someone
 const CARD_SHARE = 110;   // how near a teammate has to be to get a share of a buff card
 const SHIELD_BLAST = 26, SHIELD_REACH = 68, BURST_LIFE = 0.7, HACK_REACH = 170;
 function barrierBurst(f, broken) {
@@ -1389,6 +1432,7 @@ function drawBursts(ctx) {
     const k = b.t / BURST_LIFE;
     if (b.kind === 'shield') drawShieldBurst(ctx, b.x, b.y, k, game.time, b.seed, b.r);
     else if (b.kind === 'cut') drawDeflectCut(ctx, b.x0, b.y0, b.x, b.y, k, b.seed);
+    else if (b.kind === 'chidori') drawChidoriHit(ctx, b.x, b.y, b.a, k, b.seed);
     else drawHackWave(ctx, b.x, b.y, k, game.time, b.seed, b.r, b.links);
   }
 }
@@ -2228,7 +2272,7 @@ function drawCards(ctx, u, W) {
       const k = f.skill === 'grapple' && f.charges > 0 ? 1 : Math.max(0, Math.min(1, 1 - f.skillCD / SKILL_CD[f.skill])), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
-      if (on) { const left = Math.max(0, f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.wraith ? f.wraith.t / f.wraith.total : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / SKILL_TIME.sande : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
+      if (on) { const left = Math.max(0, f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.chidori ? (f.chidori.phase === 'charge' ? 1 : (f.chidori.phase === 'lunge' ? f.chidori.left : f.chidori.phase === 'stab' ? 0 : f.chidori.t) / SKILL_TIME.chidori) : f.wraith ? f.wraith.t / f.wraith.total : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / SKILL_TIME.sande : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
       else if (!ready) px(x + 16, y + 18 + 7 * (1 - k), 8, 7 * k, '#22343a');
       text('Q', x + 19, y + 19, on ? '#d8c8ff' : ready ? '#8ff0ff' : '#4a5a5c');
     }
@@ -2290,7 +2334,7 @@ function drawCards(ctx, u, W) {
   return (y + CH + 1) * u;
 }
 // A skill going (cast, out, or what it called up still about).
-const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.wraith || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
+const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.wraith || !!f.chidori || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
 
 // Your skill, bottom right: its picture and name, Q, and how it stands - READY (lit, with a
 // flash the moment it comes ready), going, or the wait left as a bar filling back up.
@@ -2332,7 +2376,7 @@ function drawSkillBox(u, W, H, f) {
       kit.rect(px + u, y + 18 * u, 3 * u * k, 3 * u, info.color);
     }
   } else if (hacked) kit.text(`HACKED  -  ${f.hackedT.toFixed(1)} S`, x + 31 * u, y + 17 * u, { small: true, color: '#3aff8a' });
-  else if (on) kit.text(f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.ceil(f.barrier.hp)}  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  else if (on) kit.text(f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.ceil(f.barrier.hp)}  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
   else if (puffed && cd <= 0) kit.text('NOT ENOUGH STAMINA', x + 31 * u, y + 17 * u, { small: true, color: '#ffa080' });
   else {
     // the wait: a bar filling back up, the seconds left beside it
@@ -2932,6 +2976,12 @@ const DEFLECT_ICON = sprite(12, 12, (g) => {
   rect(g, '#7affd0', 1, 8, 3, 3); rect(g, '#101418', 0, 10, 2, 2); rect(g, '#1a4a40', 2, 9, 1, 1);
   for (let i = 0; i <= 8; i++) { const a = -0.3 + i * 0.26; rect(g, i % 3 ? '#3ae8a0' : '#c8ffe8', Math.round(4 + Math.cos(a) * 7), Math.round(4 + Math.sin(a) * 7), 1, 1); }
 });
+const CHIDORI_ICON = sprite(13, 11, (g) => {
+  // a white-hot knot, forks of lightning cracking out of it
+  for (const [x, y] of [[6, 2], [5, 1], [4, 0], [7, 1], [8, 0], [2, 4], [1, 3], [0, 4], [10, 4], [11, 3], [12, 2], [3, 7], [2, 8], [1, 9], [9, 7], [10, 8], [11, 9], [12, 10], [6, 8], [6, 9], [5, 10]]) rect(g, '#4a9aff', x, y, 1, 1);
+  for (const [x, y] of [[5, 4], [7, 4], [4, 5], [8, 5], [5, 6], [7, 6], [3, 4], [9, 4]]) rect(g, '#9fe6ff', x, y, 1, 1);
+  rect(g, '#ffffff', 5, 5, 3, 1); rect(g, '#ffffff', 6, 4, 1, 3);
+});
 const NO_SKILL = sprite(9, 9, (g) => {
   for (let j = 0; j < 9; j++) for (let i = 0; i < 9; i++) { const d = Math.hypot(i - 4, j - 4); if (d > 3 && d < 4.6) rect(g, '#c83a2a', i, j, 1, 1); }
   for (let i = 1; i < 8; i++) rect(g, '#c83a2a', i, 8 - i, 1, 1);
@@ -2949,9 +2999,10 @@ const SKILL_INFO = [
   { key: 'demon', name: 'FLYING SWORDS', img: SWORDS_ICON, color: '#8fe0ff', desc: 'TAKES ALL YOUR STAMINA: A SWORD FOR EVERY 20%, THEY FLY AT WHOEVER COMES NEAR' },
   { key: 'lock', name: 'TARGET LOCK', img: LOCK_ICON, color: '#8fe8ff', desc: '3 S: YOUR SHOTS GO FOR THE FOE NEAREST THE MOUSE, WITH LESS KICK. THEY SEE IT' },
   { key: 'shield', name: 'BLUE SHIELD', img: SHIELD_ICON, color: '#6ad8ff', desc: 'TAKES 110 DAMAGE FOR 4 S, THEN GOES OFF: UNTOUCHABLE FOR 0.5 S. SLOWER, WEAKER SHOTS' },
-  { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'DRAW A CARD: RED FIRE RATE, GREEN HEAL, BLUE SPEED, PURPLE UNSEEN. TEAMMATES NEAR SHARE IT' },
+  { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'FOUR CARDS ROUND THE MOUSE, DRAG TO ONE: RED FIRE RATE, GREEN HEAL, BLUE SPEED, PURPLE UNSEEN. TEAMMATES NEAR SHARE IT' },
   { key: 'vampire', name: 'VAMPIRE', img: VAMPIRE_ICON, color: '#ff5a6a', desc: 'BATS DRAW BLOOD FOR YOU, AND YOU TURN TO SMOKE: UNTOUCHABLE, FAST, UNTIL YOU ATTACK OR ROLL' },
   { key: 'deflect', name: 'DEFLECT', img: DEFLECT_ICON, color: '#7affd0', desc: 'KATANA AT THE HIP: A FIELD TURNS SHOTS BACK WHERE YOU AIM, THEN DASH AND CUT' },
+  { key: 'chidori', name: 'CHIDORI', img: CHIDORI_ICON, color: '#9fe6ff', desc: 'LIGHTNING IN THE HAND, AND QUICKER FEET: RUN INTO A FOE TO DRIVE IT THROUGH THEM. Q: LUNGE' },
   { key: 'sande', name: 'SANDEVISTAN', img: SANDE_ICON, color: '#7affc8', desc: '2 S: THE WORLD ALL BUT STOPS AND YOU MOVE ON. SHOTS HANG TILL IT ENDS' },
   { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT, 4 S' },
 ];
@@ -3057,7 +3108,7 @@ function takeItem(it) {
     w.ammo = w.magSize;
     w.ammoSource.give(null, Math.max(0, w.magSize * 6 - w.reserve));
   }
-  else if (it.kind === 'skill') { f.uncloak(); f.dropDecoy(); f.bow = null; f.mura = null; f.blaze = null; f.gal = null; f.summon = null; f.lockOn = null; f.barrier = null; f.card = null; f.powered = null; f.hackCast = null; f.sande = null; f.batCast = null; f.wraith = null; f.deflect = null; f.skill = it.key; f.skillCD = 0; f.hook = null; }
+  else if (it.kind === 'skill') { f.uncloak(); f.dropDecoy(); f.bow = null; f.mura = null; f.blaze = null; f.gal = null; f.summon = null; f.lockOn = null; f.barrier = null; f.card = null; f.powered = null; f.hackCast = null; f.sande = null; f.batCast = null; f.wraith = null; f.chidori = null; f.deflect = null; f.skill = it.key; f.skillCD = 0; f.hook = null; }
   else if (it.kind === 'cooldown') { skillCooldowns = !skillCooldowns; f.skillCD = 0; }
   else if (it.kind === 'heal') { f.hp = f.maxHp; game.fx.sparks(f.x, f.y - 14, 10, 0, -1, '#8aff9a'); }
   else if (it.kind === 'drink') { f.stamina = MAX_STAMINA; f.winded = false; f.boostT = 15; game.fx.sparks(f.x, f.y - 14, 8, 0, -1, '#8ff0ff'); }
@@ -3413,6 +3464,7 @@ const touch = isPhone ? new TouchControls(input, {
   scroll: () => !!locker,
   showEsc: () => !!locker || (['fight', 'end', 'training'].includes(state) && !player.alive && !paused && !online.menuOpen),
   skill: () => ({ has: !!player.skill, cd: skillShown() }),
+  pin: () => (player?.card?.pick && cardPin ? { ...cardPin, k: renderer.scale / renderer.dpr } : null),   // (the cards fanned out: the aim stick leans toward one, from their middle)
   aimFrom: () => {
     const s = player.shoulder, k = renderer.scale / renderer.dpr;
     return { x: (s.x - renderer.left) * k, y: (s.y - renderer.top) * k, k };

@@ -199,6 +199,109 @@ function cardBack(ctx, x, y, t) {
   for (let i = 0; i < 5; i++) { r(-i, -4 + i, i * 2 + 1, 1, '#d8b860'); r(-i, 4 - i, i * 2 + 1, 1, '#d8b860'); }
   r(-1, -1, 3, 3, Math.sin(t * 8) > 0 ? '#fff' : '#ffe08a');
 }
+// The four laid out round the mouse: where each sits from the middle (world px), and which is where. A drag that way picks it.
+export const CARD_SPOT = { red: [0, -27], blue: [27, 0], green: [0, 27], purple: [-27, 0] };
+export const CARD_KINDS = ['red', 'blue', 'green', 'purple'];
+export const CARD_LEAN = 6, CARD_PICK = 20;   // how far (world px) the mouse leans from the middle to show one, and goes to take it
+export const cardToward = (dx, dy) => (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'blue' : 'purple') : dy < 0 ? 'red' : 'green');
+// The fan, round (x, y): a ring of light turning, the cards dealt out of the middle one after another and turning face up,
+// a dotted line out to each; the one the mouse leans toward lifts out, lit in its colour, its name over it. k: seconds open.
+export function drawCardFan(ctx, x, y, k, hover, t, mine) {
+  const X = Math.round(x), Y = Math.round(y), open = ease(k / 0.2);
+  glowAt(ctx, X, Y, 52 * open, [[0, `rgba(${hover ? CARDS[hover].rgb : '255, 220, 120'}, 0.3)`], [1, 'rgba(0, 0, 0, 0)']]);
+  lit(ctx, () => {
+    // the rings: an outer one of dashes turning one way, ticks going the other, a bright core
+    ctx.fillStyle = '#ffe08a';
+    for (let i = 0; i < 8; i++) {
+      const a = t * 0.9 + (i * Math.PI) / 4;
+      ctx.globalAlpha = 0.55 * open;
+      pixArc(ctx, X, Y, 40 * open, 40 * open, 0, a, a + 0.42);
+    }
+    for (let i = 0; i < 16; i++) {
+      const a = -t * 1.6 + (i * Math.PI) / 8, r = 33 * open;
+      ctx.globalAlpha = (i % 2 ? 0.4 : 0.8) * open;
+      ctx.fillRect(Math.round(X + Math.cos(a) * r), Math.round(Y + Math.sin(a) * r), 1, 1);
+    }
+    ctx.globalAlpha = open;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(X - 1, Y, 3, 1);
+    ctx.fillRect(X, Y - 1, 1, 3);
+    ctx.fillStyle = '#ffe08a';
+    pixArc(ctx, X, Y, 5 + Math.sin(t * 6), 5 + Math.sin(t * 6), 0, 0, Math.PI * 2);
+    // a line of dots out to each card, running outward; the one being leant toward, bright and solid
+    for (const [kind, [ox, oy]] of Object.entries(CARD_SPOT)) {
+      const on = kind === hover, d = Math.hypot(ox, oy), ux = ox / d, uy = oy / d;
+      ctx.fillStyle = CARDS[kind].a;
+      for (let q = 7; q < d - 10; q += on ? 1 : 3) {
+        ctx.globalAlpha = open * (on ? 0.95 : 0.35 + 0.35 * (((q - t * 30) % 6 + 6) % 6 < 2 ? 1 : 0));
+        ctx.fillRect(Math.round(X + ux * q), Math.round(Y + uy * q), 1, 1);
+      }
+    }
+  });
+  // the cards, dealt out one after another
+  Object.entries(CARD_SPOT).forEach(([kind, [ox, oy]], i) => {
+    const deal = ease((k - i * 0.05) / 0.2);
+    if (deal <= 0) return;
+    const on = kind === hover, lift = on ? 4 : 0, d = Math.hypot(ox, oy);
+    const cx = Math.round(X + ox * deal + (ox / d) * lift), cy = Math.round(Y + oy * deal + (oy / d) * lift + (on ? 0 : Math.sin(t * 3 + i) * 1));
+    if (on) {
+      glowAt(ctx, cx, cy, 26, [[0, `rgba(${CARDS[kind].rgb}, 0.55)`], [1, 'rgba(0, 0, 0, 0)']]);
+      lit(ctx, () => {
+        ctx.fillStyle = CARDS[kind].a;
+        for (let j = 0; j < 4; j++) {
+          const a = t * 4 + (j * Math.PI) / 2;
+          ctx.fillRect(Math.round(cx + Math.cos(a) * 14), Math.round(cy + Math.sin(a) * 16), 2, 2);
+        }
+      });
+    }
+    ctx.save();
+    ctx.globalAlpha = hover && !on ? 0.5 : 1;
+    ctx.translate(cx, cy);
+    ctx.scale(Math.max(0.08, Math.abs(Math.cos((1 - deal) * Math.PI * 0.5))), 1);
+    cardFace(ctx, kind, 0, 0);
+    if (on) {   // a frame round it, burning
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-8, -11, 16, 1); ctx.fillRect(-8, 10, 16, 1); ctx.fillRect(-8, -11, 1, 22); ctx.fillRect(7, -11, 1, 22);
+    }
+    ctx.restore();
+    if (on) {
+      const nm = CARDS[kind].name, ty = oy > 0 ? cy + 13 : cy - 19;
+      drawText(ctx, nm, Math.round(cx - textWidth(nm) / 2), ty, 1, CARDS[kind].a, '#08080c');
+    }
+  });
+  if (mine && !hover && k > 0.3) drawText(ctx, 'DRAG TO A CARD', Math.round(X - textWidth('DRAG TO A CARD') / 2), Y + 44, 1, '#ffe08a', '#08080c');
+}
+// The one picked, flying from the fan up over the head (x1, y1) and turning as it goes, its colour streaming behind it;
+// the other three going to pieces where they were. (x, y): the fan's middle; k: 0 .. 1 of the flight.
+export function drawCardFly(ctx, x, y, kind, x1, y1, k, t, seed) {
+  const [ox, oy] = CARD_SPOT[kind], x0 = x + ox, y0 = y + oy, e = ease(k), c = CARDS[kind];
+  const at = (q) => ({ x: x0 + (x1 - x0) * q, y: y0 + (y1 - y0) * q - Math.sin(q * Math.PI) * 18 });
+  lit(ctx, () => {
+    for (let i = 1; i <= 12; i++) {
+      const q = Math.max(0, e - i * 0.035), p = at(q);
+      ctx.globalAlpha = (1 - i / 12) * 0.9;
+      ctx.fillStyle = i < 3 ? '#ffffff' : c.a;
+      ctx.fillRect(Math.round(p.x) - 1, Math.round(p.y), 3 - (i > 6 ? 1 : 0), 2);
+    }
+    // the rest, coming apart
+    for (const [other, [px, py]] of Object.entries(CARD_SPOT)) {
+      if (other === kind) continue;
+      for (let i = 0; i < 10; i++) {
+        const a = hash(i, other.length, seed) * 6.28, d = 2 + e * (8 + hash(i, 2, seed) * 16);
+        ctx.globalAlpha = 1 - e;
+        ctx.fillStyle = i % 3 ? CARDS[other].a : '#ece6d4';
+        ctx.fillRect(Math.round(x + px + Math.cos(a) * d), Math.round(y + py + Math.sin(a) * d + e * e * 8), 2, 1);
+      }
+    }
+  });
+  const p = at(e);
+  glowAt(ctx, p.x, p.y, 22, [[0, `rgba(${c.rgb}, 0.45)`], [1, 'rgba(0, 0, 0, 0)']]);
+  ctx.save();
+  ctx.translate(Math.round(p.x), Math.round(p.y));
+  ctx.scale(Math.max(0.15, Math.abs(Math.cos(e * Math.PI * 2))), 1);
+  cardFace(ctx, kind, 0, 0);
+  ctx.restore();
+}
 export const CARD_HOLD = 1.3;   // (how long the card's shown full size, with its name, before it shrinks)
 // The card over the head, its lowest point at (x, bottom). phase: seconds since it came; flipAt .. flipEnd: it turns over. left: of the buff.
 export function drawCard(ctx, x, bottom, kind, phase, flipAt, flipEnd, t, buffK = 1, hold = CARD_HOLD) {
@@ -539,6 +642,187 @@ export function drawBatCast(ctx, x, y, k, t) {
       ctx.fillStyle = i % 2 ? '#ff4a5a' : '#ffc8cc';
       ctx.fillRect(Math.round(x + Math.cos(a) * d), Math.round(y + Math.sin(a) * d), 1, 1);
     }
+  });
+}
+
+// ---------- chidori ----------
+// One crack of lightning out of (x, y) along a: a few jagged steps, now and then a fork off it. Two passes - a wide
+// blue one under, a thin white one over - so it burns. (Same seed, same shape: it's redrawn many times a second anyway.)
+function zap(ctx, x, y, a, len, seed, steps = 5, fork = true) {
+  const pts = [[x, y]];
+  let px = x, py = y, b = a;
+  for (let i = 1; i <= steps; i++) {
+    b = a + (hash(seed, i, 1) - 0.5) * 1.4;
+    px += Math.cos(b) * (len / steps);
+    py += Math.sin(b) * (len / steps);
+    pts.push([px, py]);
+  }
+  for (const [col, ox, oy] of [['#2a62ff', 1, 0], ['#2a62ff', 0, 1], ['#9fe6ff', 0, 0]]) {
+    ctx.fillStyle = col;
+    for (let i = 1; i < pts.length; i++) pixLine(ctx, pts[i - 1][0] + ox, pts[i - 1][1] + oy, pts[i][0] + ox, pts[i][1] + oy);
+  }
+  ctx.fillStyle = '#ffffff';
+  for (let i = 1; i < Math.min(3, pts.length); i++) pixLine(ctx, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+  if (fork) for (let i = 2; i < pts.length - 1; i++) if (hash(seed, i, 3) < 0.35) zap(ctx, pts[i][0], pts[i][1], b + (hash(seed, i, 4) - 0.5) * 2, len * 0.38, seed * 7 + i, 2, false);
+}
+// Chidori, in the hand at (x, y): a white-hot knot crackling with forks of lightning, flickering chirps of light round it,
+// bolts cracking down to the floor (feetY) beside it, and a ribbon of it dragged out behind along `trail` as it runs.
+// k: how far it's gathered (0 .. 1); charge: still gathering - streaks of it pulled in from all round.
+export function drawChidori(ctx, x, y, k, t, charge, trail, feetY, dash) {
+  const X = Math.round(x), Y = Math.round(y), tick = Math.floor(t * 28), flick = 0.8 + 0.2 * hash(tick, 1, 9);
+  glowAt(ctx, X, Y, (18 + 30 * k) * flick * (dash ? 1.4 : 1), [[0, `rgba(200, 240, 255, ${0.6 * k})`], [0.35, `rgba(90, 170, 255, ${0.3 * k})`], [1, 'rgba(40, 90, 255, 0)']]);
+  lit(ctx, () => {
+    // dragged out behind it: a jagged ribbon along where the hand's been
+    for (let i = 1; i < trail.length; i++) {
+      const a = trail[i - 1], b = trail[i], j = (hash(tick, i, 6) - 0.5) * 5, q = 1 - i / trail.length;
+      ctx.globalAlpha = q;
+      ctx.fillStyle = i < 3 ? '#ffffff' : i % 2 ? '#9fe6ff' : '#4a8aff';
+      pixLine(ctx, a.x, a.y, b.x, b.y + j);
+      if (i % 3 === 0) { ctx.fillStyle = '#2a62ff'; pixLine(ctx, a.x, a.y + 1, b.x, b.y + 1 - j); }
+    }
+    ctx.globalAlpha = 1;
+    // gathering: streaks pulled in from all round
+    if (charge) for (let i = 0; i < 14; i++) {
+      const a = hash(i, 2, 9) * 6.28, ph = (t * 2.6 + hash(i, 3, 9)) % 1, d = (1 - ph) * 34 + 3;
+      ctx.globalAlpha = ph;
+      ctx.fillStyle = i % 3 ? '#9fe6ff' : '#ffffff';
+      pixLine(ctx, X + Math.cos(a) * d, Y + Math.sin(a) * d, X + Math.cos(a) * (d + 5), Y + Math.sin(a) * (d + 5));
+    }
+    ctx.globalAlpha = 1;
+    // the forks
+    const n = charge ? 3 + Math.round(7 * k) : dash ? 14 : 11;
+    for (let i = 0; i < n; i++) {
+      const a = hash(tick, i, 3) * 6.28, len = (7 + hash(tick, i, 4) * 17) * k * (dash ? 1.5 : 1);
+      ctx.globalAlpha = 0.6 + 0.4 * hash(tick, i, 5);
+      zap(ctx, X, Y, a, len, tick * 13 + i, 4, true);
+    }
+    ctx.globalAlpha = 1;
+    // a bolt cracking down to the floor
+    if (!charge && feetY - Y < 34 && hash(tick, 7, 7) < 0.45) {
+      const fx = X + (hash(tick, 8, 7) - 0.5) * 22;
+      zap(ctx, X, Y, Math.atan2(feetY - Y, fx - X), Math.hypot(feetY - Y, fx - X), tick * 5 + 1, 3, false);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(fx) - 2, Math.round(feetY) - 1, 5, 1);
+      ctx.fillStyle = '#9fe6ff';
+      for (let i = 0; i < 4; i++) ctx.fillRect(Math.round(fx + (hash(tick, i, 8) - 0.5) * 10), Math.round(feetY) - 2 - Math.round(hash(tick, i, 9) * 4), 1, 1);
+    }
+    // the chirping: points of light winking in and out round it
+    for (let i = 0; i < 16; i++) {
+      const a = hash(i, tick >> 1, 5) * 6.28, r = (4 + hash(i, tick >> 1, 6) * 13) * k;
+      ctx.globalAlpha = hash(i, tick, 7);
+      ctx.fillStyle = i % 2 ? '#ffffff' : '#bfefff';
+      ctx.fillRect(Math.round(X + Math.cos(a) * r), Math.round(Y + Math.sin(a) * r), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+    // the knot itself
+    const r = 2 + 2.5 * k;
+    ctx.fillStyle = '#4a8aff';
+    pixArc(ctx, X, Y, r + 1, r + 1, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#bfefff';
+    pixArc(ctx, X, Y, r, r, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(X - 1, Y - 1, 3, 3);
+    ctx.fillRect(X - 2, Y, 5, 1);
+    ctx.fillRect(X, Y - 2, 1, 5);
+  });
+}
+// The moment it goes in, the hand at (x, y) inside them, along a. k: 0 .. 1 of the moment. First a white flash and lines
+// of speed bursting out round it; then a spear of lightning out of their back, crackling, forking, flaring at the tip,
+// sparks streaming off it the way it's going.
+export function drawChidoriStab(ctx, x, y, a, k, t, seed) {
+  const X = Math.round(x), Y = Math.round(y), tick = Math.floor(t * 30), ux = Math.cos(a), uy = Math.sin(a);
+  const hit = Math.max(0, 1 - k / 0.22), grow = ease(Math.min(1, k / 0.16)), fade = k > 0.82 ? (1 - k) / 0.18 : 1;
+  glowAt(ctx, X + ux * 24, Y + uy * 24, 34 + hit * 22, [[0, `rgba(170, 225, 255, ${0.28 + hit * 0.3})`], [0.5, `rgba(70, 140, 255, ${0.14 * fade})`], [1, 'rgba(40, 90, 255, 0)']]);
+  lit(ctx, () => {
+    // the burst of it going in: speed lines all round, a flash
+    if (hit > 0) {
+      for (let i = 0; i < 28; i++) {
+        const b = (i / 28) * 6.28 + hash(i, 1, seed) * 0.2, r0 = 12 + hash(i, 2, seed) * 10 + (1 - hit) * 20, len = 14 + hash(i, 3, seed) * 34;
+        ctx.globalAlpha = hit * (i % 3 ? 0.7 : 1);
+        ctx.fillStyle = i % 4 ? '#bfefff' : '#ffffff';
+        pixLine(ctx, X + Math.cos(b) * r0, Y + Math.sin(b) * r0, X + Math.cos(b) * (r0 + len), Y + Math.sin(b) * (r0 + len));
+      }
+      ctx.globalAlpha = hit;
+      ctx.fillStyle = '#ffffff';
+      const r = Math.round(4 + (1 - hit) * 10);
+      pixArc(ctx, X, Y, r, r, 0, 0, Math.PI * 2);
+      if (hit > 0.6) ctx.fillRect(X - 2, Y - 2, 5, 5);
+    }
+    // the spear out of their back: three strands twisting along it, and forks off it
+    const L = (34 + 34 * grow) * (0.92 + 0.08 * hash(tick, 1, seed));
+    ctx.globalAlpha = fade;
+    for (let s2 = 0; s2 < 3; s2++) {
+      const pts = [];
+      for (let i = 0; i <= 8; i++) {
+        const q = i / 8, w = (hash(tick, i * 3 + s2, seed) - 0.5) * (2 + q * 7);
+        pts.push([X + ux * L * q - uy * w, Y + uy * L * q + ux * w]);
+      }
+      for (const [col, o] of [['#2a62ff', 1], ['#7ac8ff', 0], [s2 === 0 ? '#ffffff' : '#bfefff', 0]]) {
+        if (col === '#7ac8ff' && s2) continue;
+        ctx.fillStyle = col;
+        for (let i = 1; i < pts.length; i++) pixLine(ctx, pts[i - 1][0] + o, pts[i - 1][1] + o, pts[i][0] + o, pts[i][1] + o);
+      }
+    }
+    // the core of it: a solid line of white
+    ctx.fillStyle = '#ffffff';
+    pixLine(ctx, X, Y, X + ux * L * 0.75, Y + uy * L * 0.75);
+    for (let i = 0; i < 6; i++) {
+      const q = 0.25 + hash(tick, i, seed + 4) * 0.7, bx = X + ux * L * q, by = Y + uy * L * q;
+      zap(ctx, bx, by, a + (hash(tick, i, seed + 5) > 0.5 ? 1 : -1) * (0.5 + hash(tick, i, seed + 6) * 0.7), 6 + hash(tick, i, seed + 7) * 12, tick * 9 + i, 3, false);
+    }
+    // the tip, flaring
+    const tx = X + ux * L, ty = Y + uy * L, fr = 3 + hash(tick, 9, seed) * 3;
+    ctx.fillStyle = '#ffffff';
+    pixArc(ctx, tx, ty, fr, fr, 0, 0, Math.PI * 2);
+    for (let i = 0; i < 5; i++) zap(ctx, tx, ty, a + (hash(tick, i, seed + 8) - 0.5) * 2.2, 8 + hash(tick, i, seed + 9) * 12, tick * 7 + i + 50, 3, false);
+    // sparks streaming off it
+    for (let i = 0; i < 16; i++) {
+      const ph = (k * 3 + hash(i, 4, seed)) % 1, q = hash(i, 5, seed), d = L * q + ph * 30, side = (hash(i, 6, seed) - 0.5) * 16 * ph;
+      ctx.globalAlpha = fade * (1 - ph);
+      ctx.fillStyle = i % 3 ? '#9fe6ff' : '#ffffff';
+      ctx.fillRect(Math.round(X + ux * d - uy * side), Math.round(Y + uy * d + ux * side + ph * ph * 6), 1, 1);
+    }
+  });
+}
+// Someone with it through them: their body lit up and jolting, blue-white, with sparks jumping across it.
+// paint: (tint, rgb) -> their own 64 px canvas, feet at (32, 50).
+export function drawShocked(ctx, x, y, t, k, paint) {
+  // (every other frame: a blue outline of them jolted a pixel aside - the body itself still seen through it)
+  const tick = Math.floor(t * 30), X = Math.round(x), Y = Math.round(y), jx = Math.round((hash(tick, 1, 3) - 0.5) * 4);
+  if (tick % 2 === 0) {
+    const [c] = paint(1, '110, 190, 255');
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.42 * (k > 0.82 ? (1 - k) / 0.18 : 1);
+    ctx.drawImage(c, X - 32 + jx, Y - 50);
+    ctx.restore();
+  }
+  lit(ctx, () => {
+    for (let i = 0; i < 4; i++) {
+      const sx = X + (hash(tick, i, 4) - 0.5) * 12, sy = Y - 4 - hash(tick, i, 5) * 22;
+      zap(ctx, sx, sy, hash(tick, i, 6) * 6.28, 5 + hash(tick, i, 7) * 7, tick * 3 + i, 2, false);
+    }
+  });
+}
+// Driven through someone, at (x, y), along a: a white flash and a ring going out, lightning bursting out the far side of
+// them in a fan, a little spat back the way it came, sparks. k: 0 .. 1 of it.
+export function drawChidoriHit(ctx, x, y, a, k, seed) {
+  const e = ease(k), X = Math.round(x), Y = Math.round(y), tick = Math.floor(k * 18);
+  glowAt(ctx, X, Y, 70 * (1 - k) + 10, [[0, `rgba(220, 245, 255, ${0.9 * (1 - k)})`], [0.4, `rgba(90, 170, 255, ${0.45 * (1 - k)})`], [1, 'rgba(40, 90, 255, 0)']]);
+  lit(ctx, () => {
+    ctx.globalAlpha = 1 - k;
+    ctx.fillStyle = '#ffffff';
+    pixArc(ctx, X, Y, 6 + e * 44, 6 + e * 44, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#7ac8ff';
+    pixArc(ctx, X, Y, 4 + e * 30, 3 + e * 18, a, 0, Math.PI * 2);
+    for (let i = 0; i < 8; i++) zap(ctx, X, Y, a + (hash(seed, i, 1) - 0.5) * 1.1, (26 + hash(seed, i, 2) * 44) * (0.5 + e * 0.7), seed * 3 + i * 11 + tick, 6, true);
+    for (let i = 0; i < 4; i++) zap(ctx, X, Y, a + Math.PI + (hash(seed, i, 3) - 0.5) * 1.6, (10 + hash(seed, i, 4) * 14) * (0.5 + e), seed * 5 + i + tick, 3, false);
+    for (let i = 0; i < 18; i++) {
+      const b = a + (hash(seed, i, 5) - 0.5) * 2.4, d = 4 + e * (20 + hash(seed, i, 6) * 40);
+      ctx.fillStyle = i % 3 ? '#9fe6ff' : '#ffffff';
+      ctx.fillRect(Math.round(X + Math.cos(b) * d), Math.round(Y + Math.sin(b) * d + e * e * 10), 2, 1);
+    }
+    if (k < 0.15) { ctx.globalAlpha = 1 - k / 0.15; ctx.fillStyle = '#ffffff'; ctx.fillRect(X - 9, Y - 9, 19, 19); }
   });
 }
 

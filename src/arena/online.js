@@ -40,6 +40,7 @@ import { Weapon } from '../combat/weapons.js';
 import { MeleeWeapon, MELEE } from '../combat/melee.js';
 import { K } from '../ui/kit.js';
 import { SANDE_WORLD } from './fighter.js';
+import { CARD_KINDS } from './skillfx.js';
 
 let A = null;   // what this needs of the game (main.js)
 const STEP = 1 / 60;   // a command: this much of a player's time
@@ -67,7 +68,7 @@ const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost thei
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
-  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], [null, 'NO SKILL'],
+  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], [null, 'NO SKILL'],
 ];
 
 const N = {
@@ -505,7 +506,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'wraith', 'deflect', 'hook', 'skillCD'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'wraith', 'chidori', 'deflect', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
@@ -582,8 +583,10 @@ function encodeCmd(c) {
   let b = (Math.sign(c.move || 0) + 1) << 16;
   BITS.forEach((k, i) => { if (c[k]) b |= 1 << i; });
   const out = [c.seq, b, c.aim === null || c.aim === undefined ? null : Math.round(c.aim * 1000), c.target ? Math.round(c.target.x) : null, c.target ? Math.round(c.target.y) : null];
-  if (c.slot || c.cycle || c.prey !== undefined) out.push(c.slot || 0, c.cycle || 0);
-  if (c.prey !== undefined) out.push(c.prey);   // (the cloak's stab: who at, on this screen; 0 for nobody)
+  const card = cardCode(c);
+  if (c.slot || c.cycle || c.prey !== undefined || card) out.push(c.slot || 0, c.cycle || 0);
+  if (c.prey !== undefined || card) out.push(c.prey ?? null);   // (the cloak's stab: who at, on this screen; 0 for nobody)
+  if (card) out.push(card);   // (the buff cards: which one's leant to, which taken - worked out on the player's own screen)
   return out;
 }
 // (the host) what came in, as a command - nothing in it taken on trust
@@ -596,8 +599,10 @@ function decodeCmd(r) {
   c.slot = r[5] === 1 || r[5] === 2 || r[5] === 3 ? r[5] : 0;
   c.cycle = r[6] === 1 || r[6] === -1 ? r[6] : 0;
   if (Number.isInteger(r[7])) c.prey = r[7];
+  if (Number.isInteger(r[8]) && r[8] > 0 && r[8] < 25) { c.cardHover = CARD_KINDS[(r[8] % 5) - 1] ?? null; c.cardPick = CARD_KINDS[Math.floor(r[8] / 5) - 1] ?? null; }
   return c;
 }
+const cardCode = (c) => (CARD_KINDS.indexOf(c.cardHover) + 1) + 5 * (CARD_KINDS.indexOf(c.cardPick) + 1);
 function ctlOf(peer) {
   let e = N.ctl.get(peer);
   if (!e) N.ctl.set(peer, (e = { q: [], last: 0, ack: 0, bank: 0.1, pace: 0, at: 0, rewind: 0 }));
@@ -866,7 +871,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)

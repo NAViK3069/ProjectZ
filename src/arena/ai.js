@@ -511,6 +511,14 @@ export class Bot {
     // in wraith form itself: nothing that would end it. And no wasting shots on someone else's: they go through.
     if (f.wraith || t?.wraith) { c.fire = false; c.melee = false; c.grenade = false; c.throwWeapon = false; }
     if (f.wraith) c.roll = false;
+    // chidori in hand: straight at them, running, and the lunge once it's close
+    if (f.chidori && t) {
+      c.fire = false;
+      c.aim = Math.atan2(t.y - 14 - (f.y - 14), t.x - f.x);
+      c.target = { x: t.x, y: t.y - 14 };
+      if (f.chidori.phase !== 'charge') { c.move = Math.sign(t.x - f.x) || 1; c.sprint = true; }
+      c.skill = f.chidori.phase === 'hold' && !f.chidori.lunged && vis && dist < 110;
+    }
     if (f.deflect && t) { c.aim = Math.atan2(t.y - 14 - (f.y - 14), t.x - f.x); c.target = { x: t.x, y: t.y - 14 }; }
     // a shield up close is about to go off: not stood right next to it, if it can shoot from further off
     this.backOff = !!(t && t.barrier && armed && vis && dist < 80 && t.barrier.t < 2.5);
@@ -683,7 +691,7 @@ export class Bot {
     const f = this.f, G = this.game, k = f.skill;
     if (f.hackedT > 0) return;   // (Q does nothing, and it knows it)
     if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.wraith || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
+    if (f.wraith || f.chidori || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;
     const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
@@ -711,6 +719,9 @@ export class Bot {
         break;
       case 'vampire':    // the bats go every way: best with someone close, better still with several, or when it needs the blood
         go = near.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 170).length >= (hpK < 0.6 ? 1 : 2) || (vis && dist < 110);
+        break;
+      case 'chidori':    // someone close enough to run them down, on about the same level
+        go = vis && dist < 220 && Math.abs(t.y - f.y) < 40;
         break;
       case 'deflect':    // being shot at from in front, from not too far: it turns them back (and dashes on them at the end)
         go = vis && t.lastFireT < 0.35 && dist < 300 && !!t.gun;

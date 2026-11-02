@@ -19,7 +19,7 @@ import { T, SOLID, PLAT, LADDER, ACID, LOW, LOW_H } from './level.js';
 import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
 import { drawFlame } from './flame.js';
 import { drawVisor } from './visor.js';
-import { drawShieldBubble, drawCard, drawCardAura, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
+import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
 export const GRAVITY = 720, WALK = 86, AIR_ACCEL = 650, JUMP = 290, JUMP2 = 250, PAD_JUMP = 430;   // (the bots work out their routes by these)
@@ -91,7 +91,7 @@ const SUM_CAST = 0.6, SUM_CD = 15;
 // behind it - and it goes off when it goes, not hard, at whoever's crowding you.
 const BARRIER_HP = 110, BARRIER_TIME = 4, BARRIER_CD = 16, BARRIER_SLOW = 0.85, BARRIER_GUN = 0.75, BARRIER_GUARD = 0.5;   // (the moment after it goes: nothing can touch you)
 // the buff cards (skill, Q): up over the head, turned over; how long each lasts; the wait after
-const CARD_UP = 0.5, CARD_TURN = 0.35, CARD_CD = 18;
+const CARD_UP = 0.5, CARD_TURN = 0.35, CARD_CD = 18, CARD_WAIT = 4, CARD_FLY = 0.24;   // (the fan: open at most this long; the pick flying up)
 export const CARD_LAST = { red: 5, green: 6, blue: 7, purple: 2 };
 export const CARD_ALLY = 0.7;   // a teammate near by when the card's turned: this much of its effect, for this much of its time
 const CARD_FIRE = 0.6, CARD_MELEE = 0.3, CARD_HEAL = 0.045, CARD_SPEED = 1.3, CARD_DRAIN = 0.4;   // red: guns recover this much faster; green: of full health a second; blue: feet, what running costs
@@ -108,6 +108,10 @@ const SANDE_TIME = 2, SANDE_CD = 24;
 export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
 const BAT_CAST = 0.35, BAT_CD = 20, WRAITH_TIME = 2.5, WRAITH_SPEED = 1.5;   // (wraith form: how long at most, how much faster)
+// chidori (skill, Q): gathering it, how long it's held, the wait after; how hard it goes in; how much quicker on your feet
+// with it; the lunge (Q again): how fast, how long
+const CHIDORI_CHARGE = 0.45, CHIDORI_TIME = 4, CHIDORI_CD = 16, CHIDORI_RUN = 1.3, CHIDORI_LUNGE = 520, CHIDORI_LUNGE_T = 0.3;
+const CHIDORI_STAB = 0.45;   // the moment it's in them: both held there, then they're thrown off it
 // deflect (skill, Q): how long the blade's up turning shots back, then the dash - how fast, how far, how hard - the wait after
 const DEFLECT_TIME = 1.5, DEFLECT_SPEED = 720, DEFLECT_REACH = 165, DEFLECT_CUT = 70, DEFLECT_CD = 14, DEFLECT_SLOW = 0.75, DEFLECT_FINISH = 0.24;
 const HACK_HURT = 1.2;   // someone hacked takes this much more from everything
@@ -115,8 +119,8 @@ const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can tur
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
 // the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
 const LOCK_TIME = 3, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME };
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -289,7 +293,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, dropT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -611,6 +615,7 @@ export class Fighter {
     else if (this.skill === 'sande') this.updateSande(dt, c);
     else if (this.skill === 'vampire') this.updateBats(dt, c);
     else if (this.skill === 'deflect') this.updateDeflect(dt, c);
+    else if (this.skill === 'chidori') this.updateChidori(dt, c);
     if (this.hook?.state !== 'on' && this.trail.length) this.trail.pop();   // the grapple's afterimages catching up once it lets go
     const reeling = this.hook?.state === 'on';
     this.updateWall(c, reeling);
@@ -668,7 +673,7 @@ export class Fighter {
         this.wall = null;
       }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -713,6 +718,14 @@ export class Fighter {
       this.vy = Math.sin(m.a) * DEFLECT_SPEED;
       if (this.vy > 100) this.dropT = 0.1;
     }
+    // chidori's lunge: straight along the mouse, the hand out in front
+    const lunging = this.chidori?.phase === 'lunge' || this.chidori?.phase === 'stab';
+    if (this.chidori?.phase === 'lunge') {
+      this.aim = this.chidori.a;
+      this.vx = Math.cos(this.chidori.a) * CHIDORI_LUNGE;
+      this.vy = Math.sin(this.chidori.a) * CHIDORI_LUNGE;
+      if (this.vy > 100) this.dropT = 0.1;
+    }
     const dashing = this.blaze?.phase === 'dash';
     if (dashing) {
       // the flame fist's dash: straight down the line it was thrown along, no falling
@@ -720,7 +733,7 @@ export class Fighter {
       this.vy = Math.sin(this.blaze.a) * BLAZE_SPEED;
       if (this.vy > 100) this.dropT = 0.1;   // (down through a catwalk too)
     }
-    if (!this.onLadder && !this.lunge && !dashing && !cutting && !this.wall) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
+    if (!this.onLadder && !this.lunge && !dashing && !cutting && !lunging && !this.wall) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
 
     const wasGround = this.onGround, fall = this.vy, px = this.x, py = this.y;
     this.move(dt);
@@ -762,7 +775,7 @@ export class Fighter {
 
   updateCombat(dt, c) {
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -1843,30 +1856,52 @@ export class Fighter {
   }
 
   // ---------- buff cards (skill, Q) ----------
-  // Q: a card comes up over your head, face down, and turns over: whatever it is, you've got it. Red: your gun
-  // recovers faster. Green: health coming back. Blue: quicker feet, and running costs less. Purple: gone for a
-  // moment and nothing can touch you - until you attack. The host deals (see main.js: pickCard): here on a
-  // player's own screen, it waits at the turn to hear what it is.
+  // Q: four cards fan out round the mouse - red up, blue right, green down, purple left - and a drag of the mouse
+  // toward one takes it: it flies up over your head and whatever it is, you've got it. Red: your gun recovers faster.
+  // Green: health coming back. Blue: quicker feet, and running costs less. Purple: gone for a moment and nothing can
+  // touch you - until you attack. Q again (or leaving it) puts them away, with no wait to draw again. On your own
+  // screen the fan stays put where the mouse was, whatever the camera does, and which one you lean to is worked out
+  // there (main.js: c.cardHover, c.cardPick); everyone else sees it held that far from you (pick.x, y: from the feet).
   updateCard(dt, c) {
     const m = this.card;
     if (!m) {
       if (c.skill && this.skillCD <= 0 && this.alive) {
-        this.card = { t: 0, kind: null, on: false, left: 0, total: 1 };
-        this.game.fx.sparks(this.x, this.y - 34, 8, 0, -1, '#ffe08a');
+        const at = c.target ?? { x: this.x + Math.cos(this.aim) * 60, y: this.y - 14 + Math.sin(this.aim) * 60 };
+        this.card = { t: 0, kind: null, on: false, left: 0, total: 1, pick: { x: at.x - this.x, y: at.y - this.y, t: 0, hover: null }, fly: null, seed: Math.random() * 100 };
+        this.game.fx.sparks(at.x, at.y, 10, 0, -1, '#ffe08a');
       }
+      return;
+    }
+    const p = m.pick;
+    if (p) {
+      p.t += dt;
+      let take = null;
+      if (this.bot) take = p.t > 0.35 ? this.botCard() : null;
+      else {
+        p.hover = c.cardHover ?? null;
+        if (c.cardPick && p.t > 0.12) take = c.cardPick;
+      }
+      if (!take && ((c.skill && p.t > 0.2) || p.t > CARD_WAIT)) { this.card = null; return; }   // put away
+      if (take) {
+        m.kind = take;
+        m.pick = null;
+        m.fly = { x: p.x, y: p.y, t: 0 };
+        const [ox, oy] = CARD_SPOT[take], at = this.game.cardPin?.(this) ?? { x: this.x + p.x, y: this.y + p.y };
+        this.game.fx.sparks(at.x + ox, at.y + oy, 10, ox / 27, oy / 27, '#ffffff');
+      }
+      return;
+    }
+    if (m.fly) {
+      if ((m.fly.t += dt) < CARD_FLY) return;
+      m.fly = null;
+      m.t = CARD_UP + CARD_TURN;   // (over the head, face up: the burst as it lands, then the buff)
+      m.on = true;
+      m.left = m.total = CARD_LAST[m.kind];
+      if (m.kind === 'purple') this.fade = { t: 0, dur: 0.3, out: true, seed: Math.random() * 100, rgb: '180, 110, 255' };
+      this.game.shareCard?.(this, m.kind);
       return;
     }
     m.t += dt;
-    if (!m.kind && m.t >= CARD_UP) m.kind = this.game.pickCard?.() ?? null;
-    if (!m.on) {
-      if (m.kind && m.t >= CARD_UP + CARD_TURN) {
-        m.on = true;
-        m.left = m.total = CARD_LAST[m.kind];
-        if (m.kind === 'purple') this.fade = { t: 0, dur: 0.3, out: true, seed: Math.random() * 100, rgb: '180, 110, 255' };
-        this.game.shareCard?.(this, m.kind);
-      }
-      return;
-    }
     if (m.kind === 'green' && this.game.regen !== false) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * CARD_HEAL * dt);
     // (the phantom: over the moment you attack - nobody gets to shoot from where they can't be touched)
     const ends = (m.left -= dt) <= 0 || (m.kind === 'purple' && (c.fire || c.melee || c.grenade));
@@ -1875,6 +1910,11 @@ export class Fighter {
       this.card = null;
       this.skillCD = CARD_CD;
     }
+  }
+  // A bot's pick: out of trouble if it's in it, health if it's hurt, the gun if it's been shooting, else its feet.
+  botCard() {
+    const hpK = this.hp / this.maxHp;
+    return hpK < 0.35 && this.hurtT < 1 ? 'purple' : hpK < 0.6 ? 'green' : this.lastFireT < 1.5 ? 'red' : 'blue';
   }
 
   // ---------- hack (skill, Q) ----------
@@ -1911,6 +1951,7 @@ export class Fighter {
     this.batCast = null;
     this.wraith = null;
     if (this.deflect) { this.deflect = null; this.skillCD = DEFLECT_CD; }
+    if (this.chidori) { this.chidori = null; this.skillCD = CHIDORI_CD; }
     if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
     this.breakBarrier(false, true);
     if (this.allyCard) { this.allyCard = null; }
@@ -1986,7 +2027,7 @@ export class Fighter {
   // On to a wall (players only: the bots' routes don't know about it), and off it when it's no longer there or something
   // else has taken over.
   updateWall(c, reeling) {
-    const taken = this.onGround || this.onLadder || this.roll || this.lunge || reeling || this.deflect?.phase === 'dash' || this.blaze?.phase === 'dash';
+    const taken = this.onGround || this.onLadder || this.roll || this.lunge || reeling || this.deflect?.phase === 'dash' || this.chidori?.phase === 'lunge' || this.chidori?.phase === 'stab' || this.blaze?.phase === 'dash';
     if (this.wall) {
       if (taken || !this.wallBeside(this.wall.dir)) this.wall = null;
       return;
@@ -2001,6 +2042,64 @@ export class Fighter {
     this.flipT = -1;
     this.bounce(40);
     this.game.fx.dust(this.x + dir * HALF_W, this.y - 10, 4);
+  }
+
+  // ---------- chidori (skill, Q) ----------
+  // Q: a moment gathering it, then lightning crackling in the hand, and quicker on your feet: run into a foe and it's
+  // driven through them (see main.js: chidoriStrike). Q again: a lunge along the mouse, the hand out in front, once.
+  // No shooting with it in hand. Held too long, it goes out.
+  updateChidori(dt, c) {
+    const m = this.chidori;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
+        this.chidori = { phase: 'charge', t: 0, a: this.aim, lunged: false };
+        if (this.weapon?.reloading) this.weapon.cancelReload();
+        this.hook = null;
+      }
+      return;
+    }
+    const over = () => { this.chidori = null; this.skillCD = CHIDORI_CD; };
+    // in them: held there, the two of you, till it throws them off
+    if (m.phase === 'stab') {
+      this.vx = this.vy = 0;
+      this.game.chidoriHold?.(this, m);
+      if ((m.t -= dt) <= 0) { this.game.chidoriRelease?.(this, m); over(); }
+      return;
+    }
+    if (m.phase === 'charge') {
+      if ((m.t += dt) >= CHIDORI_CHARGE) {
+        m.phase = 'hold';
+        m.t = CHIDORI_TIME;
+        this.game.lights.flash(this.x, this.y - 14, 120, '150, 210, 255', 0.25);
+      }
+      return;
+    }
+    if (m.phase === 'lunge') {
+      if ((m.t -= dt) <= 0) { m.phase = 'hold'; m.t = Math.max(m.t, m.left); this.vx *= 0.3; this.vy = Math.min(this.vy, 0) * 0.3; }
+    } else {
+      if ((m.t -= dt) <= 0) return over();
+      if (c.skill && !m.lunged) {
+        m.phase = 'lunge';
+        m.lunged = true;
+        m.left = m.t;
+        m.t = CHIDORI_LUNGE_T;
+        m.a = this.aim;
+        this.onLadder = false;
+        this.crouch = false;
+        this.game.fx.sparks(this.x, this.y - 14, 10, -Math.cos(m.a), -Math.sin(m.a), '#9fe6ff');
+      }
+    }
+    const v = this.game.chidoriStrike?.(this, m);
+    if (v) Object.assign(m, { phase: 'stab', t: CHIDORI_STAB, victim: v, a: m.phase === 'lunge' ? m.a : Math.sign(v.x - this.x) >= 0 ? 0 : Math.PI, seed: Math.random() * 100 });
+  }
+  // Where the lit hand is: out in front, gathering and standing; trailing low behind, running with it; thrust out along
+  // the line, lunging.
+  chidoriHand() {
+    const m = this.chidori, y = this.y + this.pose.body;
+    if (m.phase === 'stab') return { x: this.x + Math.cos(m.a) * 12, y: y - 14 + Math.sin(m.a) * 12 };   // (in them, up to the wrist)
+    if (m.phase === 'lunge') return { x: this.x + Math.cos(m.a) * 13, y: y - 14 + Math.sin(m.a) * 13 };
+    if (m.phase === 'hold' && this.onGround && Math.abs(this.vx) > 40) return { x: this.x - Math.sign(this.vx) * 10, y: y - 5 };
+    return { x: this.x + this.facing * 8, y: y - 11 };
   }
 
   // ---------- deflect (skill, Q) ----------
@@ -2392,6 +2491,7 @@ export class Fighter {
     this.sande = null;
     this.batCast = null;
     this.wraith = null;
+    this.chidori = null;
     this.deflect = null;
     this.alive = false;
     this.hp = 0;
@@ -2865,7 +2965,10 @@ export class Fighter {
     if (b) drawShieldBubble(ctx, this.x, this.y - 14, Math.max(0, b.hp / b.max), b.hit, b.age, b.t, t);
     if (this.hackedT > 0) drawHacked(ctx, this.x, this.y, this.hackedT, HACK_LOCK, t, 1, this.labelY(HACKED_H));
     const m = this.card;
-    if (m) {
+    const pin = (m?.pick || m?.fly) && this.game.cardPin?.(this);   // (your own: where it was put on the screen)
+    if (m?.pick) drawCardFan(ctx, pin ? pin.x : this.x + m.pick.x, pin ? pin.y : this.y + m.pick.y, m.pick.t, m.pick.hover, t, mine);
+    else if (m?.fly) drawCardFly(ctx, pin ? pin.x : this.x + m.fly.x, pin ? pin.y : this.y + m.fly.y, m.kind, this.x, this.labelY(34) + 21, m.fly.t / CARD_FLY, t, m.seed);
+    else if (m) {
       if (m.on) drawCardAura(ctx, this.x, this.y, m.kind, t, 1, this.vx, this.facing);
       if (!(m.on && m.kind === 'purple' && !mine)) {
         const flipEnd = CARD_UP + CARD_TURN, full = !m.on || m.t < flipEnd + CARD_HOLD, h = full ? (m.kind ? 34 : 26) : 16;
@@ -2879,6 +2982,24 @@ export class Fighter {
     }
     if (this.guardT > 0) drawGuard(ctx, this.x, this.y, this.guardT, t);
     if (this.batCast) drawBatCast(ctx, this.x, this.y - 16, Math.min(1, this.batCast.t / BAT_CAST), t);
+    const ch = this.chidori;
+    if (ch) {
+      const h = this.chidoriHand(), tr = (this._zapTrail ??= []), now = performance.now();
+      tr.unshift({ x: h.x, y: h.y });
+      tr.length = Math.min(tr.length, 12);
+      // sparks thrown up off the floor as it's dragged along it
+      if (ch.phase === 'hold' && this.onGround && Math.abs(this.vx) > 40 && now - (this._zapSpark ?? 0) > 45) {
+        this._zapSpark = now;
+        this.game.fx.sparks(h.x, this.y - 1, 2, -Math.sign(this.vx), -0.6, '#9fe6ff');
+      }
+      if (ch.phase === 'stab') {
+        const k = 1 - Math.max(0, ch.t) / CHIDORI_STAB, v = ch.victim;
+        if (v?.alive && !v.hidden) drawShocked(ctx, v.x, v.y, t, k, (tint, rgb) => v.paintSelf(tint, rgb));
+        drawChidoriStab(ctx, h.x, h.y, ch.a, k, t, ch.seed ?? 0);
+      }
+      // (in them, it's all gone into the spear: only a small hot knot left at the wrist)
+      drawChidori(ctx, h.x, h.y, ch.phase === 'charge' ? Math.min(1, ch.t / CHIDORI_CHARGE) : ch.phase === 'stab' ? 0.35 : 1, t, ch.phase === 'charge', ch.phase === 'stab' ? [] : tr, this.y, ch.phase === 'lunge');
+    } else this._zapTrail = null;
     const dm = this.deflect;
     if (dm?.phase === 'guard') {
       drawDeflectField(ctx, this.x, this.y - 14, dm.age, dm.t, t, dm.ripples);
@@ -2968,7 +3089,7 @@ export class Fighter {
       ctx.restore();
     };
     const g = this.gun;
-    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect)) return;   // (put away too while the archery bow's out)
+    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && !this.chidori)) return;   // (put away too while the archery bow's out)
     if (g.def.cls === 'pistol') put(g, Math.PI * 0.62, 2, 10);   // holstered
     else put(g, -Math.PI * 0.75, 3, 13);                         // across the back at 45 degrees
   }
@@ -3097,6 +3218,13 @@ export class Fighter {
     if (this.blaze) return this.drawBlazeArms(ctx);
     if (this.gal) return this.drawGalArms(ctx);
     if (this.summon) return this.drawSumArms(ctx);
+    if (this.chidori) {
+      // the lit hand open; the other gripping its wrist, but for when it's running with it or lunging
+      const h = this.chidoriHand(), m = this.chidori;
+      drawHand(ctx, 'open', Math.round(h.x), Math.round(h.y));
+      if (m.phase === 'charge' || (m.phase === 'hold' && Math.abs(this.vx) <= 40) || m.phase === 'stab') drawHand(ctx, 'grab', Math.round(h.x - this.facing * 3), Math.round(h.y + 2));
+      return;
+    }
     if (this.deflect) {
       const m = this.deflect, y = this.y + this.pose.body, f = this.facing;
       if (m.phase === 'guard') {
