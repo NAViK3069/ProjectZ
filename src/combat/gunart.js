@@ -38,6 +38,8 @@ export const GUN_PAL = {
   u: '#5e4e33', t: '#857150', T: '#a8936a', U: '#c2ad82',      // tan polymer
   R: '#9e2128',                                                 // dark red paint
   a: '#c4561f', A: '#ec8a34',                                   // orange (chainsaw body)
+  G: '#5a3a0a', H: '#9a6a12', J: '#d8a42a', M: '#f5d25a', N: '#fff3b0',   // gold (the aurum skill's sniper)
+  p: '#24083e', X: '#4a1a86', z: '#7a3ae0', m: '#c09aff',      // violet
   r: '#d7313d', y: '#e8b84a', Y: '#f5d27a', n: '#a8822e', L: '#fff3c4', b: '#7fb7d9', B: '#2f5f80', s: '#c23a2e',
 };
 
@@ -204,12 +206,20 @@ const ATTACH = {
   },
 };
 
+// The aurum skill's gold sniper: its metal gone violet, its gold run through with thin violet lines on the slant;
+// and a gold scope to go on it.
+const AURUM_METAL = { h: 'p', f: 'p', k: 'p', q: 'p', g: 'X', e: 'X', d: 'z', c: 'm', l: 'm', S: 'N', Z: 'N' };
+const aurumRows = (rows) => rows.map((r, y) => [...r].map((ch, x) => (AURUM_METAL[ch] ?? ((ch === 'J' || ch === 'M') && (x + y) % 9 < 2 ? 'z' : ch))).join(''));
+const GOLD_METAL = { f: 'G', g: 'H', e: 'J', d: 'M', c: 'N' };
+ATTACH.goldScope = { ...ATTACH.scope, rows: ATTACH.scope.rows.map((r) => [...r].map((ch) => GOLD_METAL[ch] ?? ch).join('')) };
+
 export const ATTACH_ART = {};
 for (const [k, a] of Object.entries(ATTACH)) ATTACH_ART[k] = { ...a, ...part(a.rows, GUN_PAL, RES) };
 
 // The catalog is generated from specs (gunbuild.js).
 for (const [key, , , , spec] of CATALOG) {
   GUNS[key] = spec.hand === 'long' ? longGun(spec) : handgun({ ...spec, box: spec.box || spec.hand === 'box' });
+  if (spec.aurum) for (const p of Object.values(GUNS[key].parts)) p.rows = aurumRows(p.rows);
 }
 
 // A gun drawn before the art went finer (res 1): every pixel becomes RES x RES.

@@ -15,7 +15,8 @@ import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K he
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
-import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY } from './fighter.js';
+import { drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot } from './goldfx.js';
+import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier } from './ai.js';
@@ -83,8 +84,8 @@ const OPTIONS = [
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
   ['skillmode', 'SKILL MODE', [['set', 'AS PICKED'], ['random', 'RANDOM EVERY LIFE'], ['pick', 'PICK WHEN YOU DIE']]],
   ['cd', 'SKILL COOLDOWN', [[0, 'NONE'], [0.25, '25%'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%'], [2, '200%'], [3, '300%']]],
-  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], [null, 'NO SKILL']]],
-  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], [null, 'NONE']]],
+  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], [null, 'NO SKILL']]],
+  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -155,7 +156,7 @@ const FIST_ICON = sprite(9, 7, (g) => g.drawImage(HANDS.open.img, 1, 0, HANDS.op
 // ---------- the game ----------
 
 const game = {
-  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [], bursts: [], bats: [], bloods: [], rifts: [],
+  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [], bursts: [], bats: [], bloods: [], rifts: [], fangs: [],
   get gunDamage() { return settings.dmg; },
   get regen() { return !overtime; },   // out of a fight for a while, you heal (not once the lab's venting)
   get viewer() { return player; },
@@ -189,6 +190,17 @@ const game = {
     }
   },
   hackBurst: (f) => hackBurst(f),
+  // the grapple's spin cut: health back, by what it took out of them
+  drain(f, hp) {
+    if (!f.alive || hp <= 0) return;
+    f.hp = Math.min(f.maxHp, f.hp + hp);
+    this.numbers.push({ text: `+${Math.round(hp)}`, x: f.x + rand(-6, 6), y: f.y - 34, t: 0, color: '#5aff7a', big: false });
+  },
+  throwFangs: (f) => throwFangs(f),
+  recallFangs: (f) => recallFangs(f),
+  aurumOn: (f) => aurumOn(f),
+  aurumOff: (f) => aurumOff(f),
+  reapCut: (f, v, dmg, ux, uy, last) => reapCut(f, v, dmg, ux, uy, last),
   // the cloak's one stab going in: the effect of it, on whoever it went for (or out at the knife's point if nobody)
   cloakStab(f, k) {
     const v = k.prey, near = v?.alive && Math.hypot(v.x - f.x, v.y - f.y) < LUNGE_RANGE + 12;
@@ -340,7 +352,7 @@ const game = {
       return;
     }
     // (id, sq: online, how a shot's known; rw: how far behind now its shooter saw everyone - see pastOf)
-    const b = { id: (this.shotIds = (this.shotIds ?? 0) + 1), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, far, done: new Set(), dead: false, sq: f.shotSeed ?? 0, rw: f.rewind ?? 0 };
+    const b = { id: (this.shotIds = (this.shotIds ?? 0) + 1), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, far, done: new Set(), dead: false, sq: f.shotSeed ?? 0, rw: f.rewind ?? 0, violet: !!f.weapon?.def.violet };
     this.bullets.push(b);
     this.onShot?.(b);
   },
@@ -438,7 +450,7 @@ const game = {
     this.fx.dust(cx, p.y, 8);
     if (p.material === 'glass') this.fx.sparks(cx, cy, 10, 0, -0.5, '#c8f0ff');
     if (p.kind === 'cooler') this.fx.sparks(cx, cy, 16, 0, -1, '#6cc0e8');   // a burst of water
-    if ((p.kind === 'wcrate' || p.kind === 'crate') && Math.random() < 0.4 && settings.drops > 0 && state !== 'training') this.spawnPickup(cx, p.y, true);   // sometimes something inside
+    if ((p.kind === 'wcrate' || p.kind === 'crate') && Math.random() < 0.6 && settings.drops > 0 && state !== 'training') this.spawnPickup(cx, p.y, true);   // sometimes something inside
   },
 
   explode(x, y, owner, r = 54, dmg = 135) {
@@ -480,16 +492,18 @@ const game = {
   spawnPickup(x, y, dropped = false) {
     if (x === undefined) {
       const spots = this.nav.standable.filter((n) => !this.fighters.some((f) => f.alive && Math.abs(f.x - (n.cx + 0.5) * T) < 40 && Math.abs(f.y - (n.cy + 1) * T) < 30) && !this.pickups.some((p) => Math.abs(p.x - (n.cx + 0.5) * T) < 48 && Math.abs(p.y - (n.cy + 1) * T) < 20));
-      const n = pick(spots);
+      const far = (n) => Math.min(Infinity, ...this.pickups.map((p) => Math.hypot(p.x - (n.cx + 0.5) * T, p.y - (n.cy + 1) * T)));
+      let n = null;
+      for (let i = 0; i < 6 && spots.length; i++) { const o = pick(spots); if (!n || far(o) > far(n)) n = o; }
       if (!n) return;
       x = (n.cx + 0.5) * T;
       y = (n.cy + 1) * T;
     }
     const roll = Math.random(), pool = settings.pool, guns = GUN_POOL.filter(gunOK);
-    const weapon = () => (!guns.length ? (pool === 'guns' ? 'nades' : 'melee') : pool === 'guns' ? 'gun' : pool === 'melee' ? 'melee' : Math.random() < 0.68 ? 'gun' : 'melee');   // (every gun banned: none)
-    let kind = roll < 0.7 ? weapon() : roll < 0.87 ? 'health' : 'nades';
+    const weapon = () => (!guns.length ? (pool === 'guns' ? 'nades' : 'melee') : pool === 'guns' ? 'gun' : pool === 'melee' ? 'melee' : Math.random() < 0.8 ? 'gun' : 'melee');   // (every gun banned: none)
+    let kind = roll < 0.78 ? weapon() : roll < 0.9 ? 'health' : 'nades';
     if (kind === 'health' && overtime) kind = weapon();   // (the lab's venting: no more healing turns up)
-    const p = { kind, x, y: y - (dropped ? 4 : 18), vy: dropped ? -120 : 0, vx: dropped ? rand(-40, 40) : 0, beam: dropped ? 0 : 0.8, life: 30, bob: Math.random() * 6 };
+    const p = { kind, x, y: y - (dropped ? 4 : 18), vy: dropped ? -120 : 0, vx: dropped ? rand(-40, 40) : 0, beam: dropped ? 0 : 0.8, life: 40, bob: Math.random() * 6 };
     if (kind === 'gun') p.key = pick(guns);
     if (kind === 'melee') p.key = pick(MELEE_POOL);
     if (kind === 'nades') p.nade = Math.random() < 0.6 ? 'frag' : 'impact';
@@ -531,7 +545,7 @@ function makeFighters() {
   bots = game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.9 + i * 0.04) * settings.skill));
 }
 // a bot's skill, by the setting: the one picked, or one at random
-const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon', 'lock', 'shield', 'cards', 'hack', 'sande', 'vampire', 'deflect', 'chidori', 'octo', 'steal', 'jumper'];
+const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon', 'lock', 'shield', 'cards', 'hack', 'sande', 'vampire', 'deflect', 'chidori', 'octo', 'steal', 'jumper', 'fang', 'aurum', 'reap'];
 const botSkill = () => (settings.botskill === 'random' ? pick(BOT_SKILLS.filter(skillOK)) ?? null : skillOK(settings.botskill) ? settings.botskill ?? null : null);
 const teamMode = () => settings.mode === 'teams' && state !== 'training';   // (training's just you and the dummies, whatever the room says)
 const tagColor = (f) => (teamMode() ? TEAMS[f.team]?.color ?? f.color : f.color);
@@ -564,6 +578,7 @@ function startRound() {
   game.bursts = [];
   game.bats = [];
   game.rifts = [];
+  game.fangs = [];
   game.bloods = [];
   game.punches = [];
   game.numbers = [];
@@ -589,9 +604,9 @@ function startRound() {
     });
   }
   for (const b of bots) b.reset();
-  if (settings.drops > 0) for (let i = 0; i < 3; i++) game.spawnPickup();
+  if (settings.drops > 0) for (let i = 0; i < Math.round(6 * settings.drops); i++) game.spawnPickup();
   for (const p of game.pickups) p.beam = 0;
-  pickupT = 4 / Math.max(0.5, settings.drops);
+  pickupT = 2 / Math.max(0.5, settings.drops);
   banner = { text: `ROUND ${round}`, sub: game.fighters.map((f) => `${f.name} ${f.wins}`).join('   '), t: 1.4, color: '#e8e2d0' };
 }
 
@@ -1594,6 +1609,159 @@ function hackBurst(f) {
   game.bursts.push({ kind: 'hack', x, y, t: 0, seed: Math.random() * 100, r: HACK_REACH, links });
   game.lights.flash(x, y, 130, '60, 255, 140', 0.25);
 }
+// ---------- golden fangs ----------
+// Thrown fanned out the way they aim, each flies straight through whoever's in its way (once each) till it's in a
+// wall or out of reach (it hangs there in the air). Called back, every one comes flying home to its owner - quicker as
+// it goes, through walls, through anyone in the way, as hard as it went out - and is gone once it's back in the hand.
+// (The owner's side of it: Fighter.updateFang.)
+const FANG_N = 5, FANG_SPREAD = 0.6, FANG_SPEED = 820, FANG_REACH = 420, FANG_HIT = 30;   // how many, how wide, how fast, how far, how hard
+const FANG_HOME = 1000, FANG_PULL = 3400, FANG_BACK_HIT = FANG_HIT, FANG_RIP = 12;   // home: top speed, how fast it gets there, what it takes going through someone (and torn out of them)
+function throwFangs(f) {
+  const s = f.shoulder, seed = Math.random() * 100;
+  for (let i = 0; i < FANG_N; i++) {
+    const a = f.aim + (i - (FANG_N - 1) / 2) * (FANG_SPREAD / (FANG_N - 1)) + rand(-0.025, 0.025), sp = FANG_SPEED * rand(0.94, 1.06);
+    game.fangs.push({ owner: f, x: s.x + Math.cos(a) * 6, y: s.y + Math.sin(a) * 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, a, state: 'fly', dist: 0, on: null, ox: 0, oy: 0, hits: [], seed: seed + i * 7, t: 0 });
+  }
+  game.bursts.push({ kind: 'fang', x: s.x, y: s.y, a: f.aim, t: 0 });
+  game.lights.flash(s.x, s.y, 80, '255, 200, 90', 0.12);
+  game.fx.sparks(s.x, s.y, 8, Math.cos(f.aim), Math.sin(f.aim), '#ffd25a');
+}
+function recallFangs(f) {
+  for (const d of game.fangs) {
+    if (d.owner !== f || d.state === 'back') continue;
+    d.hits = [];
+    const v = d.on;
+    if (d.state === 'in' && v?.alive) {
+      // torn out of them on the way
+      const ax = Math.sign(f.x - v.x) || 1;
+      v.hitHow = 'GOLDEN FANGS';
+      v.hurt(FANG_RIP, f, ax * 110, -60);
+      game.fx.blood(d.x, d.y, 6, ax, -0.3);
+      d.hits.push(v);
+    }
+    d.state = 'back';
+    d.on = null;
+    d.sp = 120;
+  }
+  game.lights.flash(f.x, f.y - 14, 70, '255, 200, 90', 0.1);
+}
+function updateFangs(dt) {
+  for (const d of game.fangs) {
+    const o = d.owner;
+    d.t += dt;
+    if (!o?.alive || !o.fang) { d.gone = true; game.fx.motes(d.x, d.y, 4, ['#ffd25a', '#fff6c8']); continue; }
+    if (d.state === 'fly') {
+      const n = 3, ux = Math.cos(d.a), uy = Math.sin(d.a);
+      for (let i = 0; i < n && d.state === 'fly'; i++) {
+        d.x += (d.vx * dt) / n;
+        d.y += (d.vy * dt) / n;
+        d.dist += (FANG_SPEED * dt) / n;
+        const tx = d.x + ux * 7, ty = d.y + uy * 7;
+        if (level.solidAt(tx, ty)) {
+          d.state = 'wall';
+          game.fx.sparks(tx, ty, 5, -ux, -uy, '#ffd25a');
+          break;
+        }
+        const h = game.fighters.find((q) => q.alive && !q.vanish && !d.hits.includes(q) && (!q.hidden || q.glimpsed) && game.foes(o, q) && (q.hitPart(tx, ty) || Math.hypot(q.x - tx, q.y - 14 - ty) < 8));
+        if (h) {
+          h.hitHow = 'GOLDEN FANGS';
+          h.hurt(FANG_HIT, o, ux * 140, -60, h.hitPart(tx, ty) === 'head');
+          d.hits.push(h);
+          game.fx.blood(tx, ty, 5, ux, uy);
+          game.fx.sparks(tx, ty, 6, ux, uy, '#ffd25a');
+        }
+      }
+      if (d.state === 'fly' && d.dist > FANG_REACH) d.state = 'hang';
+      if (d.state !== 'fly') { d.vx = 0; d.vy = 0; }
+    } else if (d.state === 'in') {
+      const v = d.on;
+      if (!v?.alive || v.vanish) { d.state = 'hang'; d.on = null; }
+      else { d.x = v.x + d.ox; d.y = v.y + d.oy; }
+    } else if (d.state === 'back') {
+      const s = o.shoulder, dx = s.x - d.x, dy = s.y - d.y, dist = Math.hypot(dx, dy) || 1, ux = dx / dist, uy = dy / dist;
+      d.sp = Math.min(FANG_HOME, (d.sp ?? 120) + FANG_PULL * dt);
+      d.a = Math.atan2(uy, ux);   // (point first, home)
+      const step = Math.min(dist, d.sp * dt);
+      d.x += ux * step;
+      d.y += uy * step;
+      d.vx = ux * d.sp;
+      d.vy = uy * d.sp;
+      for (const q of game.fighters) {
+        if (!q.alive || q.vanish || d.hits.includes(q) || (q.hidden && !q.glimpsed) || !game.foes(o, q) || Math.hypot(q.x - d.x, q.y - 14 - d.y) > 10) continue;
+        d.hits.push(q);
+        q.hitHow = 'GOLDEN FANGS';
+        q.hurt(FANG_BACK_HIT, o, ux * 120, -50);
+        game.fx.blood(d.x, d.y, 4, ux, uy);
+        game.fx.sparks(d.x, d.y, 5, ux, uy, '#ffd25a');
+      }
+      if (dist < 9) { d.gone = true; game.fx.sparks(s.x, s.y, 4, 0, -1, '#fff6c8'); }
+    }
+  }
+  game.fangs = game.fangs.filter((d) => !d.gone);
+  // all back in the hand: now the wait starts
+  for (const f of game.fighters) if (f.fang?.back && !game.fangs.some((d) => d.owner === f)) { f.fang = null; if (f.alive) f.skillCD = SKILL_CD.fang; }
+}
+function drawFangs(ctx) {
+  for (const d of game.fangs) {
+    const tr = (d._pts ??= []), moving = d.state === 'fly' || d.state === 'back';
+    if (moving) { tr.unshift({ x: d.x, y: d.y }); tr.length = Math.min(tr.length, d.state === 'back' ? 7 : 5); } else if (tr.length) tr.pop();
+    drawFangTrail(ctx, tr, d.state === 'back', d.seed);
+    const bob = d.state === 'hang' ? Math.sin(game.time * 3 + d.seed) * 1.5 : 0;
+    drawFang(ctx, d.x, d.y + bob, d.a);
+    drawFangGlow(ctx, d.x, d.y + bob, d.a, game.time, d.seed, d.state === 'back');
+  }
+}
+
+// ---------- aurum ----------
+// Q: whatever gun's in the hands is put by, and the gold sniper's built there (it can't fire till it's done); its five
+// shots gone, Q again, the time up - or knocked out of the hands, swapped, thrown - and it comes apart, the gun that was
+// put by back. (The owner's side of it: Fighter.updateAurum.)
+function aurumOn(f) {
+  if (!f.gun?.def.skillGun) f._prevGun = f.gun;
+  if (f.gun?.reloading) f.gun.cancelReload();
+  const w = f.give('aurum', 0);
+  if (!w) return;
+  w.drawT = 0.2;   // (up in the hands at once: it's the building that takes the time - see Fighter.updateCombat)
+  f.slot = 2;
+  f.quick = null;
+  const s = f.shoulder;
+  game.lights.flash(s.x, s.y, 90, '170, 110, 255', 0.15);
+  game.fx.motes(s.x + Math.cos(f.aim) * 14, s.y + Math.sin(f.aim) * 14, 10, ['#7a3aff', '#b88aff', '#ffd85a']);
+}
+function aurumOff(f) {
+  const w = f.gun;
+  if (w?.def.skillGun) {
+    const s = f.shoulder;
+    game.fx.motes(s.x + Math.cos(f.aim) * 14, s.y + Math.sin(f.aim) * 14, 14, ['#ffd85a', '#b88aff', '#7a3aff', '#fff6c8']);
+    game.lights.flash(s.x, s.y, 70, '170, 110, 255', 0.12);
+    f.gun = f._prevGun ?? null;
+    if (f.gun) { f.gun.drawT = 0.25; if (f.slot === 2) f.tilt = -1.1; } else if (f.slot === 2) f.slot = 1;
+  }
+  f._prevGun = null;
+  if (f.aurum) { f.aurum = null; f.skillCD = SKILL_CD.aurum; }
+}
+function updateAurums() {
+  for (const f of game.fighters) {
+    const m = f.aurum;
+    if (!m) continue;
+    const g = f.gun;
+    if (!g?.def.skillGun) { f.aurum = null; f._prevGun = null; f.skillCD = SKILL_CD.aurum; continue; }   // (swapped for something off the floor)
+    if (m.quit || m.t >= SKILL_TIME.aurum || (g.ammo <= 0 && g.cooldown <= 0)) aurumOff(f);
+  }
+}
+
+// ---------- shadow kill ----------
+// A shadow's cut going through v (or the last one, the fighter's own, behind them). (The rest: Fighter.updateReap.)
+function reapCut(f, v, dmg, ux, uy, last) {
+  if (!v?.alive) return;
+  v.hitHow = 'SHADOW KILL';
+  v.hurt(dmg, f, ux * (last ? 260 : 30), last ? -150 : -20);
+  game.fx.blood(v.x, v.y - 14, last ? 12 : 4, ux, -0.3);
+  game.fx.sparks(v.x, v.y - 14, last ? 14 : 5, ux, uy, '#b06aff');
+  game.lights.flash(v.x, v.y - 14, last ? 140 : 60, '150, 60, 255', last ? 0.3 : 0.1);
+  if (Math.hypot(player.x - v.x, player.y - v.y) < 200) renderer.kick(ux * (last ? 7 : 2), last ? -4 : uy * 2);
+}
+
 function updateBursts(dt) {
   for (const b of game.bursts) b.t += dt;
   game.bursts = game.bursts.filter((b) => b.t < BURST_LIFE);
@@ -1605,6 +1773,7 @@ function drawBursts(ctx) {
     else if (b.kind === 'cut') drawDeflectCut(ctx, b.x0, b.y0, b.x, b.y, k, b.seed);
     else if (b.kind === 'chidori') drawChidoriHit(ctx, b.x, b.y, b.a, k, b.seed);
     else if (b.kind === 'rift') drawRiftBurst(ctx, b.x, b.y, k);
+    else if (b.kind === 'fang') drawFangFlash(ctx, b.x, b.y, b.a, b.t / 0.25);
     else if (b.kind === 'stab') drawStabBurst(ctx, b.x, b.y, b.a, k, b.back, b.seed);
     else if (b.kind === 'steal') drawStealBurst(ctx, b.x, b.y, b.owner?.alive ? b.owner.x : b.x0, b.owner?.alive ? b.owner.y - 17 : b.y0, k, b.seed);
     else drawHackWave(ctx, b.x, b.y, k, game.time, b.seed, b.r, b.links);
@@ -1922,9 +2091,9 @@ function drawNumbers(ctx) {
 function updatePickups(dt) {
   if (state === 'fight') {
     pickupT -= dt;
-    if (pickupT <= 0 && game.pickups.length < 6) {
+    if (pickupT <= 0 && settings.drops > 0 && game.pickups.length < Math.round(12 * settings.drops)) {
       game.spawnPickup();
-      pickupT = rand(4, 7);
+      pickupT = rand(1.8, 3.5) / settings.drops;
     }
   }
   for (const p of game.pickups) {
@@ -1975,8 +2144,8 @@ function updatePickups(dt) {
         const def = WEAPONS[p.key], w = f.gunIn(f.slotFor(def)), armed = w && (w.ammo > 0 || w.reserve > 0);
         const wants = f === player || f.peer ? !armed || f.pickupPressed : !armed || gunTier(def) > gunTier(w.def) + 0.4;
         if (!wants) continue;
-        if (armed) {
-          // drop the old one where the new one was
+        if (armed && !w.def.skillGun) {
+          // drop the old one where the new one was (the gold sniper: just gone)
           game.pickups.push({ kind: 'gun', key: w.def.key, ammo: w.ammo, reserve: w.reserve, x: f.x, y: f.y - 10, vx: -f.facing * 60, vy: -140, beam: 0, life: 20, bob: 0, ready: false, noGrab: 0.6 });
         }
         if (w?.reloading) w.cancelReload();
@@ -2089,6 +2258,8 @@ function drawWorld() {
   // the grapple's claw lights up what it's stuck in
   for (const f of game.fighters) if (f.hook && f.hook.state !== 'back') extra.push({ x: f.hook.x, y: f.hook.y, r: 22, rgb: '120, 210, 255', k: 0.4 });
   for (const d of game.swordSets) extra.push({ x: d.owner?.x ?? d.x, y: (d.owner?.y ?? d.y) - 30, r: 56, rgb: '110, 190, 255', k: 0.35 });
+  for (const d of game.fangs) extra.push({ x: d.x, y: d.y, r: 18, rgb: '255, 200, 90', k: 0.35 });
+  for (const f of game.fighters) if (f.alive && f.aurum && !f.hidden) extra.push({ x: f.x + Math.cos(f.aim) * 16, y: f.y - 14 + Math.sin(f.aim) * 16, r: 26, rgb: '170, 110, 255', k: 0.3 });
   for (const p of game.pickups) if (p.ready) extra.push({ x: p.x, y: p.y - 6, r: 26, rgb: p.kind === 'health' ? '255, 120, 110' : '170, 240, 255', k: 0.3 });
   for (const g of game.grenades) if (Math.sin(g.t * (g.t < 0.6 ? 40 : 14)) > 0) extra.push({ x: g.x, y: g.y - 3, r: 16, rgb: '255, 80, 60', k: 0.6 });
   if (overtime) extra.push({ x: renderer.camera.x, y: renderer.camera.y, r: 600, rgb: '120, 20, 10', k: 0.15 + 0.08 * Math.sin(time * 5) });
@@ -2135,6 +2306,7 @@ function drawWorld() {
   drawBats(ctx);
   drawRifts(ctx);
   drawSwordsOnTop(ctx);
+  drawFangs(ctx);
   drawLocks(ctx);
   drawBursts(ctx);
   for (const b of game.bullets) drawBullet(ctx, b);
@@ -2233,6 +2405,7 @@ function drawDecoGlow(ctx, time) {
 function drawBullet(ctx, b) {
   if (b.dead && b.travelled < 2) return;
   const dx = b.vx / b.speed, dy = b.vy / b.speed;
+  if (b.violet) return drawVioletShot(ctx, b.x, b.y, dx, dy, Math.min(130, b.travelled), game.time, (b.id ?? 0) * 7.3);   // (the gold sniper's)
   const len = Math.min(26, b.speed * 0.022, b.travelled), x = b.x, y = b.y;
   ctx.save();
   ctx.lineCap = 'round';
@@ -2510,7 +2683,7 @@ function drawCards(ctx, u, W) {
       const sk = f.usingSkill, k = sk === 'grapple' && f.charges > 0 ? 1 : Math.max(0, Math.min(1, 1 - f.skillCD / cdTotal(f))), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
-      if (on) { const left = Math.max(0, f.phase ? f.phase.t / SKILL_TIME.jumper : f.steal ? 1 - f.steal.t / SKILL_TIME.steal : f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.octo ? (f.octo.gone >= 0 ? 0 : f.octo.on ? f.octo.left / SKILL_TIME.octo : 1) : f.chidori ? (f.chidori.phase === 'charge' ? 1 : (f.chidori.phase === 'lunge' ? f.chidori.left : f.chidori.phase === 'stab' ? 0 : f.chidori.t) / SKILL_TIME.chidori) : f.wraith ? f.wraith.t / f.wraith.total : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / f.sande.total : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
+      if (on) { const left = Math.max(0, f.fang ? (f.fang.back ? 0.1 : 1 - f.fang.t / SKILL_TIME.fang) : f.aurum ? 1 - f.aurum.t / SKILL_TIME.aurum : f.reap ? 1 : f.phase ? f.phase.t / SKILL_TIME.jumper : f.steal ? 1 - f.steal.t / SKILL_TIME.steal : f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.octo ? (f.octo.gone >= 0 ? 0 : f.octo.on ? f.octo.left / SKILL_TIME.octo : 1) : f.chidori ? (f.chidori.phase === 'charge' ? 1 : (f.chidori.phase === 'lunge' ? f.chidori.left : f.chidori.phase === 'stab' ? 0 : f.chidori.t) / SKILL_TIME.chidori) : f.wraith ? f.wraith.t / f.wraith.total : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / f.sande.total : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
       else if (!ready) px(x + 16, y + 18 + 7 * (1 - k), 8, 7 * k, '#22343a');
       text('Q', x + 19, y + 19, on ? '#d8c8ff' : ready ? '#8ff0ff' : '#4a5a5c');
     }
@@ -2574,7 +2747,7 @@ function drawCards(ctx, u, W) {
 // The whole of the wait a skill's on: its own - or, for the skill thief after a hack, however long that one is.
 const cdTotal = (f) => (f.usingSkill === 'steal' && f.stealWait ? Math.max(f.stealWait, 0.01) : SKILL_CD[f.usingSkill]);
 // A skill going (cast, out, or what it called up still about).
-const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.wraith || !!f.chidori || !!f.octo || !!f.steal || !!f.phase || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
+const skillOn = (f) => !!f.fang || !!f.aurum || !!f.reap || !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.wraith || !!f.chidori || !!f.octo || !!f.steal || !!f.phase || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
 
 // Your skill, bottom right: its picture and name, Q, and how it stands - READY (lit, with a
 // flash the moment it comes ready), going, or the wait left as a bar filling back up.
@@ -2616,8 +2789,8 @@ function drawSkillBox(u, W, H, f) {
       kit.rect(px, y + 17 * u, 5 * u, 5 * u, KC.ink);
       kit.rect(px + u, y + 18 * u, 3 * u * k, 3 * u, info.color);
     }
-  } else if (hacked) kit.text(`HACKED  -  ${f.hackedT.toFixed(1)} S`, x + 31 * u, y + 17 * u, { small: true, color: '#3aff8a' });
-  else if (on) kit.text(f.phase ? `THE OTHER PLACE  -  Q: OPEN THE WAY BACK  -  ${f.phase.t.toFixed(1)} S` : f.steal ? `HACKING ${Math.round(Math.min(1, f.steal.t / SKILL_TIME.steal) * 100)}%` : f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.octo ? (f.octo.gone >= 0 ? 'ARMS IN' : f.octo.on ? `HOLD TO FIRE  -  Q: PUT AWAY  -  ${f.octo.left.toFixed(1)} S` : 'GRABBING...') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.ceil(f.barrier.hp)}  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  } else if (hacked) kit.text(`HACKED  -  ${f.hackedT.toFixed(1)} S${f.jamT > 0 ? '  -  GUN DEAD' : ''}`, x + 31 * u, y + 17 * u, { small: true, color: '#3aff8a' });
+  else if (on) kit.text(f.fang ? (f.fang.back ? 'COMING HOME...' : `Q: CALL THEM BACK  -  ${Math.max(0, SKILL_TIME.fang - f.fang.t).toFixed(1)} S`) : f.aurum ? (f.aurum.t < AURUM_CAST ? 'BUILDING...' : `${f.gun?.def.skillGun ? f.gun.ammo : 0} SHOTS  -  Q: PUT AWAY  -  ${Math.max(0, SKILL_TIME.aurum - f.aurum.t).toFixed(1)} S`) : f.reap ? 'SHADOW KILL!' : f.phase ? `THE OTHER PLACE  -  Q: OPEN THE WAY BACK  -  ${f.phase.t.toFixed(1)} S` : f.steal ? `HACKING ${Math.round(Math.min(1, f.steal.t / SKILL_TIME.steal) * 100)}%` : f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.octo ? (f.octo.gone >= 0 ? 'ARMS IN' : f.octo.on ? `HOLD TO FIRE  -  Q: PUT AWAY  -  ${f.octo.left.toFixed(1)} S` : 'GRABBING...') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.ceil(f.barrier.hp)}  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
   else if (puffed && cd <= 0) kit.text('NOT ENOUGH STAMINA', x + 31 * u, y + 17 * u, { small: true, color: '#ffa080' });
   else {
     // the wait: a bar filling back up, the seconds left beside it
@@ -2980,7 +3153,7 @@ function startTraining() {
   paused = false;
   banner = { text: 'TRAINING', sub: 'TAB: GUNS, SKILLS - ESC: OPTIONS - LIVE FIRE, FAR RIGHT', t: 2.4, color: '#8ff0ff' };
   locker = null;
-  game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = []; game.bursts = []; game.bats = []; game.bloods = [];
+  game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = []; game.bursts = []; game.bats = []; game.bloods = []; game.fangs = [];
   stats.reset();
   player = new Fighter(game, images, ROSTER[0]);
   player.team = 0;
@@ -3249,6 +3422,28 @@ const JUMPER_ICON = sprite(13, 12, (g) => {
   for (const [cx] of [[2], [10]]) for (let y = 1; y <= 10; y++) { const w = y < 3 || y > 8 ? 0 : 1; rect(g, '#0b0418', cx - w, y, w * 2 + 1, 1); rect(g, '#a05aff', cx - w - 1, y, 1, 1); rect(g, '#ff9af0', cx + w + 1, y, 1, 1); }
   for (const [x, y] of [[4, 6], [6, 5], [8, 6]]) rect(g, '#d0a8ff', x, y, 1, 1);
 });
+const FANG_ICON = sprite(13, 12, (g) => {
+  // three gold daggers fanned out from the one hand
+  for (const [dx, dy] of [[0.72, -0.72], [0.93, -0.36], [0.36, -0.93]]) for (let i = 0; i < 11; i++) {
+    const x = Math.round(1 + dx * i), y = Math.round(10 + dy * i);
+    rect(g, i < 2 ? '#7a3aa8' : i === 2 ? '#ffd85a' : i === 10 ? '#fff6c8' : i % 2 ? '#e0a820' : '#ffd85a', x, y, 1, 1);
+  }
+  rect(g, '#e07aff', 0, 11, 2, 1);
+});
+const AURUM_ICON = sprite(13, 12, (g) => {
+  // a gold sniper on the slant, violet in its lines, a scope on top
+  for (let i = 0; i < 13; i++) { const y = 10 - Math.round(i * 0.66); rect(g, '#9a6a12', i, y + 1, 1, 1); rect(g, i % 3 === 1 ? '#9a5aff' : '#f5d25a', i, y, 1, 1); }
+  rect(g, '#4a1a86', 0, 10, 3, 2);
+  rect(g, '#2a1048', 4, 5, 4, 1); rect(g, '#c09aff', 5, 5, 1, 1);
+  rect(g, '#ffffff', 12, 2, 1, 1);
+});
+const REAP_ICON = sprite(12, 12, (g) => {
+  // a shadow of someone, red-eyed, a violet cut right across it
+  for (const [x, y, w, h] of [[4, 0, 4, 4], [3, 4, 6, 5], [3, 9, 2, 3], [7, 9, 2, 3]]) { rect(g, '#7a3aff', x - 1, y, w + 2, h); }
+  for (const [x, y, w, h] of [[4, 1, 4, 3], [4, 4, 4, 5], [3, 9, 2, 3], [7, 9, 2, 3]]) rect(g, '#14081e', x, y, w, h);
+  rect(g, '#ff2a4a', 5, 2, 1, 1); rect(g, '#ff2a4a', 7, 2, 1, 1);
+  for (let i = 0; i < 12; i++) rect(g, i > 3 && i < 9 ? '#ffe8ff' : '#b06aff', i, 10 - Math.round(i * 0.75), 1, 1);
+});
 const NO_SKILL = sprite(9, 9, (g) => {
   for (let j = 0; j < 9; j++) for (let i = 0; i < 9; i++) { const d = Math.hypot(i - 4, j - 4); if (d > 3 && d < 4.6) rect(g, '#c83a2a', i, j, 1, 1); }
   for (let i = 1; i < 8; i++) rect(g, '#c83a2a', i, 8 - i, 1, 1);
@@ -3256,7 +3451,7 @@ const NO_SKILL = sprite(9, 9, (g) => {
 
 // Every skill: its name, picture, colour and what it does (for the lists to pick one from, and the skill bay).
 const SKILL_INFO = [
-  { key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, color: '#9ad0ff', desc: '2 SHOTS SAVED UP - ZIP TO WHERE YOU AIM, OR LOCK ON TO A FOE' },
+  { key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, color: '#9ad0ff', desc: '2 SHOTS SAVED UP - ZIP TO WHERE YOU AIM, OR LOCK ON TO A FOE. ITS SPIN CUT HEALS YOU 80% OF WHAT IT DEALS' },
   { key: 'cloak', name: 'CLOAK', img: CLOAK_ICON, color: '#a89aff', desc: '8 S UNSEEN WITH A KNIFE - ONE STAB, X4.5 IN THE BACK' },
   { key: 'decoy', name: 'SHADOW CLONE', img: CLONE_ICON, color: '#8aa8ff', desc: 'A DOUBLE FIGHTS FOR YOU, 3 S UNSEEN, AND YOUR NEXT HIT COUNTS X1.8' },
   { key: 'archery', name: 'ARCHERY', img: BOW_ICON, color: '#7aff8a', desc: 'LOCK ON TO EVERY FOE NEAR, EVEN THE UNSEEN - NOBODY: IT RAINS ROUND YOU' },
@@ -3274,7 +3469,10 @@ const SKILL_INFO = [
   { key: 'steal', name: 'SKILL THIEF', img: STEAL_ICON, color: '#ff6ad8', desc: 'HACK THE FOE NEAREST THE MOUSE: THEIR SKILL IS CUT OFF, AND YOURS TO USE ONCE' },
   { key: 'jumper', name: 'JUMPER', img: JUMPER_ICON, color: '#c08aff', desc: 'INTO THE OTHER PLACE: UNTOUCHABLE, FAST. Q AGAIN OPENS A RIFT BACK - ANYONE CAN GO THROUGH THE PAIR' },
   { key: 'sande', name: 'SANDEVISTAN', img: SANDE_ICON, color: '#7affc8', desc: 'THE WORLD ALL BUT STOPS AND YOU MOVE ON, QUICKER: AS LONG AS YOUR STAMINA, UP TO 2.6 S. COSTS 15% HEALTH' },
-  { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT, 4 S' },
+  { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT 5 S, NO SHOOTING 1.6 S' },
+  { key: 'fang', name: 'GOLDEN FANGS', img: FANG_ICON, color: '#ffd25a', desc: 'FIVE GOLD DAGGERS FANNED OUT LIKE A SHOTGUN, STRAIGHT THROUGH WHOEVER THEY HIT. Q AGAIN (OR 3 S): ALL FLY HOME, CUTTING THROUGH ANYONE IN THE WAY AS HARD' },
+  { key: 'aurum', name: 'AURUM', img: AURUM_ICON, color: '#d0a8ff', desc: 'A GOLD SNIPER BUILT IN YOUR HANDS: 5 HEAVY SHOTS THROUGH ANYONE IN LINE, A VIOLET STREAK BEHIND. 12 S, Q: PUT AWAY' },
+  { key: 'reap', name: 'SHADOW KILL', img: REAP_ICON, color: '#b06aff', desc: 'INTO SHADOW, UNTOUCHABLE: SHADOWS OF YOU CUT THE NEAREST FOE 12 TIMES - ANYONE WHO COMES CLOSE TO THEM MAY BE NEXT - THEN YOU ARE BEHIND THEM FOR THE LAST CUT' },
 ];
 // the choices for a pick list: each skill (with its wait), then none - and for the bots, RANDOM first
 function skillItems(forBots = false, room = settings) {
@@ -3740,7 +3938,7 @@ function menuBackdrop(dt) {
   if (game.fighters.length) {
     game.fighters = [];
     bots = [];
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'bursts', 'bats', 'bloods', 'rifts', 'fists', 'numbers', 'feed']) game[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'bursts', 'bats', 'bloods', 'rifts', 'fists', 'numbers', 'feed', 'fangs']) game[name] = [];
   }
   const picked = state === 'title' && settings.map !== 'random' ? settings.map : null;
   backdropT -= dt;
@@ -3844,6 +4042,8 @@ function tick(realDt, draw = true) {
     updateFists(wdt);
     updateGalaxies(wdt);
     updateSwords(wdt);
+    updateFangs(wdt);
+    updateAurums();
     updateBats(wdt);
     updateRifts(wdt);
     updateBursts(wdt);

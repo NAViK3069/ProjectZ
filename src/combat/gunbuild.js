@@ -110,8 +110,10 @@ export const FURN = {
   wood: ['v', 'w', 'W', 'x'],
   tan: ['u', 't', 'T', 'U'],
   red: ['v', 'R', 'r', 'r'],
+  violet: ['p', 'X', 'z', 'm'],
+  gold: ['G', 'H', 'J', 'M'],
 };
-const GRAIN = { wood: 'V', olive: 'o', tan: 'u', black: 'f', grey: 'e', red: 'v' };
+const GRAIN = { wood: 'V', olive: 'o', tan: 'u', black: 'f', grey: 'e', red: 'v', violet: 'p', gold: 'H' };
 // receiver metal: [deep shadow, shadow, body, light, highlight]
 export const BODY = {
   black: ['f', 'g', 'e', 'd', 'c'],
@@ -119,11 +121,12 @@ export const BODY = {
   tan: ['v', 'u', 't', 'T', 'U'],
   olive: ['q', 'o', 'O', 'P', 'Q'],
   silver: ['e', 'c', 'l', 'S', 'Z'],
+  gold: ['G', 'H', 'J', 'M', 'N'],
 };
 // a mag's colours: [main, front edge, baseplate]; darker version of each colour
-const DARKER = { Z: 'S', S: 'l', l: 'c', c: 'd', d: 'e', e: 'g', g: 'f', f: 'h', h: 'h', P: 'O', O: 'o', o: 'q', T: 't', t: 'u', u: 'v', W: 'w', w: 'v', v: 'V', b: 'B', y: 'n', U: 'T', Q: 'P', x: 'W' };
+const DARKER = { Z: 'S', S: 'l', l: 'c', c: 'd', d: 'e', e: 'g', g: 'f', f: 'h', h: 'h', P: 'O', O: 'o', o: 'q', T: 't', t: 'u', u: 'v', W: 'w', w: 'v', v: 'V', b: 'B', y: 'n', U: 'T', Q: 'P', x: 'W', N: 'M', M: 'J', J: 'H', H: 'G', G: 'p', m: 'z', z: 'X', X: 'p', p: 'h' };
 const dk = (c) => DARKER[c] ?? c;
-const LIGHTER = { h: 'f', f: 'g', g: 'e', e: 'd', d: 'c', c: 'l', l: 'S', S: 'Z', q: 'g', k: 'f', o: 'O', O: 'P', P: 'Q', V: 'v', v: 'w', w: 'W', W: 'x', u: 't', t: 'T', T: 'U', B: 'b', R: 'r', n: 'y', y: 'Y' };
+const LIGHTER = { h: 'f', f: 'g', g: 'e', e: 'd', d: 'c', c: 'l', l: 'S', S: 'Z', q: 'g', k: 'f', o: 'O', O: 'P', P: 'Q', V: 'v', v: 'w', w: 'W', W: 'x', u: 't', t: 'T', T: 'U', B: 'b', R: 'r', n: 'y', y: 'Y', G: 'H', H: 'J', J: 'M', M: 'N', p: 'X', X: 'z', z: 'm' };
 
 // The wood grain / stipple on a furniture fill: speckle some cells darker.
 function texture(sk, x, y, w, h, furn, seed) {

@@ -127,6 +127,8 @@ export const CATALOG = [
   ['m240', 'M240', 'lmg', { fireInterval: 0.085, damage: 40 }, { hand: 'long', stock: 'skel', stockLen: 8, rec: 13, recH: 5, hg: 'rail', hgLen: 8, bar: 8, mag: 'beltbox', magAt: 5, carry: true, carryLen: 5, bipod: true }],
   ['rpd', 'RPD', 'lmg', { fireInterval: 0.09, damage: 36 }, { hand: 'long', stock: 'wood', stockLen: 8, drop: 1, furn: 'wood', rec: 10, hg: 'wood', hgLen: 6, bar: 12, mag: 'bigdrum', magAt: 6, bipod: true, postAtMuzzle: true, handle: 'side' }],
   ['mg42', 'MG42', 'lmg', { fireInterval: 0.048, damage: 34, spread: 0.095, magSize: 75 }, { hand: 'long', stock: 'solid', stockLen: 8, furn: 'wood', rec: 10, recH: 5, hg: 'shroud', hgLen: 14, bar: 2, mag: 'bigdrum', magAt: 7, bipod: true, handle: 'side' }],
+  // --- not found lying about: the aurum skill's gold sniper (arena) ---
+  ['aurum', 'AURUM', 'sniper', { caliber: '.50', damage: 165, magSize: 5, fireInterval: 0.42, pierce: 4, bulletSpeed: 1700, spread: 0.002, recoil: 4.5, climb: 0.45, shake: 4, reloadTime: 1, speedMul: 1, violet: true, skillGun: true, defaultAttach: { sight: 'goldScope' } }, { hand: 'long', aurum: true, grip: 'wrist', stock: 'thumb', stockLen: 9, furn: 'gold', body: 'gold', rec: 10, recH: 4, hg: 'vent', hgLen: 9, bar: 9, brake: true, mag: 'box', magN: 3, magAt: 7, cheek: true, post: false, topRail: true }],
   ['hk21', 'HK21', 'lmg', { fireInterval: 0.08, damage: 38 }, { hand: 'long', stock: 'solid', stockLen: 7, rec: 11, hg: 'slim', hgLen: 8, bar: 6, mag: 'beltbox', magAt: 5, bipod: true, irons: true, postAtMuzzle: true }],
 ];
 

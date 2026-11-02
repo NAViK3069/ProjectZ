@@ -23,6 +23,8 @@ import { drawOctoArms, drawOctoGuns, drawOctoGlow, octoRoot } from './octo.js';
 import { drawArcheryCast, drawArcheryMark } from './archery.js';
 import { drawPhased } from './rift.js';
 import { drawSparkle } from './cloakfx.js';
+import { drawAurumCast, drawAurumHum } from './goldfx.js';
+import { drawReapIn, drawShades, drawReapMarks, drawReapFinish } from './shadefx.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
@@ -30,6 +32,7 @@ import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CAR
 export const GRAVITY = 720, WALK = 86, AIR_ACCEL = 650, JUMP = 290, JUMP2 = 250, PAD_JUMP = 430;   // (the bots work out their routes by these)
 const MAX_FALL = 430, SPRINT = 1.85, ACCEL = 950, DECEL = 1250;
 const CLIMB = 75, COYOTE = 0.09, BUFFER = 0.12;
+const HELD_SEMI = 0.17;   // a semi-automatic held down: a shot this often at most (clicking can go as fast as the gun)
 export const MAX_STAMINA = 100;
 const STAMINA_DRAIN = 17, STAMINA_REGEN = 24;   // a full bar runs for about 6 s
 const WINDED_DELAY = 0.75, WINDED_UNTIL = 30;   // run out of stamina: this long before it refills, no running till it's this much
@@ -42,6 +45,7 @@ const ROLL_CROUCH_IN = 0.6;   // a roll heading in under something low stays dow
 const GRAPPLE_SPEED = 1200, GRAPPLE_RANGE = 360, GRAPPLE_PULL = 2600, GRAPPLE_MAX = 430, GRAPPLE_TIME = 1.6, GRAPPLE_CD = 2.5, GRAPPLE_GAP = 0.2, GRAPPLE_LOCK = 26;
 export const GRAPPLE_SHOTS = 2;
 const GRAPPLE_CUT = 48, SPIN_R = 30;   // reeled in through (or right up to) a foe: a spinning slash, this much to every foe this close
+const GRAPPLE_DRAIN = 0.8;   // (and this much of what it takes out of them comes back to you as health)
 // the cloak (skill, Q): how long it lasts, the wait after it ends, the dash in
 // to a stab (how far it reaches for someone, how fast), and a stab in the back
 const CLOAK_TIME = 8, CLOAK_CD = 10, CLOAK_KILL = 0.4;   // (a kill with the stab: only this much of the wait)
@@ -104,11 +108,13 @@ const CARD_FIRE = 0.6, CARD_MELEE = 0.3, CARD_HEAL = 0.045, CARD_SPEED = 1.3, CA
 const POWER_MUL = 1.8, POWER_AFTER = 2;
 // the hack (skill, Q): how long it's sent for, the wait after; those it gets: no skill for this long (the reach: see main.js)
 const HACK_CAST = 0.35, HACK_CD = 18;
-export const HACK_LOCK = 4;
+export const HACK_LOCK = 5;
+const HACK_JAM = 1.6;   // ...and no shooting for this long (the guns come back before the skills do)
 const KICK_CROUCH = 0.7, KICK_WALK = 1.15, KICK_RUN = 1.4, KICK_AIR = 1.6;
 // how much of a shot's hit is left at the end of its range, by the sort of gun (it holds up to a third of the way out)
 const ease = (k) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);   // (fast, settling)
-const OCTO_ICONS = {};   // (a gun's picture, for throwing it away)
+const OCTO_ICONS = {};
+let SHADE_BLADE = null;   // (the shadow kill's shadows: what's in their hands)   // (a gun's picture, for throwing it away)
 const FAR_HIT = { sniper: 0.85, rifle: 0.65, lmg: 0.65, smg: 0.5, pistol: 0.55, shotgun: 0.35 };
 // Sandevistan (skill, Q): how long it's yours (in your own time), how slow the world goes meanwhile, the wait after
 // Sandevistan: as long as the stamina it's set off with - the least, a full bar - and what it needs at all; it all goes
@@ -143,8 +149,17 @@ const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can tur
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
 // the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
 const LOCK_TIME = 3, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME };
+// golden fangs (skill, Q): out as long as this at most (Q again, or the time's up: they all come back), the wait after
+const FANG_TIME = 3, FANG_CD = 12;
+// aurum (skill, Q): the gold sniper building in the hands, how long it's yours at most, the wait after (the gun: catalog.js)
+export const AURUM_CAST = 0.55;
+const AURUM_TIME = 12, AURUM_CD = 20;
+// shadow kill (skill, Q): how far it reaches for a foe; how close another has to be to whoever's being cut for the
+// shadows to maybe go on to them (and how likely, each cut); going to shadow; the cuts - how many, how often, how
+// hard - and the last one; the wait after
+const REAP_RANGE = 230, REAP_CHAIN = 60, REAP_HOP = 0.35, REAP_IN = 0.2, REAP_CUTS = 12, REAP_EVERY = 0.11, REAP_HIT = 18, REAP_FINISH = 50, REAP_OUT = 0.4, REAP_CD = 22;
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -317,7 +332,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, jamT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -383,6 +398,7 @@ export class Fighter {
   dropGun() {
     const w = this.weapon;
     if (!w) return null;
+    if (w.def.skillGun) { this.game.aurumOff?.(this); return null; }   // (the gold sniper's not a thing to drop or throw: it goes back to nothing)
     this.gun = null;
     this.slot = 1;
     return w;
@@ -404,7 +420,7 @@ export class Fighter {
   // 27 over the feet), the body, or nothing (rolling: just the ball).
   hitPart(x, y) {
     const dx = (x - this.x) * this.facing;
-    if (this.vanish || this.phantom || this.wraith || this.phase || this.jump) return null;   // (shots go right through smoke, the other place, light)
+    if (this.vanish || this.phantom || this.wraith || this.phase || this.jump || this.shade) return null;   // (shots go right through smoke, the other place, light)
     if (this.roll) return Math.abs(dx) <= 7 && y > this.y - ROLL_H && y <= this.y ? 'body' : null;
     const d = this.crouch ? CROUCH_DROP : 0;   // ducked down: the head's lower, the body shorter
     if (dx >= -8 && dx <= 7 && y >= this.y - 27 + d && y < this.y - 12 + d) return 'head';
@@ -592,7 +608,7 @@ export class Fighter {
     // ladders: grab one by pushing up / down in front of it
     const ladderHere = this.overLadder();
     this.ladderCool -= dt;
-    if (!this.onLadder && !this.octo && !this.steal && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
+    if (!this.onLadder && !this.octo && !this.steal && !this.reap && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
       this.onLadder = true;
       this.x += (ladderHere.x - this.x) * 0.6;
       this.vx = 0;
@@ -614,7 +630,7 @@ export class Fighter {
       }
     }
     // dive roll (costs stamina)
-    if (c.roll && !this.roll && !this.octo && !this.steal && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
+    if (c.roll && !this.roll && !this.octo && !this.steal && !this.reap && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
       const dir = c.move ? Math.sign(c.move) : this.facing;
       // a roll gives a cloak away - unless there's a foe close by: then it stays
       // hidden through the roll and comes up out of it stabbing them (roll past
@@ -655,6 +671,10 @@ export class Fighter {
     else if (sk === 'octo') this.updateOcto(dt, c);
     else if (sk === 'steal') this.updateSteal(dt, c);
     else if (sk === 'jumper') this.updateJumper(dt, c);
+    else if (sk === 'fang') this.updateFang(dt, c);
+    else if (sk === 'aurum') this.updateAurum(dt, c);
+    else if (sk === 'reap') this.updateReap(dt, c);
+    if (this.shade) c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (a shadow: held where it is - see updateReap)
     // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
     const st = this.stolen;
     if (st) {
@@ -820,8 +840,11 @@ export class Fighter {
   }
 
   updateCombat(dt, c) {
+    // hacked: the gun won't fire for a moment (the trigger's dead - the rest of it still works)
+    if (this.jamT > 0) { this.jamT -= dt; if (this.slot === 2) c = { ...c, fire: false }; }
+    if (this.aurum && this.aurum.t < AURUM_CAST) c = { ...c, fire: false, reload: false };   // (the gold sniper's still being built)
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase || this.reap) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -896,13 +919,16 @@ export class Fighter {
         : Math.sin(Math.PI * Math.min(1, w.reload * 1.15)) * RELOAD_TILT;
       tilt += w.raising * RAISE_TILT;
       this.tilt += (tilt - this.tilt) * Math.min(1, dt * 16);
-      const pull = !busy && ((c.fire && ((w.def.auto && !w.def.burst) || !this.triggerHeld)) || w.burstLeft > 0);
+      // (a person can hold it down with any gun: a semi-automatic, or a burst, goes again as if clicked - not quicker
+      // than HELD_SEMI though, so a pistol's still no SMG. A bot's own hand clicks for itself: see ai.js.)
+      const held = !this.bot && this.triggerHeld && !(w.def.auto && !w.def.burst) && !(w.burstLeft > 0);
+      const pull = !busy && ((c.fire && ((w.def.auto && !w.def.burst) || !this.triggerHeld || (held && this.game.time - (this.lastShotAt ?? -9) >= Math.max(HELD_SEMI, w.def.fireInterval)))) || w.burstLeft > 0);
       if (pull) {
         const pre = this.gunPose();
         const r = w.tryFire();
-        if (r === 'fired') this.shoot(pre);
+        if (r === 'fired') { this.shoot(pre); this.lastShotAt = this.game.time; }
         else if (r === 'empty' && w.reserve <= 0 && !w.reloading && w.ammo <= 0) {
-          this.game.fx.thrownGun(this, w);   // out of everything: throw it away
+          if (!w.def.skillGun) this.game.fx.thrownGun(this, w);   // out of everything: throw it away (the gold sniper: it just goes)
           this.dropGun();
         }
       }
@@ -1098,9 +1124,11 @@ export class Fighter {
       if (Math.hypot(v.x - this.x, v.y - this.y) > SPIN_R) continue;
       h.cut.add(v);
       v.hitHow = 'GRAPPLE';
-      const ax = Math.sign(v.x - this.x) || this.facing;
+      const ax = Math.sign(v.x - this.x) || this.facing, was = v.hp;
       if (v.hurt(GRAPPLE_CUT, this, ax * 170, -110)) {
         hit = true;
+        const got = Math.max(0, was - Math.max(0, v.hp));
+        if (got > 0 && !v.isDecoy) this.game.drain?.(this, got * GRAPPLE_DRAIN);
         this.cuts.push({ v, a: (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.4), t: 0 });   // a flash-cut across them
         this.game.fx.blood(v.x, v.y - 14, 8, ax, -0.4);
         this.game.fx.sparks(v.x, v.y - 14, 6, ax, -0.5, '#9fe6ff');
@@ -1172,7 +1200,11 @@ export class Fighter {
     return !!v && (v === this || !this.game.foes(v, this));
   }
   get hidden() {
-    return (this.stealthed && !(this.exposeT > 0)) || !!this.jump;   // (going through a rift: nothing to see but the light)
+    return (this.stealthed && !(this.exposeT > 0)) || !!this.jump || this.shade;   // (going through a rift: nothing to see but the light)
+  }
+  // in the shadow kill, all but its last cut: a shadow - nowhere to be seen, nothing to hit
+  get shade() {
+    return !!this.reap && this.reap.phase !== 'out';
   }
   // the cloak glitching: seen (as a flickering hologram) by everyone, just for a moment
   get glimpsed() {
@@ -1938,6 +1970,10 @@ export class Fighter {
     this.steal = null;
     this.stolen = null;
     if (this.phase) { this.phase = null; this.skillCD = JUMPER_CD; }   // (the rift's laid as far as it got: see main.js)
+    if (this.fang && !this.fang.back) { this.fang.back = true; this.game.recallFangs?.(this); }   // (they come home)
+    if (this.aurum) this.game.aurumOff?.(this);
+    if (this.reap) { this.reap = null; this.skillCD = REAP_CD; }   // (pulled back out of the shadows, where it was)
+    this.jamT = HACK_JAM;
     if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
     this.breakBarrier(false, true);
     if (this.allyCard) { this.allyCard = null; }
@@ -2062,7 +2098,142 @@ export class Fighter {
   // it would be left with nothing to finish it.
   get skillBusy() {
     return !!(this.cloak || this.decoy || this.veil || this.lunge || this.bow || this.mura || this.blaze || this.gal || this.summon || this.batCast || this.wraith || this.chidori || this.octo
-      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase);
+      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap);
+  }
+
+  // ---------- golden fangs (skill, Q) ----------
+  // Q: five gold daggers fanned out the way you aim, like a shotgun's shot - each sticks in the first foe it finds (or
+  // the wall). Q again, or FANG_TIME, and they all come flying home to you - through walls, through anyone in the way,
+  // tearing out of whoever they were in. (The daggers themselves: see main.js, throwFangs.) The wait starts once
+  // they're all back.
+  updateFang(dt, c) {
+    const m = this.fang;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
+        this.fang = { t: 0, back: false };
+        this.game.throwFangs?.(this);
+      }
+      return;
+    }
+    m.t += dt;
+    if (!m.back && ((c.skill && m.t > 0.25) || m.t >= FANG_TIME)) { m.back = true; this.game.recallFangs?.(this); }
+    if (m.t > FANG_TIME + 4) { this.fang = null; this.skillCD = FANG_CD; }   // (lost track of them: let it go)
+  }
+
+  // ---------- aurum (skill, Q) ----------
+  // Q: a gold sniper, violet light running in its lines, builds itself in the hands out of nothing - whatever gun you
+  // had goes away meanwhile. Five shots, each a heavy round that goes through people, a violet streak behind it. All
+  // fired, Q again, or AURUM_TIME, and it comes apart and your own gun's back. (The swap: main.js, aurumOn / aurumOff.)
+  updateAurum(dt, c) {
+    const m = this.aurum;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
+        this.aurum = { t: 0 };
+        this.game.aurumOn?.(this);
+      }
+      return;
+    }
+    m.t += dt;
+    if (c.skill && m.t > AURUM_CAST + 0.3) m.quit = true;   // (put away: main.js does it)
+  }
+  drawAurum(ctx, t) {
+    const m = this.aurum;
+    if (!m || this.slot !== 2 || this.roll || this.flipT >= 0 || this.onLadder || (this.hidden && !this.seesThrough)) return;
+    // (along the gun as it's drawn - tipped up coming out, kicked by a shot - from a little behind the grip)
+    const g = this.gunPose(), x = g.x - Math.cos(g.a) * 9, y = g.y - Math.sin(g.a) * 9;
+    if (m.t < AURUM_CAST) drawAurumCast(ctx, x, y, g.a, m.t / AURUM_CAST, t);
+    else drawAurumHum(ctx, x, y, g.a, t, 1 - m.t / AURUM_TIME);
+  }
+
+  // ---------- shadow kill (skill, Q) ----------
+  // Q, with a foe near and in sight: you're gone into shadow - nothing to see, nothing to hit - and shadows of you
+  // come out of nowhere, one after another, cutting through the nearest of them, wherever they go. Only when someone
+  // else comes up close to them (REAP_CHAIN) might the shadows go on to that one instead - and on from them, the same
+  // way; and if the one being cut falls, on to whoever's close to where they were. Then you're back, behind the last
+  // of them, with one last cut. Nobody near: nothing happens (it isn't spent).
+  updateReap(dt, c) {
+    let m = this.reap;
+    if (!m) {
+      if (!c.skill || this.skillCD > 0 || !this.alive || this.roll) return;
+      const G = this.game, near = G.fighters.filter((v) => v !== this && v.alive && !v.vanish && !v.shade && G.foes(this, v) && !(v.hidden && !v.glimpsed)
+        && Math.hypot(v.x - this.x, v.y - this.y) < REAP_RANGE && G.los(this.x, this.y - 14, v.x, v.y - 14));
+      if (!near.length) { if (G.viewer === this) G.fx.motes(this.x, this.y - 16, 6, ['#3a0a5a', '#9a3aff']); return; }
+      near.sort((a, b) => Math.hypot(a.x - this.x, a.y - this.y) - Math.hypot(b.x - this.x, b.y - this.y));
+      m = this.reap = { t: 0, phase: 'in', cur: near[0], n: 0, next: 0, cuts: [], px: this.x, py: this.y, seed: Math.random() * 100 };
+      this.hook = null;
+      this.onLadder = false;
+      this.wall = null;
+      if (this.weapon?.reloading) this.weapon.cancelReload();
+      G.fx.motes(this.x, this.y - 14, 16, ['#0a0412', '#3a0a5a', '#9a3aff', '#ff3a5a']);
+      G.lights.flash(this.x, this.y - 14, 90, '120, 40, 200', 0.15);
+      return;
+    }
+    m.t += dt;
+    for (const q of m.cuts) q.t += dt;
+    m.cuts = m.cuts.filter((q) => q.t < 0.34);
+    const G = this.game, foe = (o) => o && o !== this && o.alive && !o.vanish && !o.shade && G.foes(this, o) && !(o.hidden && !o.glimpsed);
+    const h = (k) => { const q = Math.sin(k * 127.1 + m.seed * 311.7) * 43758.5453; return q - Math.floor(q); };
+    // the nearest foe to (x, y) within r of it (but not `not`)
+    const nearTo = (x, y, r, not) => {
+      let best = null, bd = r;
+      for (const o of G.fighters) { if (o === not || !foe(o)) continue; const d = Math.hypot(o.x - x, o.y - y); if (d < bd) { bd = d; best = o; } }
+      return best;
+    };
+    if (m.phase === 'in' && m.t >= REAP_IN) m.phase = 'cut';
+    if (m.phase === 'cut') {
+      // who the next cut's for: the same one - fallen, whoever's close by where they were; someone else up close to
+      // them, maybe that one
+      if (m.next - dt <= 0 && m.n < REAP_CUTS) {
+        if (!foe(m.cur)) m.cur = nearTo(m.cur?.x ?? m.px, m.cur?.y ?? m.py, REAP_CHAIN * 1.5, m.cur);
+        else if (m.n > 0 && h(m.n + 3) < REAP_HOP) { const o = nearTo(m.cur.x, m.cur.y, REAP_CHAIN, m.cur); if (o) m.cur = o; }
+      }
+      const v = m.cur;
+      if ((m.next -= dt) <= 0 && m.n < REAP_CUTS && v) {
+        const a = h(m.n + 1) * Math.PI * 2, r = 30, cy = v.y - 14, ux = Math.cos(a), uy = Math.sin(a) * 0.55;
+        m.cuts.push({ x0: v.x - ux * r, y0: cy - uy * r, x1: v.x + ux * r, y1: cy + uy * r, t: 0, s: h(m.n + 7) * 100 });
+        m.n++;
+        m.next = REAP_EVERY;
+        m.px = v.x;   // (where you are, unseen: with them - the camera goes along)
+        m.py = v.y;
+        this.game.reapCut?.(this, v, REAP_HIT, ux, uy);
+      }
+      if (m.n >= REAP_CUTS || !v) {
+        // out of the shadows behind the one being cut - with the last cut
+        m.phase = 'out';
+        m.t = 0;
+        if (v) {
+          const bx = v.x - v.facing * 16, room = !this.hits(bx - HALF_W, v.y - HEIGHT, bx + HALF_W, v.y - 1);
+          m.px = room ? bx : v.x;
+          m.py = v.y;
+          this.facing = Math.sign(v.x - m.px) || -v.facing;
+          m.fin = { x: v.x, y: v.y - 14 };
+          this.game.reapCut?.(this, v, REAP_FINISH, this.facing, 0, true);
+        }
+        this.game.fx.motes(m.px, m.py - 14, 18, ['#0a0412', '#3a0a5a', '#9a3aff', '#ffd8ff']);
+      }
+    }
+    this.x = m.px;
+    this.y = m.py;
+    this.vx = 0;
+    this.vy = 0;
+    if (m.phase === 'out' && m.t >= REAP_OUT) { this.reap = null; this.skillCD = REAP_CD; }
+  }
+  // The shadow kill's looks (after the lighting): going into shadow, the marks on whoever's caught, the shadows
+  // cutting through them, the last cut
+  drawReap(ctx, t) {
+    const m = this.reap;
+    if (!m) return;
+    const paint = () => {
+      // (a shadow of you with a blade, not the gun: a katana's put in its hand for the picture)
+      const ms = this.melee, sl = this.slot;
+      this.melee = (SHADE_BLADE ??= new MeleeWeapon(MELEE.katana ?? FISTS));
+      this.slot = 1;
+      try { return this.paintSelf(0.94, '12, 4, 24')[0]; } finally { this.melee = ms; this.slot = sl; }
+    };
+    if (m.phase === 'in') drawReapIn(ctx, paint(), m.px, m.py, m.t / REAP_IN, t, m.seed);
+    if (m.phase !== 'out' && m.cur?.alive) drawReapMarks(ctx, [m.cur], t);
+    if (m.cuts.length) drawShades(ctx, paint(), m.cuts, t, this.facing);
+    if (m.phase === 'out' && m.fin) drawReapFinish(ctx, m.fin.x, m.fin.y, this.facing, m.t / REAP_OUT, t, m.seed);
   }
 
   // ---------- jumper (skill, Q) ----------
@@ -2624,7 +2795,7 @@ export class Fighter {
   hurt(dmg, from, kx, ky, head = false) {
     if (!this.alive || this.vanish) return false;
     if (this.roll && this.roll.t < ROLL_SAFE && !this.blast) return false;   // diving under it
-    if (this.shield > 0 || this.phantom || this.wraith || this.phase || this.jump || this.guardT > 0) return false;   // just beamed back in; the purple card; the shield just gone
+    if (this.shield > 0 || this.phantom || this.wraith || this.phase || this.jump || this.guardT > 0 || this.shade) return false;   // just beamed back in; the purple card; the shield just gone
     let d = dmg * (head ? HEAD_MUL : 1) * (this.hackedT > 0 ? HACK_HURT : 1);
     // whoever hit them with a clone's charge on: it counts for more, the once (a shotgun's pellets all count as the one)
     const hitter = from?.powered;
@@ -2691,6 +2862,11 @@ export class Fighter {
     this.phase = null;
     this.jump = null;
     this.deflect = null;
+    this.fang = null;
+    this.aurum = null;
+    this._prevGun = null;
+    this.reap = null;
+    this.jamT = 0;
     this.alive = false;
     this.hp = 0;
     this.killer = killer;
@@ -2914,7 +3090,7 @@ export class Fighter {
   drawBody(ctx) {
     if (!this.alive) return this.drawCorpse(ctx);
     if (this.fade && !this.painting && !(this.fade.secret && this.game.viewer !== this)) return this.drawFade(ctx);
-    if ((this.wraith || this.phase || this.jump) && !this.painting) return;   // (smoke; the other place; light: all drawn after the lighting)
+    if ((this.wraith || this.phase || this.jump || this.shade) && !this.painting) return;   // (smoke; the other place; light: all drawn after the lighting)
     if (this.hidden && !this.painting) {
       if (this.glimpsed) return;   // (drawn after the lighting, glowing: see drawGlimpse - for you too, the moment you're seen)
       if (!this.seesThrough) return;
@@ -3138,6 +3314,8 @@ export class Fighter {
   drawSkillLooks(ctx) {
     if (!this.alive) return;
     const t = this.game.time, mine = this.seesThrough;
+    this.drawReap(ctx, t);
+    this.drawAurum(ctx, t);
     // wraith form going on and off: a burst of smoke, on whoever's screen this is. And all the while, more pouring off it.
     const wr = this.wraith, now = performance.now();
     if (!!wr !== !!this._wraithWas) {

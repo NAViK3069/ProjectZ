@@ -48,13 +48,14 @@ export function customDef(src) {
 for (const c of CUSTOM_GUNS) WEAPONS[c.key] = customDef(c);
 
 // Classes in display order, with their guns.
-export const WEAPON_CLASSES = Object.entries(CLASSES).map(([cls, c]) => ({ cls, label: c.label, guns: Object.values(WEAPONS).filter((w) => w.cls === cls) }));
+export const WEAPON_CLASSES = Object.entries(CLASSES).map(([cls, c]) => ({ cls, label: c.label, guns: Object.values(WEAPONS).filter((w) => w.cls === cls && !w.skillGun) }));   // (a skill's own gun isn't one to hand out)
 
 // What each attachment does to the gun's handling.
 export const ATTACH_STATS = {
   redDot: { spread: 0.8 },
   holo: { spread: 0.85, climb: 0.9 },
   scope: { spread: 0.55, lean: 1.8 },
+  goldScope: { spread: 0.55, lean: 1.8 },   // (the aurum skill's: the same, in gold)
   suppressor: { damage: 0.92, shake: 0.6, flash: 'small' },
   compensator: { climb: 0.55, recoil: 0.8 },
   vgrip: { spread: 0.85, climb: 0.8 },

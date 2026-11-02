@@ -258,7 +258,7 @@ export const gunTier = (def) => (def ? TIER[def.cls] ?? 1 : 0) + (def && def.dam
 const AIM_WANDER = 0.06;   // how far a bot's hand wanders off (rad, on NORMAL)
 
 // Skills that only work up close, and how close: a bot with one of these ready goes in to that, not hanging back.
-const SKILL_REACH = { blaze: 150, chidori: 200, steal: 125, galaxy: 210, decoy: 230, cloak: 300 };
+const SKILL_REACH = { reap: 190, fang: 200, blaze: 150, chidori: 200, steal: 125, galaxy: 210, decoy: 230, cloak: 300 };
 export class Bot {
   constructor(game, f, skill = 1) {
     this.game = game;
@@ -710,7 +710,7 @@ export class Bot {
     const f = this.f, G = this.game, k = f.usingSkill;   // (its own, or one it's taken)
     if (f.hackedT > 0) return;   // (Q does nothing, and it knows it)
     if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.wraith || f.chidori || f.octo || f.steal || f.phase || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
+    if (f.wraith || f.chidori || f.octo || f.steal || f.phase || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect || f.fang || f.aurum || f.reap) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;
     const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
@@ -738,6 +738,15 @@ export class Bot {
         break;
       case 'vampire':    // the bats go every way: best with someone close, better still with several, or when it needs the blood
         go = near.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 170).length >= (hpK < 0.6 ? 1 : 2) || (vis && dist < 110);
+        break;
+      case 'fang':       // close enough for most of the fan to find them
+        go = aimed && dist < 220;
+        break;
+      case 'aurum':      // someone in sight, far enough off that a sniper's the thing
+        go = aimed && dist > 110 && dist < 640;
+        break;
+      case 'reap':       // someone in its reach: it does the rest
+        go = vis && dist < 210;
         break;
       case 'jumper':     // to get out of it, hurt: into the other place, away from them, and the way back left open behind
         go = hpK < 0.5 && f.hurtT < 1;
