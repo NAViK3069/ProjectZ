@@ -22,6 +22,7 @@ import { drawVisor } from './visor.js';
 import { drawOctoArms, drawOctoGuns, drawOctoGlow, octoRoot } from './octo.js';
 import { drawArcheryCast, drawArcheryMark } from './archery.js';
 import { drawPhased } from './rift.js';
+import { drawSparkle } from './cloakfx.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
@@ -870,7 +871,7 @@ export class Fighter {
       this.tilt += (m.raising * RAISE_TILT - this.tilt) * Math.min(1, dt * 16);
       if (m.events.includes('strike')) {
         this.strike(m);
-        if (k) k.out = true;   // the stab gives it away
+        if (k) { k.out = true; this.game.cloakStab?.(this, k); }   // the stab gives it away
       }
       if (m.striking && (m.def.style !== 'saw' || m.events.includes('tick'))) this.game.meleeHit(this, m);
       if (k?.out && m.t < 0) this.uncloak();
@@ -2915,7 +2916,7 @@ export class Fighter {
     if (this.fade && !this.painting && !(this.fade.secret && this.game.viewer !== this)) return this.drawFade(ctx);
     if ((this.wraith || this.phase || this.jump) && !this.painting) return;   // (smoke; the other place; light: all drawn after the lighting)
     if (this.hidden && !this.painting) {
-      if (this.glimpsed && !this.seesThrough) return;   // (drawn after the lighting, glowing: see drawGlimpse)
+      if (this.glimpsed) return;   // (drawn after the lighting, glowing: see drawGlimpse - for you too, the moment you're seen)
       if (!this.seesThrough) return;
       // you, cloaked: a faint violet ghost of yourself, a band of it flickering sideways now and then
       const [c] = this.paintSelf(0.55, this.veil ? SHADOW : undefined), x = Math.round(this.x), y = Math.round(this.y), t = this.game.time;
@@ -3017,17 +3018,11 @@ export class Fighter {
     ctx.globalAlpha = 1;
     // the line of light: up the body going, down it coming back
     const ly = Math.round(y - 2 - 30 * (F.out ? k : 1 - k));
-    ctx.fillStyle = 'rgba(225, 210, 255, 0.95)';
+    ctx.fillStyle = 'rgba(225, 210, 255, 0.55)';
     ctx.fillRect(x - 7, ly, 15, 1);
-    ctx.fillStyle = `rgba(${rgb}, 0.55)`;
+    ctx.fillStyle = `rgba(${rgb}, 0.35)`;
     ctx.fillRect(x - 10, ly + 1, 21, 1);
-    // the ring on the floor
-    const R = 4 + k * 15;
-    ctx.fillStyle = `rgba(${rgb}, ${0.85 * (1 - k)})`;
-    for (let i = 0; i < 28; i++) {
-      const a = (i / 28) * Math.PI * 2;
-      ctx.fillRect(Math.round(x + Math.cos(a) * R), Math.round(y - 1 + Math.sin(a) * R * 0.22), 1, 1);
-    }
+    drawSparkle(ctx, x, y, k, t, F.seed, rgb);
   }
 
   // The grapple's line, as pixels from the hand to the hook: rippling as it
@@ -3244,7 +3239,7 @@ export class Fighter {
       drawVisor(ctx, this.x, y, this.facing, this.lockOn.k, this.lockOn.t, this.game.time, 18, look);
     }
     this.drawSkillLooks(ctx);
-    if (this.alive && this.glimpsed && !this.seesThrough) this.drawGlimpse(ctx);
+    if (this.alive && this.glimpsed) this.drawGlimpse(ctx);   // (you too: so you know you've been seen)
     this.drawArchery(ctx);
     this.drawMurasaki(ctx);
     if (this.alive) for (const sl of this.slashes) if (sl.spin) this.drawSpinGlow(ctx, sl);

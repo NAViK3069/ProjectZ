@@ -15,7 +15,7 @@ import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K he
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
-import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, CARD_LAST, CARD_ALLY } from './fighter.js';
+import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier } from './ai.js';
@@ -26,6 +26,7 @@ import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.j
 import { drawLockBeam, drawLockMark } from './visor.js';
 import { drawArrow, drawArrowRing } from './archery.js';
 import { drawRiftPortal, drawRiftPath, drawRiftTraveller, drawRiftBurst, drawRiftCrack } from './rift.js';
+import { drawStabRing, drawStabBurst } from './cloakfx.js';
 import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBatTrail, drawBlood, drawDeflectCut, drawChidoriHit, drawStealBurst, drawStealMark, DEFLECT_R, CARDS, CARD_LEAN, CARD_PICK, cardToward } from './skillfx.js';
 import { sound } from './sound.js';
 import { TouchControls, isPhone } from './touch.js';
@@ -176,6 +177,15 @@ const game = {
     }
   },
   hackBurst: (f) => hackBurst(f),
+  // the cloak's one stab going in: the effect of it, on whoever it went for (or out at the knife's point if nobody)
+  cloakStab(f, k) {
+    const v = k.prey, near = v?.alive && Math.hypot(v.x - f.x, v.y - f.y) < LUNGE_RANGE + 12;
+    const x = near ? v.x : f.x + Math.cos(f.aim) * 16, y = near ? v.y - 14 : f.y - 14 + Math.sin(f.aim) * 16;
+    const back = !!(near && k.backstab === v);
+    this.bursts.push({ kind: 'stab', x, y, a: f.aim, back, t: 0, seed: Math.random() * 10 });
+    this.lights.flash(x, y, back ? 120 : 80, back ? '255, 210, 120' : '180, 120, 255', back ? 0.3 : 0.18);
+    if (f === player || v === player) renderer.kick(Math.cos(f.aim) * (back ? 6 : 3), Math.sin(f.aim) * (back ? 6 : 3));
+  },
   // the jumper: the first rift, where they stand - only a crack in the air till the other end's open (see updateRifts)
   openRift(f) {
     this.rifts.push({ id: (this.riftIds = (this.riftIds ?? 0) + 1), owner: f, a: { x: f.x, y: f.y }, b: null, path: [{ x: f.x, y: f.y }], t: 0, open: false, life: RIFT_LIFE, seed: Math.random() * 10 });
@@ -1554,6 +1564,7 @@ function drawBursts(ctx) {
     else if (b.kind === 'cut') drawDeflectCut(ctx, b.x0, b.y0, b.x, b.y, k, b.seed);
     else if (b.kind === 'chidori') drawChidoriHit(ctx, b.x, b.y, b.a, k, b.seed);
     else if (b.kind === 'rift') drawRiftBurst(ctx, b.x, b.y, k);
+    else if (b.kind === 'stab') drawStabBurst(ctx, b.x, b.y, b.a, k, b.back, b.seed);
     else if (b.kind === 'steal') drawStealBurst(ctx, b.x, b.y, b.owner?.alive ? b.owner.x : b.x0, b.owner?.alive ? b.owner.y - 17 : b.y0, k, b.seed);
     else drawHackWave(ctx, b.x, b.y, k, game.time, b.seed, b.r, b.links);
   }
@@ -1578,6 +1589,19 @@ function drawSande(ctx) {
   for (const f of users) if (!f.hidden || f === player) f.draw(ctx);
 }
 let sandeOut = 0;
+// You, cloaked with the stab still to use: the foe nearest you, which way they're facing and where their back is, and
+// the reach of your stab round them, clearer the closer you get (see cloakfx.js). Only you see it.
+function drawCloakSense(ctx) {
+  const f = player, k = f?.cloak;
+  if (!f?.alive || !k || k.out || k.used || online.watching) return;
+  let v = null, d = 230;
+  for (const o of game.fighters) {
+    if (o === f || !o.alive || o.vanish || !game.foes(f, o) || (o.hidden && !o.glimpsed)) continue;
+    const od = Math.hypot(o.x - f.x, o.y - f.y);
+    if (od < d) { d = od; v = o; }
+  }
+  if (v) drawStabRing(ctx, v.x, v.y - 14, v.facing || 1, d, LUNGE_RANGE, (f.x - v.x) * (v.facing || 1) < 0, game.los(f.x, f.y - 14, v.x, v.y - 14), game.time);
+}
 // Holding the skill thief: the one Q would hack now, marked, with what it'd take over them (faint while it's waiting).
 function drawStealMarks(ctx) {
   const f = player;
@@ -2060,6 +2084,7 @@ function drawWorld() {
   game.fx.drawGlow(ctx);
   for (const f of game.fighters) f.drawHookGlow(ctx);
   drawStealMarks(ctx);
+  drawCloakSense(ctx);
   drawShields(ctx);
   drawArrows(ctx);
   drawVoids(ctx);

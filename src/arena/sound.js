@@ -204,7 +204,7 @@ class Sound {
         this.once.add(n);
         if (list === game.blasts) this.play('boom', at(n, { vol: Math.min(1, (n.r ?? 60) / 60), gap: 0.05 }));
         else if (list === game.punches) this.play('stab', at(n));
-        else if (list === game.bursts) this.play(n.kind === 'hack' || n.kind === 'chidori' || n.kind === 'steal' ? 'hack' : n.kind === 'cut' ? 'katana' : 'shield_burst', at(n));
+        else if (list === game.bursts) this.play(n.kind === 'hack' || n.kind === 'chidori' || n.kind === 'steal' ? 'hack' : n.kind === 'cut' ? 'katana' : n.kind === 'stab' ? 'stab' : 'shield_burst', at(n));
         else if (list === game.numbers) this.play(n.big ? 'hit_big' : 'hit', at(n, { gap: 0.05 }));
         else if (list === game.grenades) this.play('throw', at(n));
         else if (list === game.arrows) this.play('arrow', at(n, { gap: 0.05 }));
