@@ -26,6 +26,7 @@ import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.j
 import { drawLockBeam, drawLockMark } from './visor.js';
 import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBlood, drawDeflectCut, DEFLECT_R, CARDS } from './skillfx.js';
 import { sound } from './sound.js';
+import { TouchControls, isPhone } from './touch.js';
 import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -34,7 +35,7 @@ const pick = (l) => l[(Math.random() * l.length) | 0];
 
 const canvas = document.getElementById('game');
 const kit = new Kit();   // the menus' look and clicks (ui/kit.js)
-const renderer = new Renderer(canvas, { viewHeight: 290, viewWidth: 500, fit: 'floor' });
+const renderer = new Renderer(canvas, { viewHeight: isPhone ? 240 : 290, viewWidth: 500, fit: isPhone ? 'round' : 'floor', maxDpr: isPhone ? 2 : Infinity });
 // the HUD's pixel size: the world's on an ordinary screen, a step smaller on a big one
 // The size of a font pixel on the menus and the HUD: by the screen, so they take up the same share of it on any screen
 // (480 x 295 is what the fullest of them needs), in whole pixels so the pixel art stays sharp.
@@ -657,6 +658,7 @@ function running() {
     lastTap[k] = now;
   }
   // (a brief gap between letting go of one key and pressing the other doesn't count)
+  if (input.touchRun) run = true;   // (a phone's stick pushed right out)
   if (input.down('KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight')) runIdle = game.time;
   else if (game.time - runIdle > 0.12) run = false;
   return run;
@@ -677,7 +679,7 @@ function playerControl() {
     roll: input.wasPressed('ShiftLeft', 'ShiftRight'),
     target: null,
     melee: input.wasPressed('Mouse2'),
-    meleeHeld: rightHeld,   // held: keep punching
+    meleeHeld: rightHeld || input.down('Mouse2'),   // held: keep punching (Mouse2 down: a phone's button)
     grenade: input.wasPressed('KeyF'),           // F: a grenade, there and then, whatever's in hand
     skill: input.wasPressed('KeyQ'),
     crouch: input.down('KeyS', 'ArrowDown') && !f.ladderBelow() && !f.onLadder && !f.overLadder(),
@@ -2443,7 +2445,7 @@ function drawScores(ctx, u, W, H) {
 }
 
 function drawCrosshair(ctx, u) {
-  if (!input.mouse.active || online.watching) return;
+  if (!input.mouse.active || online.watching || (touch && !touchCombat())) return;
   const d = renderer.dpr, x = Math.round(input.mouse.x * d), y = Math.round(input.mouse.y * d);
   const spread = player.weapon ? Math.round((2 + player.weapon.recoil * 1.2) * player.stanceKick) : 2;
   for (const [col, o] of [['#050604', 1], ['#e8ffd0', 0]]) {
@@ -3356,7 +3358,7 @@ let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);   // (asked for first: a frame that goes wrong doesn't stop the game)
   try {
-    if (frozen) { drawWorld(); drawHud(); }
+    if (frozen) drawFrame();
     else if (online.active) runFor((now - last) / 1000, true);
     else tick(Math.min(1 / 30, (now - last) / 1000));
   } catch (e) {
@@ -3404,8 +3406,28 @@ function menuBackdrop(dt) {
     backdropFade = 1;
   }
 }
+// On a phone: the controls are up while there's a body to steer and nothing open over the game.
+const touchCombat = () => ['intro', 'fight', 'end', 'training'].includes(state) && player.alive && !paused && !locker && !picker && !soundPanel && !online.menuOpen && !online.watching;
+const touch = isPhone ? new TouchControls(input, {
+  combat: touchCombat,
+  scroll: () => !!locker,
+  showEsc: () => !!locker || (['fight', 'end', 'training'].includes(state) && !player.alive && !paused && !online.menuOpen),
+  skill: () => ({ has: !!player.skill, cd: skillShown() }),
+  aimFrom: () => {
+    const s = player.shoulder, k = renderer.scale / renderer.dpr;
+    return { x: (s.x - renderer.left) * k, y: (s.y - renderer.top) * k, k };
+  },
+}) : null;
+const skillShown = () => (player.skillCD > 0 && !(player.game.noCooldown?.(player)) ? player.skillCD : 0);
+function drawFrame() {
+  drawWorld();
+  drawHud();
+  touch?.draw(renderer.ctx, renderer.dpr);
+}
 function tick(realDt, draw = true) {
   netUpdate(realDt);
+  touch?.update(realDt);
+  if (touch?.blocked && !online.active && (state === 'fight' || state === 'training')) paused = true;   // (out of full screen, or turned upright: it waits for you)
   kit.pointer(input, renderer.dpr);   // (what the mouse is over on the menus, what's clicked)
   // menus (a pick list open over one takes the keys and clicks)
   if (!soundPanel && !picker) spectateInput();
@@ -3493,10 +3515,7 @@ function tick(realDt, draw = true) {
   // the system cursor on the menus (setup, results, pause); in a fight the crosshair takes its place
   const cursor = onMenu() || picker || state === 'match' || paused || locker || online.menuOpen || online.watching || online.tabOpen ? 'default' : 'none';
   if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor;
-  if (draw) {
-    drawWorld();
-    drawHud();
-  }
+  if (draw) drawFrame();
   input.endFrame();
 }
 requestAnimationFrame(frame);
@@ -3504,10 +3523,10 @@ requestAnimationFrame(frame);
 // for testing from the console: arena.step(seconds) runs the game without the browser's frame clock
 let testControl = null, frozen = false;
 window.arena = {
-  game, renderer, startMatch, startTraining, settings, loadMap, online,
+  game, renderer, startMatch, startTraining, settings, loadMap, online, touch,
   get level() { return level; },
   get player() { return player; }, get state() { return state; }, get bots() { return bots; },
   set control(c) { testControl = c; },
   set frozen(v) { frozen = v; },
-  step(sec, dt = 1 / 60) { for (let t = 0; t < sec; t += dt) tick(dt, false); drawWorld(); drawHud(); },
+  step(sec, dt = 1 / 60) { for (let t = 0; t < sec; t += dt) tick(dt, false); drawFrame(); },
 };

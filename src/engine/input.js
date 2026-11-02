@@ -99,6 +99,7 @@ export class Input {
         if (e.button === 2) this.pressed.add('Mouse2');
         return;
       }
+      if (this.onTouch?.(e)) return;   // (the arena's own touch controls: see arena/touch.js)
       this.pressed.add('Touch');
       this.mouse.active = false;
       this.usingTouch = true;

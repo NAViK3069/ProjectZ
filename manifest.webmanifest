@@ -1,0 +1,10 @@
+{
+  "name": "ProjectZ",
+  "short_name": "ProjectZ",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b100f",
+  "theme_color": "#0b100f"
+}

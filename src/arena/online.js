@@ -1669,6 +1669,13 @@ function typing() {
 function startEdit(what) {
   N.edit = what;
   N.draft = { name: N.name, room: N.roomName, crname: N.creating?.name, crpass: N.creating?.pass, pass: N.pass, jpass: N.joinPass }[what] ?? '';
+  // (a phone has no keys to listen to: the browser's own box, with its keyboard)
+  if (A.input.touchOn) {
+    const pass = isPass(what), v = prompt({ name: 'YOUR NAME', room: 'ROOM NAME', crname: 'ROOM NAME', crpass: 'PASSWORD (EMPTY: NONE)', pass: 'PASSWORD (EMPTY: NONE)', jpass: 'PASSWORD' }[what], N.draft);
+    if (v === null) return finishEdit(false);
+    N.draft = v.toUpperCase().replace(pass ? /[^A-Z0-9]/g : /[^A-Z0-9 '-]/g, '').slice(0, pass ? 8 : LIMIT[what] ?? 20);
+    finishEdit(true, true);
+  }
 }
 // a box typed in, done with (keep: what's typed stays; enter: ENTER did it - in the CREATE ROOM box or a password asked for, that's go)
 function finishEdit(keep, enter = false) {

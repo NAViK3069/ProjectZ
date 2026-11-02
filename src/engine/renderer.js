@@ -5,12 +5,13 @@
 export class Renderer {
   // fit: 'round' (nearest zoom) or 'floor' (never zoom in past showing viewWidth x viewHeight -
   // a slightly bigger window, e.g. fullscreen, doesn't jump to a narrower view)
-  constructor(canvas, { viewHeight = 270, viewWidth = 360, fit = 'round' } = {}) {
+  constructor(canvas, { viewHeight = 270, viewWidth = 360, fit = 'round', maxDpr = Infinity } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.viewHeight = viewHeight;
     this.viewWidth = viewWidth;
     this.fit = fit;
+    this.maxDpr = maxDpr;   // (a phone's very fine screen: fewer pixels to fill, the same size on the glass)
     this.camera = { x: 0, y: 0 };
     this.shake = { x: 0, y: 0 };   // short camera kick (recoil etc), decays on its own
     this.left = 0;
@@ -21,7 +22,7 @@ export class Renderer {
   }
 
   resize() {
-    this.dpr = window.devicePixelRatio || 1;
+    this.dpr = Math.min(this.maxDpr, window.devicePixelRatio || 1);
     this.width = Math.round(innerWidth * this.dpr);
     this.height = Math.round(innerHeight * this.dpr);
     this.canvas.width = this.width;
