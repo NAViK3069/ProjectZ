@@ -726,9 +726,36 @@ export function drawChidori(ctx, x, y, k, t, charge, trail, feetY, dash) {
     ctx.fillRect(X, Y - 2, 1, 5);
   });
 }
+// One spike of lightning from (x, y) along a: a long thin blade, len long and w wide at the root, its two edges jagged
+// with a notch or two so it's lightning, not glass. Filled pixel by pixel: dark blue at the edges, pale through it,
+// white down the spine.
+function spike(ctx, x, y, a, len, w, seed, tick) {
+  if (len < 2) return;
+  const ux = Math.cos(a), uy = Math.sin(a), nx = -uy, ny = ux;
+  // the outline in its own frame (along, across): root, jagged edge out to the point, back down the other edge
+  const j = (i, s) => (hash(seed, i, s + (tick % 3)) - 0.5) * w * 0.7;
+  const edge = (sgn) => [[0.0, sgn * w], [0.32, sgn * (w * 0.62 + j(1, sgn))], [0.38, sgn * w * 0.95], [0.66, sgn * (w * 0.32 + j(2, sgn) * 0.5)], [0.71, sgn * w * 0.55]];
+  const outline = [...edge(1), [1, 0], ...edge(-1).reverse()].map(([q, o]) => [q * len, o]);
+  const inside = (p, o) => {
+    let c = false;
+    for (let i = 0, k = outline.length - 1; i < outline.length; k = i++) {
+      const [pi, oi] = outline[i], [pk, ok] = outline[k];
+      if ((oi > o) !== (ok > o) && p < ((pk - pi) * (o - oi)) / (ok - oi) + pi) c = !c;
+    }
+    return c;
+  };
+  const R = Math.ceil(len + w + 2);
+  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+    const p = dx * ux + dy * uy, o = dx * nx + dy * ny;
+    if (p < -1 || p > len + 1 || Math.abs(o) > w + 1 || !inside(p, o)) continue;
+    const half = Math.abs(o) / Math.max(1, w * (1 - (p / len) * 0.9));
+    ctx.fillStyle = Math.abs(o) < 0.8 ? '#ffffff' : half > 0.7 ? '#2a62ff' : half > 0.4 ? '#7ac8ff' : '#d8f4ff';
+    ctx.fillRect(Math.round(x) + dx, Math.round(y) + dy, 1, 1);
+  }
+}
 // The moment it goes in, the hand at (x, y) inside them, along a. k: 0 .. 1 of the moment. First a white flash and lines
-// of speed bursting out round it; then a spear of lightning out of their back, crackling, forking, flaring at the tip,
-// sparks streaming off it the way it's going.
+// of speed bursting out round it; then sharp spikes of lightning bursting out of their back, a few smaller ones back
+// out where it went in, sparks streaming off them the way it's going.
 export function drawChidoriStab(ctx, x, y, a, k, t, seed) {
   const X = Math.round(x), Y = Math.round(y), tick = Math.floor(t * 30), ux = Math.cos(a), uy = Math.sin(a);
   const hit = Math.max(0, 1 - k / 0.22), grow = ease(Math.min(1, k / 0.16)), fade = k > 0.82 ? (1 - k) / 0.18 : 1;
@@ -748,33 +775,21 @@ export function drawChidoriStab(ctx, x, y, a, k, t, seed) {
       pixArc(ctx, X, Y, r, r, 0, 0, Math.PI * 2);
       if (hit > 0.6) ctx.fillRect(X - 2, Y - 2, 5, 5);
     }
-    // the spear out of their back: three strands twisting along it, and forks off it
-    const L = (34 + 34 * grow) * (0.92 + 0.08 * hash(tick, 1, seed));
+    // out of their back: a burst of spikes of lightning, sharp as glass - the longest straight on, the rest fanned out
+    // round it - each a jagged blade, white down its spine, shivering in length as it crackles
+    const L = 40 + 16 * grow;
     ctx.globalAlpha = fade;
-    for (let s2 = 0; s2 < 3; s2++) {
-      const pts = [];
-      for (let i = 0; i <= 8; i++) {
-        const q = i / 8, w = (hash(tick, i * 3 + s2, seed) - 0.5) * (2 + q * 7);
-        pts.push([X + ux * L * q - uy * w, Y + uy * L * q + ux * w]);
-      }
-      for (const [col, o] of [['#2a62ff', 1], ['#7ac8ff', 0], [s2 === 0 ? '#ffffff' : '#bfefff', 0]]) {
-        if (col === '#7ac8ff' && s2) continue;
-        ctx.fillStyle = col;
-        for (let i = 1; i < pts.length; i++) pixLine(ctx, pts[i - 1][0] + o, pts[i - 1][1] + o, pts[i][0] + o, pts[i][1] + o);
-      }
+    for (let i = 0; i < 7; i++) {
+      const side = i === 0 ? 0 : (i % 2 ? 1 : -1) * Math.ceil(i / 2), b = a + side * (0.34 + hash(i, 1, seed) * 0.12);
+      const len = L * grow * (i === 0 ? 1 : 0.72 - Math.abs(side) * 0.13 + hash(i, 2, seed) * 0.12) * (0.9 + 0.1 * hash(tick, i, seed));
+      const w = (i === 0 ? 6 : 4.5 - Math.abs(side) * 0.6) * (0.85 + 0.15 * grow);
+      spike(ctx, X + ux * 6, Y + uy * 6, b, len, w, seed * 3 + i, tick);   // (from their back, not over their middle)
     }
-    // the core of it: a solid line of white
-    ctx.fillStyle = '#ffffff';
-    pixLine(ctx, X, Y, X + ux * L * 0.75, Y + uy * L * 0.75);
-    for (let i = 0; i < 6; i++) {
-      const q = 0.25 + hash(tick, i, seed + 4) * 0.7, bx = X + ux * L * q, by = Y + uy * L * q;
-      zap(ctx, bx, by, a + (hash(tick, i, seed + 5) > 0.5 ? 1 : -1) * (0.5 + hash(tick, i, seed + 6) * 0.7), 6 + hash(tick, i, seed + 7) * 12, tick * 9 + i, 3, false);
+    // smaller ones the other way, out of where it went in
+    for (let i = 0; i < 3; i++) {
+      const b = a + Math.PI + (i - 1) * 0.55;
+      spike(ctx, X, Y, b, (10 + hash(i, 3, seed) * 6) * grow, 3, seed * 5 + i, tick);
     }
-    // the tip, flaring
-    const tx = X + ux * L, ty = Y + uy * L, fr = 3 + hash(tick, 9, seed) * 3;
-    ctx.fillStyle = '#ffffff';
-    pixArc(ctx, tx, ty, fr, fr, 0, 0, Math.PI * 2);
-    for (let i = 0; i < 5; i++) zap(ctx, tx, ty, a + (hash(tick, i, seed + 8) - 0.5) * 2.2, 8 + hash(tick, i, seed + 9) * 12, tick * 7 + i + 50, 3, false);
     // sparks streaming off it
     for (let i = 0; i < 16; i++) {
       const ph = (k * 3 + hash(i, 4, seed)) % 1, q = hash(i, 5, seed), d = L * q + ph * 30, side = (hash(i, 6, seed) - 0.5) * 16 * ph;

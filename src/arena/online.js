@@ -68,7 +68,7 @@ const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost thei
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
-  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], [null, 'NO SKILL'],
+  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], [null, 'NO SKILL'],
 ];
 
 const N = {
@@ -506,7 +506,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'wraith', 'chidori', 'deflect', 'hook', 'skillCD'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'deflect', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];

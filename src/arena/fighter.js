@@ -19,6 +19,8 @@ import { T, SOLID, PLAT, LADDER, ACID, LOW, LOW_H } from './level.js';
 import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
 import { drawFlame } from './flame.js';
 import { drawVisor } from './visor.js';
+import { drawOctoArms, drawOctoGuns, drawOctoGlow, octoRoot } from './octo.js';
+import { GUN_ART } from '../combat/gunart.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
@@ -102,12 +104,20 @@ const HACK_CAST = 0.35, HACK_CD = 18;
 export const HACK_LOCK = 4;
 const KICK_CROUCH = 0.7, KICK_WALK = 1.15, KICK_RUN = 1.4, KICK_AIR = 1.6;
 // how much of a shot's hit is left at the end of its range, by the sort of gun (it holds up to a third of the way out)
+const ease = (k) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);   // (fast, settling)
+const OCTO_ICONS = {};   // (a gun's picture, for throwing it away)
 const FAR_HIT = { sniper: 0.85, rifle: 0.65, lmg: 0.65, smg: 0.5, pistol: 0.55, shotgun: 0.35 };
 // Sandevistan (skill, Q): how long it's yours (in your own time), how slow the world goes meanwhile, the wait after
 const SANDE_TIME = 2, SANDE_CD = 24;
 export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
 const BAT_CAST = 0.35, BAT_CD = 20, WRAITH_TIME = 2.5, WRAITH_SPEED = 1.5;   // (wraith form: how long at most, how much faster)
+// octo arms (skill, Q): reaching out for the guns, how long they're out at most, the wait after; how hard their shots
+// are next to the same gun in hand; what kinds of gun they grab
+const OCTO_REACH = 0.9, OCTO_TIME = 6, OCTO_CD = 22, OCTO_DMG = 0.6, OCTO_GONE = 0.55, OCTO_KINDS = ['pistol', 'smg', 'rifle', 'shotgun', 'lmg'];
+// where each gun hangs, from the feet, facing right (x forward): two up over the head, two out behind; and which way each
+// arm reaches first, for its gun
+const OCTO_SLOTS = [[11, -45], [-9, -50], [-27, -35], [-27, -15]], OCTO_REACH_AT = [[30, -34], [-6, -58], [-44, -30], [-40, 4]];
 // chidori (skill, Q): gathering it, how long it's held, the wait after; how hard it goes in; how much quicker on your feet
 // with it; the lunge (Q again): how fast, how long
 const CHIDORI_CHARGE = 0.45, CHIDORI_TIME = 4, CHIDORI_CD = 16, CHIDORI_RUN = 1.3, CHIDORI_LUNGE = 520, CHIDORI_LUNGE_T = 0.3;
@@ -119,8 +129,8 @@ const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can tur
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
 // the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
 const LOCK_TIME = 3, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME };
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -293,7 +303,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, dropT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -546,7 +556,7 @@ export class Fighter {
     this.sprinting = !!c.sprint && !!c.move && this.stamina > 0 && !this.winded && !this.onLadder && !this.roll && !this.crouch;
     this.boostT = Math.max(0, this.boostT - dt);   // an energy drink: running costs nothing for a while
     if (this.sprinting) {
-      if (this.boostT <= 0) this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt * (1 - (1 - CARD_DRAIN) * this.cardPower('blue')));
+      if (this.boostT <= 0) this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt * (1 - (1 - CARD_DRAIN) * this.cardPower('blue')) * (this.octo ? 2 : 1));   // (the octo arms out: twice as hard going)
       if (this.stamina <= 0) this.windOut();
     } else if ((this.staminaRest -= dt) <= 0) this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt);
 
@@ -557,7 +567,7 @@ export class Fighter {
     // ladders: grab one by pushing up / down in front of it
     const ladderHere = this.overLadder();
     this.ladderCool -= dt;
-    if (!this.onLadder && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
+    if (!this.onLadder && !this.octo && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
       this.onLadder = true;
       this.x += (ladderHere.x - this.x) * 0.6;
       this.vx = 0;
@@ -579,7 +589,7 @@ export class Fighter {
       }
     }
     // dive roll (costs stamina)
-    if (c.roll && !this.roll && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
+    if (c.roll && !this.roll && !this.octo && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
       const dir = c.move ? Math.sign(c.move) : this.facing;
       // a roll gives a cloak away - unless there's a foe close by: then it stays
       // hidden through the roll and comes up out of it stabbing them (roll past
@@ -616,6 +626,7 @@ export class Fighter {
     else if (this.skill === 'vampire') this.updateBats(dt, c);
     else if (this.skill === 'deflect') this.updateDeflect(dt, c);
     else if (this.skill === 'chidori') this.updateChidori(dt, c);
+    else if (this.skill === 'octo') this.updateOcto(dt, c);
     if (this.hook?.state !== 'on' && this.trail.length) this.trail.pop();   // the grapple's afterimages catching up once it lets go
     const reeling = this.hook?.state === 'on';
     this.updateWall(c, reeling);
@@ -683,7 +694,7 @@ export class Fighter {
         this.coyote = 0;
         this.bounce(-95);   // springs up: stretched
         this.game.fx.dust(this.x, this.y, 4);
-      } else if (this.jumpBuf > 0 && this.airJumps > 0 && !this.onGround) {
+      } else if (this.jumpBuf > 0 && this.airJumps > 0 && !this.onGround && !this.octo) {
         this.vy = -JUMP2;
         this.jumpBuf = 0;
         this.airJumps--;
@@ -750,7 +761,7 @@ export class Fighter {
       if (fall > 250) this.game.fx.dust(this.x, this.y, 5);
     }
     if (this.onGround) { this.airJumps = 1; this.airRoll = true; this.wallGrabs = 1; }
-    if (this.onLadder || this.roll || this.wraith) this.flipT = -1;
+    if (this.onLadder || this.roll || this.wraith || this.octo) this.flipT = -1;
     else if (this.onGround && this.flipT >= 0 && (this.flipT += dt / FLIP_LAND) >= 1) this.flipT = -1;   // (down part way round: it finishes turning, quickly, rather than snap upright)
     // on a jump pad: up you go
     this.padT -= dt;
@@ -1952,6 +1963,7 @@ export class Fighter {
     this.wraith = null;
     if (this.deflect) { this.deflect = null; this.skillCD = DEFLECT_CD; }
     if (this.chidori) { this.chidori = null; this.skillCD = CHIDORI_CD; }
+    if (this.octo) this.octoEnd();
     if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
     this.breakBarrier(false, true);
     if (this.allyCard) { this.allyCard = null; }
@@ -2044,6 +2056,94 @@ export class Fighter {
     this.game.fx.dust(this.x + dir * HALF_W, this.y - 10, 4);
   }
 
+  // ---------- octo arms (skill, Q) ----------
+  // Q: four steel arms out of the back, each reaching out and pulling a gun - any kind, at random - out of nowhere.
+  // Then they hang round you and fire where you aim whenever you do (your own gun too) - held down, every gun goes as
+  // fast as it can, a semi-automatic as if you were clicking for it - never running dry, till its time's up or Q again:
+  // then they throw their guns away and draw back in. While they're out there's no rolling, no somersault of a second
+  // jump, no ladders.
+  updateOcto(dt, c) {
+    const m = this.octo;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
+        const W = this.game.weapons, pool = Object.keys(W).filter((k) => OCTO_KINDS.includes(W[k].cls) && W[k].art && GUN_ART[W[k].art]);
+        const arms = OCTO_SLOTS.map((_, i) => ({ key: pool[Math.floor(Math.random() * pool.length)], cd: 0.05 + i * 0.06, kick: 0 }));
+        this.octo = { t: 0, on: false, left: OCTO_TIME, gone: -1, arms, tx: this.x + this.facing * 100, ty: this.y - 14 };
+        this.onLadder = false;
+      }
+      return;
+    }
+    m.t += dt;
+    if (m.gone >= 0) { if ((m.gone += dt) >= OCTO_GONE) this.octo = null; return; }   // (going: see octoEnd)
+    const tg = c.target ?? { x: this.x + Math.cos(this.aim) * 200, y: this.y - 14 + Math.sin(this.aim) * 200 };
+    m.tx = tg.x;
+    m.ty = tg.y;
+    if (c.skill && m.t > 0.3) return this.octoEnd();   // (Q again: put away)
+    if (!m.on) { if (m.t >= OCTO_REACH) m.on = true; return; }
+    if ((m.left -= dt) <= 0) return this.octoEnd();
+    const W = this.game.weapons;
+    m.arms.forEach((a, i) => {
+      a.kick = Math.max(0, a.kick - dt * 9);
+      a.cd -= dt;
+      const d = W[a.key];
+      if (!c.fire || a.cd > 0) return;
+      a.cd = d.fireInterval * (1 + Math.random() * 0.15);
+      a.kick = 1;
+      this.octoFire(i, d);
+    });
+  }
+  // Where arm i's claw is, and which way its gun points (at what's aimed at). Reaching out first, then hanging round
+  // you, swaying; going, drawn back in to the root. grow: how far the gun's come into being; held: it's there.
+  octoTip(i) {
+    const m = this.octo, f = this.facing, t = this.game.time, k = m.t - i * 0.09, a = m.arms[i];
+    const root = octoRoot(this), [sx, sy] = OCTO_SLOTS[i], [rx, ry] = OCTO_REACH_AT[i];
+    const slot = { x: this.x + f * sx + Math.sin(t * 2.1 + i * 1.7) * 2, y: this.y + sy + Math.cos(t * 1.6 + i) * 2 };
+    const reach = { x: this.x + f * rx, y: this.y + ry };
+    let x, y;
+    if (m.gone >= 0) {
+      // (the gun flung off first, then the arm drawn back in, a little after the one before)
+      const q = ease(Math.max(0, (m.gone - 0.1 - i * 0.04) / 0.36));
+      x = slot.x + (root.x - slot.x) * q;
+      y = slot.y + (root.y - slot.y) * q;
+    } else if (k < 0.32) { const q = ease(k / 0.32); x = root.x + (reach.x - root.x) * q; y = root.y + (reach.y - root.y) * q; }
+    else { const q = ease((k - 0.32) / 0.38); x = reach.x + (slot.x - reach.x) * q; y = reach.y + (slot.y - reach.y) * q; }
+    const ang = Math.atan2(m.ty - y, m.tx - x);
+    x -= Math.cos(ang) * a.kick * 3;
+    y -= Math.sin(ang) * a.kick * 3;
+    return { x, y, ang, grow: Math.max(0, Math.min(1, (k - 0.22) / 0.14)), held: k >= 0.22 && m.gone < 0, gone: m.gone >= 0 ? Math.min(1, m.gone / OCTO_GONE) : 0 };
+  }
+  octoFire(i, d) {
+    const tip = this.octoTip(i), art = GUN_ART[d.art], gp = art.points.grip, mp = art.points.muzzle;
+    const ux = Math.cos(tip.ang), uy = Math.sin(tip.ang), flip = ux < 0 ? -1 : 1, ox = mp.x - gp.x, oy = (mp.y - gp.y) * flip;
+    const mx = tip.x + ux * ox - uy * oy, my = tip.y + uy * ox + ux * oy, pellets = d.pellets ?? 1;
+    for (let j = 0; j < pellets; j++) {
+      const spread = pellets > 1 ? ((j / (pellets - 1)) * 2 - 1 + (Math.random() - 0.5) * 0.4) * d.spread : (Math.random() * 2 - 1) * d.spread * 1.2;
+      this.game.fireBullet(this, mx, my, tip.ang + spread, d.bulletSpeed * (pellets > 1 ? 0.85 + Math.random() * 0.3 : 1), d.damage * DAMAGE * gunMul(d) * (this.game.gunDamage ?? 1) * OCTO_DMG, d.range ?? 520, d.pierce ?? 0, FAR_HIT[d.cls] ?? 0.6);
+    }
+    this.game.muzzle(mx, my, tip.ang, { suppressed: false, shake: 0.5, def: d }, this);
+    if (art.shell) this.game.fx.casing({ x: tip.x, y: tip.y - 1 }, { x: -ux * 0.3, y: -0.8 }, art.shell, 0.8);
+    this.lastFireT = 0;
+  }
+  // Over: each arm flings its gun away, spinning, then they draw back in with a hiss of steam off the back. quick: gone
+  // at once (dead).
+  octoEnd(quick = false) {
+    const m = this.octo;
+    if (!m) return;
+    this.skillCD = OCTO_CD;
+    if (quick || !m.on) { this.octo = null; return; }
+    if (m.gone < 0) {
+      m.gone = 0;
+      const r = octoRoot(this), W = this.game.weapons;
+      this.game.fx.smoke(r.x - this.facing * 4, r.y, 5);
+      m.arms.forEach((a, i) => {
+        // (thrown out the way the arm was holding it from you, up and spinning)
+        const tip = this.octoTip(i), dx = tip.x - r.x, dy = tip.y - r.y, d = Math.hypot(dx, dy) || 1, icon = (OCTO_ICONS[a.key] ??= new Weapon(W[a.key]).icon);
+        this.game.fx.add({ x: tip.x, y: tip.y, vx: (dx / d) * (120 + Math.random() * 70), vy: (dy / d) * 90 - 170 - Math.random() * 60, life: 5, img: icon, grav: 700, bounce: 0.3, drag: 0.6, vrot: (Math.random() - 0.5) * 26, kind: 'debris' });
+        this.game.fx.sparks(tip.x, tip.y, 4, dx / d, -1, '#ffd0a0');
+      });
+    }
+  }
+
   // ---------- chidori (skill, Q) ----------
   // Q: a moment gathering it, then lightning crackling in the hand, and quicker on your feet: run into a foe and it's
   // driven through them (see main.js: chidoriStrike). Q again: a lunge along the mouse, the hand out in front, once.
@@ -2059,6 +2159,10 @@ export class Fighter {
       return;
     }
     const over = () => { this.chidori = null; this.skillCD = CHIDORI_CD; };
+    // turned the way it's going in, whatever the mouse is doing: into them, along the lunge, the way you're running with it
+    const face = (d) => { if (d && d !== this.facing) { this.facing = d; this.settle = 0; } };
+    if (m.phase === 'stab' || m.phase === 'lunge') { this.aim = m.a; face(Math.sign(Math.cos(m.a))); }
+    else if (m.phase === 'hold' && c.move) face(Math.sign(c.move));
     // in them: held there, the two of you, till it throws them off
     if (m.phase === 'stab') {
       this.vx = this.vy = 0;
@@ -2091,6 +2195,7 @@ export class Fighter {
     }
     const v = this.game.chidoriStrike?.(this, m);
     if (v) Object.assign(m, { phase: 'stab', t: CHIDORI_STAB, victim: v, a: m.phase === 'lunge' ? m.a : Math.sign(v.x - this.x) >= 0 ? 0 : Math.PI, seed: Math.random() * 100 });
+    if (v) { this.aim = m.a; face(Math.sign(Math.cos(m.a))); }
   }
   // Where the lit hand is: out in front, gathering and standing; trailing low behind, running with it; thrust out along
   // the line, lunging.
@@ -2492,6 +2597,7 @@ export class Fighter {
     this.batCast = null;
     this.wraith = null;
     this.chidori = null;
+    if (this.octo) this.octoEnd(true);
     this.deflect = null;
     this.alive = false;
     this.hp = 0;
@@ -2736,6 +2842,7 @@ export class Fighter {
     if (this.onLadder && P.backBody) return this.drawClimbing(ctx, x, y, part);
     if (this.trail.length > 2 && !this.painting) this.drawTrail(ctx);
     if (!this.wraith) this.drawSlung(ctx, x, y);
+    if (this.octo) drawOctoArms(ctx, this);
     ctx.save();
     ctx.translate(this.facing < 0 ? x + 1 : x, y);
     if (this.facing < 0) ctx.scale(-1, 1);
@@ -2745,6 +2852,7 @@ export class Fighter {
     ctx.drawImage(part(this.blinkLeft > 0 ? 'headBlink' : 'head'), ox + pose.headX, oy + pose.head);
     ctx.restore();
     if (this.wraith) return;
+    if (this.octo) drawOctoGuns(ctx, this, this.game.weapons);
     this.drawArms(ctx);
     for (const sl of this.slashes) this.drawSlash(ctx, sl);
   }
@@ -2982,6 +3090,7 @@ export class Fighter {
     }
     if (this.guardT > 0) drawGuard(ctx, this.x, this.y, this.guardT, t);
     if (this.batCast) drawBatCast(ctx, this.x, this.y - 16, Math.min(1, this.batCast.t / BAT_CAST), t);
+    if (this.octo) drawOctoGlow(ctx, this, t);
     const ch = this.chidori;
     if (ch) {
       const h = this.chidoriHand(), tr = (this._zapTrail ??= []), now = performance.now();
