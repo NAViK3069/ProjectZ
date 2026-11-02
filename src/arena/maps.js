@@ -397,10 +397,10 @@ export const MAPS = {
   // and the GRAPPLE SHAFT - tall, with ledges to swing between and a yard of
   // crates to break at the bottom (they come back). Room left for more.
   training: {
-    name: 'TRAINING', w: 100, h: 30, theme: 'range', training: true,
+    name: 'TRAINING', w: 138, h: 30, theme: 'range', training: true,
     build(L) {
       L.shell();
-      L.fill(1, 27, 98, 28, SOLID);                               // the ground floor
+      L.fill(1, 27, 136, 28, SOLID);                              // the ground floor
       L.row(14, 1, 62);                                           // the course's floor (the ceiling of the armory and range)
       L.fill(63, 1, 63, 23, SOLID);                              // the shaft's wall (a way in at the bottom; the course drops in over the top)
       L.fill(63, 1, 63, 13, EMPTY);
@@ -427,7 +427,7 @@ export const MAPS = {
       L.dummies.push({ x: 30, y: 27 }, { x: 35, y: 27 }, { x: 45, y: 27 }, { x: 55, y: 27 }, { x: 42, y: 27, patrol: [32, 52] }, { x: 50, y: 27, patrol: [38, 60], fast: true }, { x: 47, y: 22 }, { x: 57, y: 18 });
       L.deco.push({ kind: 'sign', x: 34, y: 16, text: 'FIRING RANGE' }, { kind: 'target', x: 36, y: 20 }, { kind: 'target', x: 59, y: 23 }, { kind: 'monitors', x: 26, y: 15.5 }, { kind: 'vent', x: 50, y: 16 });
       for (const [x, m] of [[30, '5 M'], [35, '10 M'], [45, '20 M'], [55, '30 M']]) L.signs.push({ x: x - 0.6, y: 25.3, text: m });
-      L.signs.push({ x: 25.5, y: 22, text: 'FIRING LINE' }, { x: 37, y: 18.2, text: 'ESC - SPARRING BOT' });
+      L.signs.push({ x: 25.5, y: 22, text: 'FIRING LINE' }, { x: 37, y: 18.2, text: 'ESC - OPTIONS' });
 
       // MOVEMENT COURSE (upstairs, cols 1-62)
       L.fill(7, 1, 12, 11, SOLID); L.row(12, 7, 12, LOW);        // a low tunnel: crouch or roll through
@@ -462,6 +462,31 @@ export const MAPS = {
       for (const x of [71, 82, 93]) L.lamp(x, 1);
       L.lamp(78, 18); L.lamp(88, 22);
       for (const x of [68, 76, 84, 92]) L.lamp(x, 22, false);
+
+      // LIVE FIRE (cols 100-136): three bays, a wall from the ceiling down between each and a door at the floor, and
+      // the shooters in a bay only start up with you in it. One fires along the floor at a plate, the same place every
+      // time; one fires down from a ledge at one spot; two fire at you, if they can see you, with cover to get behind.
+      // For the shield, deflect, the roll, taking cover. (ESC turns them off.)
+      L.fill(99, 1, 99, 23, SOLID);                               // the wall, a door at the bottom
+      L.fill(111, 1, 111, 23, SOLID);
+      L.fill(124, 1, 124, 23, SOLID);
+      L.fill(101, 25, 101, 26, SOLID);                            // the plate the first one fires at
+      L.row(18, 120, 123, PLAT);                                  // the second's ledge
+      L.fill(127, 25, 128, 26, SOLID);                            // cover, low
+      L.fill(131, 22, 131, 26, SOLID);                            // cover: too high for one jump
+      L.row(21, 125, 129, PLAT); L.ladder(126, 21, 26);           // a catwalk to fight from
+      L.row(18, 133, 136, PLAT);                                  // a shooter's perch
+      L.signs.push({ x: 100.5, y: 9, text: 'LIVE FIRE' }, { x: 100.5, y: 11, text: 'THEY SHOOT BACK' }, { x: 100.5, y: 13, text: 'ESC - TURN THEM OFF' });
+      L.signs.push({ x: 102, y: 20, text: 'THE SAME LINE' }, { x: 112.5, y: 20, text: 'THE SAME SPOT' }, { x: 125.5, y: 16, text: 'THEY AIM AT YOU' });
+      L.deco.push({ kind: 'sign', x: 102, y: 2, text: 'BAY 1' }, { kind: 'sign', x: 114, y: 2, text: 'BAY 2' }, { kind: 'sign', x: 127, y: 2, text: 'BAY 3' }, { kind: 'target', x: 116, y: 25 }, { kind: 'monitors', x: 118, y: 5 }, { kind: 'server', x: 135, y: 22.4 }, { kind: 'vent', x: 106, y: 5 });
+      L.dummies.push(
+        { x: 109, y: 27, shooter: 'wall', zone: [100, 111], aim: Math.PI, gun: 'm4a1' },                 // along the floor, at the plate
+        { x: 122, y: 18, shooter: 'wall', zone: [112, 124], aim: Math.PI / 2 + 0.55, gun: 'm9' },        // down from the ledge, at the one place on the floor
+        { x: 135, y: 18, shooter: 'aim', zone: [125, 137], gun: 'm4a1' },                                // at you, from its perch
+        { x: 135, y: 27, shooter: 'aim', zone: [125, 137], gun: 'm9' },                                  // at you, along the floor
+      );
+      for (const x of [105, 117, 130]) L.lamp(x, 1);
+      for (const x of [105, 117, 130]) L.lamp(x, 16);
     },
   },
 };

@@ -543,62 +543,166 @@ export function drawBatCast(ctx, x, y, k, t) {
 }
 
 // ---------- deflect ----------
-const BLADE = palette(['#ffffff', '#d8fff0', '#7affd0', '#30c890', '#1a4a40', '#101418', '#c8d8e0']);
-// A katana held out at (x, y), along a: a long pale blade, a dark grip. len: blade length.
-export function drawKatana(ctx, x, y, a, len = 20) {
-  drawPixels(ctx, x, y, 60, BLADE, (g) => {
-    g.rotate(a);
-    g.fillStyle = '#101418';
-    g.fillRect(-8, -1, 7, 2);
-    g.fillStyle = '#7affd0';
-    g.fillRect(-1, -2.2, 1.4, 4.4);
-    poly(g, [[0, -1.1], [len - 3, -1.1], [len, 0.9], [0, 1.1]], '#c8d8e0');
-    poly(g, [[0, -1.1], [len - 3, -1.1], [len - 1, -0.1], [0, -0.1]], '#ffffff');
-  });
-}
-// Guarding: the blade going to and fro so fast it's a fan of light in front, green-white, pixels; f: which way it's facing.
-export function drawDeflectGuard(ctx, x, y, face, aim, t, spark) {
-  const sw = Math.sin(t * 24) * 1.15, a = aim + sw;
-  glowAt(ctx, x + Math.cos(aim) * 8, y + Math.sin(aim) * 8, 26, [[0, `rgba(90, 255, 190, ${0.2 + spark * 0.5})`], [1, 'rgba(30, 200, 130, 0)']]);
+export const DEFLECT_R = 26;   // how far out the field stands from the chest: a shot reaching it turns back
+// The field: the katana's still at the hip and it's all in the air round the body - light going up off the ground, rings
+// of it turning at three angles, a broken shell at its edge, motes drawn in to the heart, a thread of lightning now and
+// then. Where a shot's met it, that part of the shell flares and throws out a star. All in pixels. (x, y): the chest.
+export function drawDeflectField(ctx, x, y, age, left, t, ripples = []) {
+  const grow = ease(age / 0.28), R = DEFLECT_R * grow, fade = Math.min(1, left / 0.15), feet = y + 14;
+  if (R < 2) return;
+  const breathe = 0.8 + 0.2 * Math.sin(t * 6);
+  glowAt(ctx, x, y - 2, R * 1.7, [[0, `rgba(90, 255, 190, ${0.3 * fade * breathe})`], [0.55, `rgba(40, 220, 150, ${0.16 * fade})`], [1, 'rgba(20, 160, 110, 0)']]);
   lit(ctx, () => {
-    // the arcs it's left
-    for (let i = 0; i < 3; i++) {
-      const r = 15 + i * 4, s0 = aim - 1.15, s1 = aim + 1.15;
-      ctx.globalAlpha = 0.55 - i * 0.14;
-      ctx.fillStyle = i ? '#3ae8a0' : '#c8ffe8';
-      pixArc(ctx, x, y, r, r, 0, s0, s1);
+    ctx.globalAlpha = fade;
+    // going up off the ground, all round: the tall flames of it
+    for (let i = 0; i < 34; i++) {
+      const a = hash(i, 1, 2) * 6.28, sp = 0.7 + hash(i, 2, 2) * 0.8, ph = (t * sp + hash(i, 3, 2)) % 1;
+      const px = x + Math.cos(a) * (9 + hash(i, 4, 2) * 9) + Math.sin(ph * 8 + i) * 1.2, py = feet - ph * (36 + hash(i, 5, 2) * 16);
+      ctx.globalAlpha = fade * (1 - ph) * (Math.sin(a) > 0 ? 1 : 0.45) * grow;
+      ctx.fillStyle = ph < 0.25 ? '#ffffff' : ph < 0.6 ? '#7affd0' : '#22b880';
+      ctx.fillRect(Math.round(px), Math.round(py), 1, ph < 0.5 ? 3 : 2);
     }
-    ctx.globalAlpha = 1;
-    // bright pieces running along them
-    for (let i = 0; i < 8; i++) {
-      const q = Math.sin(t * 19 + i * 1.3), pa = aim + q * 1.15, r = 13 + (i % 4) * 4;
-      ctx.fillStyle = i % 2 ? '#ffffff' : '#7affd0';
-      ctx.fillRect(Math.round(x + Math.cos(pa) * r), Math.round(y + Math.sin(pa) * r), 2, 1);
+    // the rings: arcs of pixels turning, each with a bright runner
+    for (const [tilt, ry, speed, parts, col] of [[0.5, 0.42, 3.4, 3, '#a8ffe0'], [-0.5, 0.42, -2.7, 3, '#5af0b8'], [0, 0.28, 4.3, 4, '#d8fff0']]) {
+      for (let i = 0; i < parts; i++) {
+        const a0 = t * speed + (i * Math.PI * 2) / parts, len = 1.2;
+        ctx.globalAlpha = 0.9 * fade;
+        ctx.fillStyle = col;
+        pixArc(ctx, x, y, R * 0.92, R * ry, tilt, a0, a0 + len);
+        const c0 = Math.cos(tilt), s0 = Math.sin(tilt), ex = Math.cos(a0 + len) * R * 0.92, ey = Math.sin(a0 + len) * R * ry;
+        ctx.globalAlpha = fade;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(x + ex * c0 - ey * s0) - 1, Math.round(y + ex * s0 + ey * c0) - 1, 3, 3);
+      }
     }
-    // a shot turned away just now: a star of pixels
-    if (spark > 0) {
-      const sx = x + Math.cos(aim) * 16, sy = y + Math.sin(aim) * 16;
-      for (let i = 0; i < 12; i++) {
-        const b = (i / 12) * 6.28, d = 3 + (1 - spark) * 14;
-        ctx.globalAlpha = spark;
-        ctx.fillStyle = i % 3 ? '#7affd0' : '#ffffff';
+    // the shell at its edge: broken, flickering
+    const segs = 22, tick = Math.floor(t * 14);
+    ctx.fillStyle = '#3ae8a0';
+    for (let i = 0; i < segs; i++) {
+      if (hash(i, tick, 7) < 0.45) continue;
+      const a = (i / segs) * 6.28 + t * 0.4;
+      ctx.globalAlpha = 0.65 * fade;
+      pixArc(ctx, x, y, R, R, 0, a, a + 0.2);
+    }
+    // motes drawn in to the heart
+    for (let i = 0; i < 16; i++) {
+      const ph = (t * 1.1 + i / 16) % 1, a = (i / 16) * 6.28 - t * 1.4, d = (R + 6) * (1 - ph);
+      ctx.globalAlpha = fade * ph;
+      ctx.fillStyle = i % 3 ? '#a8ffe0' : '#ffffff';
+      ctx.fillRect(Math.round(x + Math.cos(a) * d), Math.round(y + Math.sin(a) * d), 1, 1);
+    }
+    // a thread of lightning out to the shell, now and then
+    const flick = Math.floor(t * 18);
+    if (hash(flick, 9, 1) < 0.5) {
+      const a = hash(flick, 2, 1) * 6.28;
+      let px = x + Math.cos(a) * 5, py = y + Math.sin(a) * 5;
+      ctx.globalAlpha = 0.9 * fade;
+      ctx.fillStyle = '#e8fff4';
+      for (let i = 1; i <= 4; i++) {
+        const d = 5 + (R - 5) * (i / 4), j = a + (hash(flick, i, 3) - 0.5) * 0.9, nx = x + Math.cos(j) * d, ny = y + Math.sin(j) * d;
+        pixLine(ctx, px, py, nx, ny);
+        px = nx;
+        py = ny;
+      }
+    }
+    // where a shot's been turned: that part of the shell flares, a ring and a star going out from it
+    for (const r of ripples) {
+      const k = Math.max(0, r.t), sx = x + Math.cos(r.a) * R, sy = y + Math.sin(r.a) * R, e = 1 - k;
+      ctx.globalAlpha = k;
+      ctx.fillStyle = '#ffffff';
+      for (const dr of [0, 1, 2]) pixArc(ctx, x, y, R + dr, R + dr, 0, r.a - 0.6 * k - 0.1, r.a + 0.6 * k + 0.1);
+      ctx.fillStyle = '#7affd0';
+      pixArc(ctx, sx, sy, 2 + e * 12, 2 + e * 12, 0, 0, Math.PI * 2);
+      for (let i = 0; i < 8; i++) {
+        const b = r.a + (i / 8) * 6.28, d = 2 + e * (i % 2 ? 16 : 10);
+        ctx.fillStyle = i % 2 ? '#ffffff' : '#7affd0';
         ctx.fillRect(Math.round(sx + Math.cos(b) * d), Math.round(sy + Math.sin(b) * d), 2, 2);
       }
     }
   });
-  drawKatana(ctx, x, y, a, 20);
 }
-// The dash: the line of the cut left in the air behind, pixels, blade straight out in front.
-export function drawDeflectDash(ctx, x, y, a, trail) {
+// Which way it all goes - the shots turned back, and the dash: chevrons running out from the field along the aim, and
+// (for you and your side: len > 0) dots on along the line as far as the dash reaches, a mark where it would end.
+export function drawDeflectAim(ctx, x, y, a, age, t, spark, len) {
+  const grow = ease(age / 0.28), ux = Math.cos(a), uy = Math.sin(a), R = DEFLECT_R * grow;
   lit(ctx, () => {
-    for (const q of trail) {
-      const k = q.k;
-      for (const [o, col, al] of [[0, '#ffffff', 0.95], [1, '#7affd0', 0.7], [-1, '#7affd0', 0.7], [2, '#2ac88a', 0.4], [-2, '#2ac88a', 0.4]]) {
-        ctx.globalAlpha = k * al;
-        ctx.fillStyle = col;
-        ctx.fillRect(Math.round(q.x - Math.sin(a) * o), Math.round(q.y + Math.cos(a) * o), 2, 1);
+    for (let i = 0; i < 3; i++) {
+      const ph = (t * 1.6 + i / 3) % 1, d = R + 4 + ph * 18, size = 5 - i * 0.5, tx = x + ux * d, ty = y + uy * d;
+      ctx.globalAlpha = grow * (1 - ph * 0.6);
+      ctx.fillStyle = spark > 0 ? '#ffffff' : '#a8ffe0';
+      for (const side of [-1, 1]) pixLine(ctx, tx, ty, tx + Math.cos(a + side * 2.45) * size, ty + Math.sin(a + side * 2.45) * size);
+    }
+    if (len <= R + 24) return;
+    for (let d = R + 26; d < len; d += 8) {
+      ctx.globalAlpha = grow * 0.75 * (1 - (d / len) * 0.55);
+      ctx.fillStyle = '#7affd0';
+      ctx.fillRect(Math.round(x + ux * d), Math.round(y + uy * d), 2, 2);
+    }
+    const ex = Math.round(x + ux * len), ey = Math.round(y + uy * len);
+    ctx.globalAlpha = grow * 0.9;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(ex - 3, ey, 7, 1);
+    ctx.fillRect(ex, ey - 3, 1, 7);
+  });
+}
+// How near the draw is, over the head: fills as the stance runs out, dim until Q can call the dash, white at the end.
+export function drawDeflectBar(ctx, x, y, k, ready) {
+  const w = 26, l = Math.round(x - w / 2);
+  ctx.fillStyle = '#06100c';
+  ctx.fillRect(l - 1, y - 1, w + 2, 5);
+  ctx.fillStyle = '#17352a';
+  ctx.fillRect(l, y, w, 3);
+  ctx.fillStyle = k > 0.8 ? '#ffffff' : ready ? '#5af0b8' : '#2a8a68';
+  ctx.fillRect(l, y, Math.round(w * k), 3);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.fillRect(l, y, Math.round(w * k), 1);
+}
+// The short line that holds you on a wall: a plate bitten into it, a steel line down to the belt.
+export function drawWallSling(ctx, x0, y0, x1, y1) {
+  ctx.fillStyle = '#0d1418';
+  pixLine(ctx, x0, y0 + 1, x1, y1 + 1);
+  ctx.fillStyle = '#b8d4e0';
+  pixLine(ctx, x0, y0, x1, y1);
+  ctx.fillStyle = '#20282e';
+  ctx.fillRect(Math.round(x1) - 1, Math.round(y1) - 2, 3, 5);
+  ctx.fillStyle = '#9fe6ff';
+  ctx.fillRect(Math.round(x1), Math.round(y1) - 1, 1, 2);
+  ctx.fillStyle = '#20282e';
+  ctx.fillRect(Math.round(x0) - 1, Math.round(y0) - 1, 2, 2);
+}
+// The dash: a band of light where it's been, widest at the body, along the line.
+export function drawDeflectDash(ctx, trail, a) {
+  const nx = -Math.sin(a), ny = Math.cos(a);
+  lit(ctx, () => {
+    trail.forEach((q, i) => {
+      const k = 1 - i / trail.length, wide = Math.ceil(k * 4);
+      for (let o = -wide; o <= wide; o++) {
+        ctx.globalAlpha = k * (o === 0 ? 1 : 0.75 - Math.abs(o) * 0.14);
+        ctx.fillStyle = o === 0 ? '#ffffff' : Math.abs(o) < 2 ? '#a8ffe0' : '#2ac88a';
+        ctx.fillRect(Math.round(q.x + nx * o), Math.round(q.y + ny * o), 2, 1);
+      }
+    });
+  });
+}
+// The cut, left in the air behind it, all along the line: a flash of white that thins to nothing, shards coming off it.
+export function drawDeflectCut(ctx, x0, y0, x1, y1, k, seed) {
+  const a = Math.atan2(y1 - y0, x1 - x0), L = Math.hypot(x1 - x0, y1 - y0) + 28, ux = Math.cos(a), uy = Math.sin(a), nx = -uy, ny = ux;
+  const sx = x0 - ux * 14, sy = y0 - uy * 14, thick = Math.max(0, 1 - k * 1.6) * 3;
+  lit(ctx, () => {
+    for (let i = 0; i <= L; i++) {
+      const q = i / L, taper = Math.sin(q * Math.PI), w = Math.ceil(thick * taper), px = sx + ux * i, py = sy + uy * i;
+      for (let o = -w; o <= w; o++) {
+        ctx.globalAlpha = (1 - k) * (o === 0 ? 1 : 0.7);
+        ctx.fillStyle = Math.abs(o) < 2 ? '#ffffff' : '#7affd0';
+        ctx.fillRect(Math.round(px + nx * o), Math.round(py + ny * o), 1, 1);
       }
     }
+    // shards flying off it, either side
+    for (let i = 0; i < 20; i++) {
+      const q = hash(i, 1, seed), side = i % 2 ? 1 : -1, d = ease(k) * (6 + hash(i, 2, seed) * 22), px = sx + ux * L * q + nx * side * d, py = sy + uy * L * q + ny * side * d + k * k * 6;
+      ctx.globalAlpha = 1 - k;
+      ctx.fillStyle = i % 3 ? '#7affd0' : '#ffffff';
+      ctx.fillRect(Math.round(px), Math.round(py), i % 4 ? 1 : 2, 1);
+    }
   });
-  drawKatana(ctx, x, y, a, 22);
 }

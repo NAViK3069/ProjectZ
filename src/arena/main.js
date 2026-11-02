@@ -24,7 +24,7 @@ import { drawBlast } from './flame.js';
 import { drawCircle, drawHole, drawBoom } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
 import { drawLockBeam, drawLockMark } from './visor.js';
-import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBlood, CARDS } from './skillfx.js';
+import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBlood, drawDeflectCut, DEFLECT_R, CARDS } from './skillfx.js';
 import { sound } from './sound.js';
 import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
 
@@ -153,6 +153,12 @@ const game = {
   summonSwords: (f, seed, n) => summonSwords(f, seed, n),
   barrierBurst: (f, broken) => barrierBurst(f, broken),
   summonBats: (f) => summonBats(f),
+  // deflect's dash, over: the cut left hanging in the air behind it
+  deflectEnd(f, m) {
+    this.bursts.push({ kind: 'cut', x: f.x, y: f.y - 14, x0: m.x0, y0: m.y0, t: 0, seed: Math.random() * 100 });
+    this.lights.flash(f.x, f.y - 14, 90, '90, 255, 190', 0.15);
+    if (f === player) renderer.kick(Math.cos(m.a) * 3, Math.sin(m.a) * 3);
+  },
   // deflect's dash: whoever it passes through, the once
   deflectCut(f, m, dmg) {
     const ux = Math.cos(m.a), uy = Math.sin(m.a);
@@ -191,7 +197,7 @@ const game = {
   },
   nadeArt: (kind) => NADE_ART[kind] ?? NADE,
   foes(a, b) {
-    if (a.vanish || b.vanish) return false;
+    if (a.vanish || b.vanish || (a.dummy && b.dummy)) return false;
     const ra = a.owner ?? a, rb = b.owner ?? b;   // (a shadow clone sides with whoever made it)
     return ra !== rb && (settings.mode !== 'teams' || ra.team !== rb.team);
   },
@@ -226,13 +232,12 @@ const game = {
     const color = kind === 'crit' ? '#ff3a2a' : kind === 'head' ? '#ffd84a' : kind === 'blast' ? '#ff8a3c' : kind === 'melee' ? '#ff6a6a' : '#f2f2ea';
     const n = String(Math.max(1, Math.round(dmg)));
     this.numbers.push({ text: kind === 'crit' ? `CRIT ${n}!` : n, x: v.x + rand(-5, 5), y: v.y - 34, t: 0, color, big: kind === 'head' || kind === 'crit' || dmg >= 60 });
-    if (v.dummy || v.sparring) {
-      stats.record(dmg, kind);
-      stats.lastHit = dmg;
-      if (from) stats.lastDist = Math.hypot(v.x - from.x, v.y - from.y) / 16;
-      // what's going into this one: the number over its head
-      (v._hits ??= []).push({ d: dmg, at: this.time });
+    // training: what you (or your shadow clone) do to the dummies, what they do to you
+    if ((v.dummy || v.sparring) && (from === player || from?.owner === player)) {
+      stats.record(dmg, kind, Math.hypot(v.x - player.x, v.y - player.y) / 16);
+      (v._hits ??= []).push({ d: dmg, at: performance.now() / 1000 });   // (the number over its head)
     }
+    if (v === player && state === 'training') stats.hurt(dmg);
   },
   // G: a weapon thrown at someone - it spins, hits for a knock, then lands to be picked up
   throwWeapon(f, thing, x, y, vx, vy) {
@@ -1381,6 +1386,7 @@ function drawBursts(ctx) {
   for (const b of game.bursts) {
     const k = b.t / BURST_LIFE;
     if (b.kind === 'shield') drawShieldBurst(ctx, b.x, b.y, k, game.time, b.seed, b.r);
+    else if (b.kind === 'cut') drawDeflectCut(ctx, b.x0, b.y0, b.x, b.y, k, b.seed);
     else drawHackWave(ctx, b.x, b.y, k, game.time, b.seed, b.r, b.links);
   }
 }
@@ -1459,20 +1465,23 @@ function updateBullets(dt) {
       if (b.dead) break;
       for (const o of game.fighters) {
         if (o === b.owner || !o.alive || b.done.has(o) || !game.foes(b.owner, o)) continue;
+        // deflect's field: a shot reaching it, from any side, goes back along their aim, as hard as it came, theirs now
+        if (o.deflect?.phase === 'guard' && Math.hypot(b.x - o.x, b.y - (o.y - 14)) < DEFLECT_R) {
+          const m = o.deflect;
+          b.dead = true;
+          m.spark = 1;
+          m.ripples.push({ a: Math.atan2(b.y - (o.y - 14), b.x - o.x), t: 1 });
+          if (m.ripples.length > 5) m.ripples.shift();
+          fx.sparks(b.x, b.y, 6, -dx, -dy, '#7affd0');
+          game.lights.flash(b.x, b.y, 40, '90, 255, 190', 0.08);
+          game.fireBullet(o, o.x + Math.cos(o.aim) * (DEFLECT_R + 2), o.y - 14 + Math.sin(o.aim) * (DEFLECT_R + 2), o.aim + rand(-0.02, 0.02), b.speed, b.dmg, Math.max(320, b.travelled + b.left), b.pierce, b.far);
+          break;
+        }
         // (online, a player's shot: tested against where they saw this one when they fired - see pastOf)
         const seen = b.rw ? game.pastOf?.(o, b.rw) : null;
         const part = seen ? o.hitPart(b.x + o.x - seen.x, b.y + o.y - seen.y) : o.hitPart(b.x, b.y);
         if (!part) continue;
         b.done.add(o);
-        // the katana up: a shot from in front goes back along their aim, as hard as it came, theirs now
-        if (o.deflect?.phase === 'guard' && dx * Math.cos(o.aim) + dy * Math.sin(o.aim) < 0.25) {
-          b.dead = true;
-          o.deflect.spark = 1;
-          fx.sparks(b.x, b.y, 8, -dx, -dy, '#7affd0');
-          game.lights.flash(b.x, b.y, 40, '90, 255, 190', 0.08);
-          game.fireBullet(o, o.x + Math.cos(o.aim) * 14, o.y - 14 + Math.sin(o.aim) * 14, o.aim + rand(-0.02, 0.02), b.speed, b.dmg, Math.max(320, b.travelled + b.left), b.pierce, b.far);
-          break;
-        }
         if (o.shield > 0 || o.guardT > 0) { fx.sparks(b.x, b.y, 4, -dx, -dy, '#8ff0ff'); b.dead = true; break; }
         const head = part === 'head', shielded = !!o.barrier;
         o.hitHow = null;
@@ -1889,9 +1898,10 @@ function drawWorld() {
     if (!you || state === 'intro') drawText(ctx, name, x - Math.floor(w / 2), y - 8, 1, tagColor(f));
     // a training dummy: what it's taking, a second at a time, over its name
     if (f._hits?.length) {
-      f._hits = f._hits.filter((h) => game.time - h.at < 2);
+      const now = performance.now() / 1000;
+      f._hits = f._hits.filter((h) => now - h.at < STATS_GAP);
       if (f._hits.length) {
-        const sum = f._hits.reduce((a, h) => a + h.d, 0), label = `${Math.round(sum / 2)}/S`, tw = textWidth(label);
+        const label = String(Math.round(f._hits.reduce((a, h) => a + h.d, 0))), tw = textWidth(label);
         drawText(ctx, label, x - Math.floor(tw / 2), y - 16, 1, '#ffd84a');
       }
     }
@@ -2147,7 +2157,7 @@ const pauseItems = () => [
   ...(canReset() ? [['kill', 'RESET CHARACTER (DIE)', 'K']] : []),
   ['sound', 'SOUND', 'M'],
   ...(state === 'training'
-    ? [['spar', bots.length ? 'SPARRING BOT: ON' : 'SPARRING BOT: OFF', 'B'], ['reset', 'RESET THE RANGE', 'R'], ['menu', 'MAIN MENU', 'Q']]
+    ? [['shooters', `SHOOTERS: ${shootersOn ? 'ON' : 'OFF'}`, 'N'], ['spar', `SPARRING BOT: ${bots.length ? 'ON' : 'OFF'}`, 'B'], ['cool', `SKILL WAIT: ${skillCooldowns ? 'ON' : 'OFF'}`, 'C'], ['ammo', `ENDLESS MAG: ${endlessMag ? 'ON' : 'OFF'}`, 'I'], ['clear', 'CLEAR THE DPS', 'T'], ['reset', 'RESET THE RANGE', 'R'], ['menu', 'MAIN MENU', 'Q']]
     : [['restart', 'RESTART THE MATCH', 'R'], ['setup', 'ROOM SETUP', 'S'], ['menu', 'MAIN MENU', 'Q']]),
 ];
 function drawPause(ctx, u, W, H) {
@@ -2165,6 +2175,10 @@ function pauseInput() {
   if (c === 'resume') paused = false;
   else if (input.wasPressed('KeyM') || c === 'sound') soundPanel = true;
   else if (state === 'training' && (input.wasPressed('KeyB') || c === 'spar')) toggleSparring();
+  else if (state === 'training' && (input.wasPressed('KeyN') || c === 'shooters')) shootersOn = !shootersOn;
+  else if (state === 'training' && (input.wasPressed('KeyC') || c === 'cool')) { skillCooldowns = !skillCooldowns; player.skillCD = 0; }
+  else if (state === 'training' && (input.wasPressed('KeyI') || c === 'ammo')) endlessMag = !endlessMag;
+  else if (state === 'training' && (input.wasPressed('KeyT') || c === 'clear')) stats.reset();
   else if (canReset() && (input.wasPressed('KeyK') || c === 'kill')) { paused = false; player.die(null, 'RESET', 0, 0); }
   else if (input.wasPressed('KeyQ') || c === 'menu') { paused = false; state = 'menu'; banner = null; }
   else if (input.wasPressed('KeyR') || c === 'restart' || c === 'reset') { paused = false; if (state === 'training') startTraining(); else startMatch(); }
@@ -2316,7 +2330,7 @@ function drawSkillBox(u, W, H, f) {
       kit.rect(px + u, y + 18 * u, 3 * u * k, 3 * u, info.color);
     }
   } else if (hacked) kit.text(`HACKED  -  ${f.hackedT.toFixed(1)} S`, x + 31 * u, y + 17 * u, { small: true, color: '#3aff8a' });
-  else if (on) kit.text(f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'DASH!') : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.ceil(f.barrier.hp)}  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  else if (on) kit.text(f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.ceil(f.barrier.hp)}  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
   else if (puffed && cd <= 0) kit.text('NOT ENOUGH STAMINA', x + 31 * u, y + 17 * u, { small: true, color: '#ffa080' });
   else {
     // the wait: a bar filling back up, the seconds left beside it
@@ -2633,19 +2647,37 @@ function matchInput() {
 // a movement course, a grapple shaft and a yard of crates to smash (they come
 // back) - with the main game's DPS meter.
 
+// What you're doing to the dummies, a burst at a time: it starts with your first hit and it's over when you've stopped
+// for STATS_GAP - DPS is the burst's damage over the burst's length (never less than a second), and it stays up to read
+// when you stop, until you start again. PEAK: the most done in any one second. All on the wall clock, Sandevistan or not.
+const STATS_GAP = 2.5;
 const stats = {
-  dps: 0, peak: 0, total: 0, hits: 0, heads: 0, last: 0, lastT: -9, recent: [],
-  record(dmg, kind) {
-    this.total += dmg; this.hits++; if (kind === 'head') this.heads++;
-    this.last = dmg; this.lastT = game.time;
-    this.recent.push([game.time, dmg]);
+  dps: 0, peak: 0, burst: 0, time: 0, hits: 0, heads: 0, last: 0, dist: 0, going: false, startT: 0, lastT: 0, recent: [], taken: [], takenDps: 0,
+  now: () => performance.now() / 1000,
+  record(dmg, kind, dist) {
+    const now = this.now();
+    if (!this.going) Object.assign(this, { going: true, startT: now, burst: 0, hits: 0, heads: 0, peak: 0, recent: [] });
+    this.burst += dmg;
+    this.hits++;
+    if (kind === 'head') this.heads++;
+    this.last = dmg;
+    if (dist !== null) this.dist = dist;
+    this.lastT = now;
+    this.recent.push([now, dmg]);
   },
+  hurt(dmg) { this.taken.push([this.now(), dmg]); },
   update() {
-    this.recent = this.recent.filter(([t]) => game.time - t < 2);
-    this.dps = this.recent.reduce((s, [, d]) => s + d, 0) / 2;
-    this.peak = Math.max(this.peak, this.dps);
+    const now = this.now();
+    this.taken = this.taken.filter(([t]) => now - t < 2);
+    this.takenDps = this.taken.reduce((n, [, d]) => n + d, 0) / 2;
+    if (!this.going) return;
+    if (now - this.lastT > STATS_GAP) { this.going = false; return; }
+    this.time = Math.max(0, this.lastT - this.startT);
+    this.dps = this.burst / Math.max(1, now - this.startT < 1 ? 1 : this.time);
+    this.recent = this.recent.filter(([t]) => now - t < 1);
+    this.peak = Math.max(this.peak, this.recent.reduce((n, [, d]) => n + d, 0));
   },
-  reset() { Object.assign(this, { dps: 0, peak: 0, total: 0, hits: 0, heads: 0, last: 0, lastT: -9, recent: [] }); },
+  reset() { Object.assign(this, { dps: 0, peak: 0, burst: 0, time: 0, hits: 0, heads: 0, last: 0, dist: 0, going: false, startT: 0, lastT: 0, recent: [], taken: [], takenDps: 0 }); },
 };
 
 function startTraining() {
@@ -2654,7 +2686,7 @@ function startTraining() {
   stateT = 0;
   slow = 1;
   paused = false;
-  banner = { text: 'TRAINING', sub: 'TAB (OR E AT A CABINET) FOR GUNS, SKILLS AND MEDKITS - ESC FOR THE MENU', t: 2.4, color: '#8ff0ff' };
+  banner = { text: 'TRAINING', sub: 'TAB: GUNS, SKILLS - ESC: OPTIONS - LIVE FIRE, FAR RIGHT', t: 2.4, color: '#8ff0ff' };
   locker = null;
   game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = []; game.bursts = []; game.bats = []; game.bloods = [];
   stats.reset();
@@ -2676,6 +2708,15 @@ function startTraining() {
     f.dummy = f.immortal = true;
     f.patrol = d.patrol ? d.patrol.map((c) => (c + 0.5) * 16) : null;
     f.quick0 = d.fast ? 1 : 0.6;
+    if (d.shooter) {
+      f.name = 'SHOOTER';
+      f.shooter = d.shooter;
+      f.fixedAim = d.aim ?? Math.PI;
+      f.zone = d.zone.map((v) => v * T);
+      f.give(d.gun ?? 'm4a1', 9999);
+      f.gun.ammo = f.gun.magSize;
+      f.facing = Math.cos(f.fixedAim) < 0 ? -1 : 1;
+    }
     f.walk = 1;
     return f;
   });
@@ -2688,6 +2729,22 @@ function startTraining() {
 
 // Training each frame: smashed crates come back, dummies heal up and the walking one walks.
 const AT_EASE = 0.6;   // how far down (rad) a dummy points its gun
+let shootersOn = true, endlessMag = false;
+// What a shooter does. It starts up only with you in its bay. wall: fires at the same place, over and over, whoever's
+// there. aim: fires short bursts at you, its hand not quite steady - and only with a clear line from the gun to all of
+// you for a moment (behind cover, or just come out from it, it holds its fire, the gun lowered). Neither moves.
+function shooterControl(f, dt) {
+  const w = f.gun, here = shootersOn && player.alive && player.x >= f.zone[0] && player.x < f.zone[1];
+  if (w && w.ammo <= 0) w.ammo = w.magSize;   // (it never runs dry, and never stops to reload)
+  f.shootT = (f.shootT ?? rand(0, 1)) + dt;
+  const cyc = f.shootT % (f.shooter === 'wall' ? 1.1 : 1.7), on = here && cyc < (f.shooter === 'wall' ? 0.55 : 0.6);
+  if (f.shooter === 'wall') return { ...IDLE, aim: f.fixedAim, fire: on };
+  const tx = player.x, ty = player.y - 14, a0 = Math.atan2(ty - (f.y - 14), tx - f.x), gx = f.x + Math.cos(a0) * 16, gy = f.y - 14 + Math.sin(a0) * 16;
+  const sees = here && !player.hidden && [-20, -14, -4].every((up) => game.los(gx, gy, tx, player.y + up));
+  f.seenT = sees ? (f.seenT ?? 0) + dt : 0;
+  if (!sees) return { ...IDLE, aim: player.x < f.x ? Math.PI - AT_EASE : AT_EASE };
+  return { ...IDLE, aim: a0 + Math.sin(game.time * 2.3 + f.x) * 0.05, fire: on && f.seenT > 0.25 };
+}
 // A bot to practise on that moves and dodges and shoots back (you can't die here, and it can't either).
 function toggleSparring() {
   if (bots.length) {
@@ -2708,6 +2765,7 @@ function toggleSparring() {
 function updateTraining(dt) {
   if (state !== 'training') return;
   stats.update();
+  if (endlessMag && player.gun) { player.gun.ammo = player.gun.magSize; if (player.gun.reloading) player.gun.cancelReload(); }
   for (const r of game.racks) {
     if (!r.prop.dead) continue;
     if ((r.t += dt) < 6) continue;
@@ -2725,7 +2783,8 @@ function updateTraining(dt) {
     // (the gun held low, pointed at the floor a way ahead - at ease)
     const ease = (dir) => (dir > 0 ? AT_EASE : Math.PI - AT_EASE);
     let c = IDLE;
-    if (f.patrol) {
+    if (f.shooter) c = shooterControl(f, dt);
+    else if (f.patrol) {
       if (f.x < f.patrol[0]) f.walk = 1;
       if (f.x > f.patrol[1]) f.walk = -1;
       c = { ...IDLE, move: f.walk * (f.quick0 ?? 0.6), aim: ease(f.walk) };
@@ -2890,7 +2949,7 @@ const SKILL_INFO = [
   { key: 'shield', name: 'BLUE SHIELD', img: SHIELD_ICON, color: '#6ad8ff', desc: 'TAKES 110 DAMAGE FOR 4 S, THEN GOES OFF: UNTOUCHABLE FOR 0.5 S. SLOWER, WEAKER SHOTS' },
   { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'DRAW A CARD: RED FIRE RATE, GREEN HEAL, BLUE SPEED, PURPLE UNSEEN. TEAMMATES NEAR SHARE IT' },
   { key: 'vampire', name: 'VAMPIRE', img: VAMPIRE_ICON, color: '#ff5a6a', desc: 'BATS BURST OUT EVERY WAY: THE BLOOD THEY DRAW COMES BACK TO YOU AS HEALTH' },
-  { key: 'deflect', name: 'DEFLECT', img: DEFLECT_ICON, color: '#7affd0', desc: 'KATANA OUT: SHOTS FROM IN FRONT GO BACK WHERE YOU AIM, THEN DASH AND CUT' },
+  { key: 'deflect', name: 'DEFLECT', img: DEFLECT_ICON, color: '#7affd0', desc: 'KATANA AT THE HIP: A FIELD TURNS SHOTS BACK WHERE YOU AIM, THEN DASH AND CUT' },
   { key: 'sande', name: 'SANDEVISTAN', img: SANDE_ICON, color: '#7affc8', desc: '2 S: THE WORLD ALL BUT STOPS AND YOU MOVE ON. SHOTS HANG TILL IT ENDS' },
   { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT, 4 S' },
 ];
@@ -3134,16 +3193,34 @@ function drawCabinetPrompt(ctx) {
 function drawMeter(ctx, u, W) {
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x * u), Math.round(y * u), Math.round(w * u), Math.round(h * u)); };
   const text = (t, x, y, c, size = 1) => drawText(ctx, String(t), Math.round(x * u), Math.round(y * u), u * size, c);
-  const s = stats, w = 92, x = W / u - w - 6, y = 52;
-  px(x - 1, y - 1, w + 2, 62, HUDC.frame);
-  px(x, y, w, 60, HUDC.panel);
-  px(x, y, w, 1, HUDC.panelHi);
-  text('DPS', x + 4, y + 4, '#a7ae98');
-  text(Math.round(s.dps), x + 4, y + 11, s.dps > 0 ? '#ffd84a' : HUDC.text, 2);
-  [['LAST', Math.round(s.lastHit ?? 0)], ['AT', s.lastDist ? `${Math.round(s.lastDist)} M` : '-'], ['PEAK', Math.round(s.peak)], ['TOTAL', Math.round(s.total)], ['HITS', s.hits], ['HEAD', s.hits ? `${Math.round((100 * s.heads) / s.hits)}%` : '-'], ['LAST', game.time - s.lastT < 3 ? Math.round(s.last) : '-']].forEach(([k, v], i) => {
-    text(k, x + 44, y + 4 + i * 8, '#6f7a62');
-    text(v, x + w - 4 - textWidth(String(v)), y + 4 + i * 8, HUDC.text);
+  const s = stats, w = 80, x = W / u - w - 6, y = 52, rows = s.hits ? [
+    ['DAMAGE', Math.round(s.burst)],
+    ['TIME', `${s.time.toFixed(1)} S`],
+    ['PEAK/S', Math.round(s.peak)],
+    ['HEAD', `${Math.round((100 * s.heads) / s.hits)}%`],
+    ['RANGE', `${Math.round(s.dist)} M`],
+  ] : [];
+  // no panel: the figures on whatever's behind them, with a shadow to read by. Not in a burst, they sink back.
+  const say = (t, tx, ty, col, size) => { text(t, tx + 0.5, ty + 0.5, 'rgba(0, 0, 0, 0.75)', size); text(t, tx, ty, col, size); };
+  ctx.save();
+  ctx.globalAlpha = s.going ? 0.95 : 0.55;
+  say('DPS', x + w - textWidth('DPS'), y, '#c8d0ba');
+  const dps = String(Math.round(s.dps));
+  say(dps, x + w - textWidth(dps) * 2 - textWidth('DPS') - 3, y - 3, s.going ? '#ffd84a' : '#e8e2d0', 2);
+  // how the burst's going: lit while you're at it, running out when you stop
+  const k = s.going ? Math.max(0, 1 - (performance.now() / 1000 - s.lastT) / STATS_GAP) : 0;
+  if (k > 0) px(x + w * (1 - k), y + 9, w * k, 1, '#ffd84a');
+  rows.forEach(([key, v], i) => {
+    say(key, x, y + 13 + i * 7, '#aab09c');
+    say(v, x + w - textWidth(String(v)), y + 13 + i * 7, '#e8e2d0');
   });
+  // what you're taking, while you are
+  if (s.takenDps > 0) {
+    const taken = String(Math.round(s.takenDps)), ty = y + 13 + rows.length * 7 + 1;
+    say('TAKING', x, ty, '#ff9a8a');
+    say(taken, x + w - textWidth(taken), ty, '#ff7a6a');
+  }
+  ctx.restore();
 }
 
 // ---------- the main menu ----------

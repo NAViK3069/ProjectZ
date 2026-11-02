@@ -503,7 +503,7 @@ function askResync() {
 }
 // What of a fighter is ours to say, when it's our own:
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
-const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
+const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
 const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'deflect', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
@@ -852,7 +852,7 @@ function carryThings(dt, then, hostNow, self) {
 // Our own fighter, ours at once. The stand-in runs its movement - exactly as the host will, from the same commands
 // at the same step - and the fighter runs what's in its hand, in a game of its own where shots are only shown
 // and hits don't count. Drawn between the stand-in's last two steps, at this frame's moment.
-const MOVE_COPY = ['x', 'y', 'vx', 'vy', 'aim', 'onGround', 'onLadder', 'crouch', 'facing', 'roll', 'pose', 'sq', 'sqV', 'settle', 'state', 'animT', 'frame', 'climbT', 'blinkLeft', 'flipT', 'flipDir', 'sprinting', 'stamina', 'winded', 'boostT', 'rollCool'];
+const MOVE_COPY = ['x', 'y', 'vx', 'vy', 'aim', 'onGround', 'onLadder', 'wall', 'crouch', 'facing', 'roll', 'pose', 'sq', 'sqV', 'settle', 'state', 'animT', 'frame', 'climbT', 'blinkLeft', 'flipT', 'flipDir', 'sprinting', 'stamina', 'winded', 'boostT', 'rollCool'];
 const SKILL_SHARE = [...SKILL_KEYS, 'fade', 'trail'];   // (the very same objects: the stand-in runs them, the fighter's what's drawn)
 const GHOST_LOOKS = ['animT', 'frame', 'state', 'sq', 'sqV', 'settle', 'climbT', 'blinkIn', 'blinkLeft', 'pose', 'flash', 'hurtT', 'grenadeCD', 'lastFireT', 'fade', 'trail', 'flipT', 'flipDir'];
 function makeGhost(f) {
@@ -866,7 +866,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)
@@ -916,7 +916,7 @@ function localShot(f, x, y, a, speed, dmg, range, pierce) {
 // the stand-in put where the host says we were, at the last command it's run - and the same state of feet and skills
 function loadAuth(gh, f) {
   const a = N.auth;
-  for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT']) if (a[k] !== undefined) gh[k] = a[k];
+  for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT']) if (a[k] !== undefined) gh[k] = a[k];
   gh.roll = a.roll ? { ...a.roll, trail: gh.roll?.trail ?? [] } : null;
   const trail = gh.blaze?.trail;
   for (const k of SKILL_KEYS) if (a[k] !== undefined) gh[k] = a[k] && typeof a[k] === 'object' && !(a[k] instanceof Fighter) ? { ...a[k] } : a[k];

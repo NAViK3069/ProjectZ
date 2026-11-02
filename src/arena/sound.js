@@ -204,7 +204,7 @@ class Sound {
         this.once.add(n);
         if (list === game.blasts) this.play('boom', at(n, { vol: Math.min(1, (n.r ?? 60) / 60), gap: 0.05 }));
         else if (list === game.punches) this.play('stab', at(n));
-        else if (list === game.bursts) this.play(n.kind === 'hack' ? 'hack' : 'shield_burst', at(n));
+        else if (list === game.bursts) this.play(n.kind === 'hack' ? 'hack' : n.kind === 'cut' ? 'katana' : 'shield_burst', at(n));
         else if (list === game.numbers) this.play(n.big ? 'hit_big' : 'hit', at(n, { gap: 0.05 }));
         else if (list === game.grenades) this.play('throw', at(n));
         else if (list === game.arrows) this.play('arrow', at(n, { gap: 0.05 }));
@@ -253,7 +253,7 @@ class Sound {
         if (f.card?.on && !s.cardOn) this.play(`card_${f.card.kind}`, here);
         if (f.hackCast && !s.hackCast) this.play('hack_cast', here);
         if (f.batCast && !s.batCast) this.play('bats', here);
-        if (f.deflect && !s.deflect) this.play('katana', here);
+        if (f.deflect && !s.deflect) this.play('charge_low', here);
         if (f.deflect?.phase === 'dash' && s.deflectPhase !== 'dash') this.play('dash', here);
         if ((f.deflect?.spark ?? 0) > (s.spark ?? 0) + 0.3) this.play('deflect', { ...here, gap: 0.04 });
         if (f.hackedT > (s.hackedT ?? 0) + 0.5) this.play('hacked', here);

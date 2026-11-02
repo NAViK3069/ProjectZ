@@ -19,7 +19,7 @@ import { T, SOLID, PLAT, LADDER, ACID, LOW, LOW_H } from './level.js';
 import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
 import { drawFlame } from './flame.js';
 import { drawVisor } from './visor.js';
-import { drawShieldBubble, drawCard, drawCardAura, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawDeflectGuard, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
+import { drawShieldBubble, drawCard, drawCardAura, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, drawWallSling, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
 export const GRAVITY = 720, WALK = 86, AIR_ACCEL = 650, JUMP = 290, JUMP2 = 250, PAD_JUMP = 430;   // (the bots work out their routes by these)
@@ -109,7 +109,7 @@ export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
 const BAT_CAST = 0.35, BAT_CD = 20;
 // deflect (skill, Q): how long the blade's up turning shots back, then the dash - how fast, how far, how hard - the wait after
-const DEFLECT_TIME = 1.5, DEFLECT_SPEED = 640, DEFLECT_REACH = 150, DEFLECT_CUT = 70, DEFLECT_CD = 14, DEFLECT_SLOW = 0.75;
+const DEFLECT_TIME = 1.5, DEFLECT_SPEED = 720, DEFLECT_REACH = 165, DEFLECT_CUT = 70, DEFLECT_CD = 14, DEFLECT_SLOW = 0.75, DEFLECT_FINISH = 0.24;
 const HACK_HURT = 1.2;   // someone hacked takes this much more from everything
 const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can turn (rad/s, of its slowed time)
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
@@ -145,6 +145,9 @@ const HALF_W = 5, HEIGHT = 28, ROLL_H = 14, CROUCH_H = 22, CROUCH_DROP = 5;
 const CROUCH_BODY = 3;   // crouched: the body sinks 3 px, the head 2 more (5 in all) - tucked into the shoulders
 // the main game's gun handling
 const GUN_HEIGHT = 9, GUN_REACH = 4, RELOAD_TILT = 0.55, SHELL_TILT = -0.4, RAISE_TILT = -1.1, STEP_TILT = -0.3, CLIMB_KEEP = 0.35;
+// On a wall: in the air, falling, pushed against it - once a jump. A short line holds on while it slides slowly down,
+// gathering speed gently. Getting on gives the second jump back; a jump off it is that second jump, straight up as usual.
+const WALL_GRAVITY = 90, WALL_MAX = 110;
 const FLIP_TIME = 0.5, FLIP_LAND = 0.12;   // the second jump's somersault; how soon it finishes once it's landed
 const WALK_FPS = 16, IDLE_PERIOD = 1.5, SETTLE_TIME = 0.1;
 const SPRING_K = 420, SPRING_D = 14;   // the body's squash-and-stretch spring (bouncy: it overshoots)
@@ -286,7 +289,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, dropT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -599,6 +602,7 @@ export class Fighter {
     else if (this.skill === 'deflect') this.updateDeflect(dt, c);
     if (this.hook?.state !== 'on' && this.trail.length) this.trail.pop();   // the grapple's afterimages catching up once it lets go
     const reeling = this.hook?.state === 'on';
+    this.updateWall(c, reeling);
     if (this.roll) {
       this.roll.t += dt / ROLL_TIME;
       this.vx = this.roll.dir * ROLL_SPEED * (1 - 0.6 * this.roll.t);
@@ -635,6 +639,23 @@ export class Fighter {
       this.vy = uy * along + (this.vy - uy * along) * damp + uy * GRAPPLE_PULL * dt;
       const sp = Math.hypot(this.vx, this.vy);
       if (sp > GRAPPLE_MAX) { this.vx *= GRAPPLE_MAX / sp; this.vy *= GRAPPLE_MAX / sp; }
+    } else if (this.wall) {
+      const w = this.wall;
+      this.vx = w.dir * 20;   // (kept up against it)
+      this.vy = Math.min(WALL_MAX, this.vy + WALL_GRAVITY * dt);
+      if ((w.dust -= dt) <= 0) { w.dust = 0.13; this.game.fx.dust(this.x + w.dir * HALF_W, this.y - 6, 1); }
+      if (this.jumpBuf > 0 && this.airJumps > 0) {
+        this.vx = 0;
+        this.vy = -JUMP;
+        this.jumpBuf = 0;
+        this.airJumps--;
+        this.bounce(-95);
+        this.game.fx.dust(this.x, this.y, 4);
+        this.wall = null;
+      } else if (c.down || c.move === -w.dir) {
+        this.vx = -w.dir * 30;
+        this.wall = null;
+      }
     } else {
       const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.batCast ? 0.5 : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
@@ -688,7 +709,7 @@ export class Fighter {
       this.vy = Math.sin(this.blaze.a) * BLAZE_SPEED;
       if (this.vy > 100) this.dropT = 0.1;   // (down through a catwalk too)
     }
-    if (!this.onLadder && !this.lunge && !dashing && !cutting) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
+    if (!this.onLadder && !this.lunge && !dashing && !cutting && !this.wall) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
 
     const wasGround = this.onGround, fall = this.vy, px = this.x, py = this.y;
     this.move(dt);
@@ -704,7 +725,7 @@ export class Fighter {
       this.bounce(Math.min(180, fall * 0.45));   // lands: squashes down and springs back
       if (fall > 250) this.game.fx.dust(this.x, this.y, 5);
     }
-    if (this.onGround) { this.airJumps = 1; this.airRoll = true; }
+    if (this.onGround) { this.airJumps = 1; this.airRoll = true; this.wallGrabs = 1; }
     if (this.onLadder || this.roll) this.flipT = -1;
     else if (this.onGround && this.flipT >= 0 && (this.flipT += dt / FLIP_LAND) >= 1) this.flipT = -1;   // (down part way round: it finishes turning, quickly, rather than snap upright)
     // on a jump pad: up you go
@@ -1943,46 +1964,106 @@ export class Fighter {
     }
   }
 
+  // A wall this side of the body, the whole height of the chest?
+  wallBeside(dir) {
+    const l = dir > 0 ? this.x + HALF_W : this.x - HALF_W - 2;
+    return !!this.hits(l, this.y - 24, l + 2, this.y - 8);
+  }
+  // On to a wall (players only: the bots' routes don't know about it), and off it when it's no longer there or something
+  // else has taken over.
+  updateWall(c, reeling) {
+    const taken = this.onGround || this.onLadder || this.roll || this.lunge || reeling || this.deflect?.phase === 'dash' || this.blaze?.phase === 'dash';
+    if (this.wall) {
+      if (taken || !this.wallBeside(this.wall.dir)) this.wall = null;
+      return;
+    }
+    const dir = Math.sign(c.move ?? 0);
+    if (taken || this.bot || !dir || this.wallGrabs <= 0 || this.vy < -40 || this.crouch || !this.alive || !this.wallBeside(dir)) return;
+    if (this.hits(this.x - HALF_W, this.y, this.x + HALF_W, this.y + 10)) return;   // (the floor's right there)
+    this.wall = { dir, dust: 0 };
+    this.wallGrabs--;
+    this.airJumps = 1;
+    this.vy = Math.max(0, Math.min(this.vy, 20));
+    this.flipT = -1;
+    this.bounce(40);
+    this.game.fx.dust(this.x + dir * HALF_W, this.y - 10, 4);
+  }
+
   // ---------- deflect (skill, Q) ----------
-  // Q: the katana out, going so fast shots from in front turn back the way you're aiming (see main.js) - no shooting, no
-  // rolling, slower on your feet. At the end of it (or Q again) a dash along the mouse, cutting whoever's in the way.
+  // Q: hand on the hilt, the katana still at the hip, and a field of force comes up round the body: any shot that reaches
+  // it turns back the way you're aiming (see main.js). No shooting, no rolling, slower on your feet. At the end of it (or
+  // Q again) the draw: one dash along the mouse with the blade out, cutting whoever's in the way, and a moment to finish.
   updateDeflect(dt, c) {
     const m = this.deflect;
     if (!m) {
       if (c.skill && this.skillCD <= 0 && !this.onLadder && !this.roll && this.alive) {
-        this.deflect = { phase: 'guard', t: DEFLECT_TIME, age: 0, spark: 0, a: this.aim, dist: 0, hit: [], trail: [] };
+        this.deflect = { phase: 'guard', t: DEFLECT_TIME, age: 0, spark: 0, ripples: [], a: this.aim, dist: 0, hit: [], trail: [] };
         if (this.weapon?.reloading) this.weapon.cancelReload();
         this.hook = null;
       }
       return;
     }
     m.spark = Math.max(0, m.spark - dt * 5);
+    for (const r of m.ripples) r.t -= dt * 3.2;
+    m.ripples = m.ripples.filter((r) => r.t > 0);
     if (m.phase === 'guard') {
       m.age += dt;
       if ((m.t -= dt) <= 0 || (c.skill && m.age > 0.25)) {
         m.phase = 'dash';
         m.a = this.aim;
         m.dist = 0;
+        m.x0 = this.x;
+        m.y0 = this.y - 14;
         this.onLadder = false;
         this.crouch = false;
-        this.game.fx.sparks(this.x, this.y - 14, 8, -Math.cos(m.a), -Math.sin(m.a), '#7affd0');
-        if (this.game.viewer === this) this.game.kick?.(-Math.cos(m.a) * 3, -Math.sin(m.a) * 3);
+        this.game.fx.sparks(this.x, this.y - 14, 12, -Math.cos(m.a), -Math.sin(m.a), '#7affd0');
+        this.game.lights.flash(this.x, this.y - 14, 90, '90, 255, 190', 0.15);
+        if (this.game.viewer === this) this.game.kick?.(-Math.cos(m.a) * 4, -Math.sin(m.a) * 4);
       }
+    } else if (m.phase === 'finish') {
+      this.aim = m.a;
+      if ((m.t -= dt) <= 0) this.deflect = null;
     }
   }
   deflectStep(moved, dt) {
     const m = this.deflect;
     m.dist += moved;
     m.trail.unshift({ x: this.x, y: this.y - 14 });
-    m.trail.length = Math.min(m.trail.length, 12);
+    m.trail.length = Math.min(m.trail.length, 14);
     this.game.deflectCut?.(this, m, DEFLECT_CUT);
-    // the end of its reach, or a wall
+    // the end of its reach, or a wall: stopped dead, the blade out, the cut left hanging in the air behind
     if (m.dist >= DEFLECT_REACH || moved < DEFLECT_SPEED * dt * 0.3) {
-      this.vx *= 0.25;
-      this.vy = Math.min(0, this.vy * 0.25);
-      this.deflect = null;
+      this.vx *= 0.15;
+      this.vy = Math.min(0, this.vy * 0.15);
       this.skillCD = DEFLECT_CD;
+      this.game.deflectEnd?.(this, m);
+      this.deflect = { ...m, phase: 'finish', t: DEFLECT_FINISH };
     }
+  }
+  // The katana itself - the real one, as it's carried in hand - at (x, y) along ang as seen facing right.
+  // In its scabbard: the hilt showing, black lacquer over the blade with a bright line along it and a cap at the end.
+  drawKatanaAt(ctx, x, y, ang, sheathed) {
+    const k = (this._kata ??= new MeleeWeapon(MELEE.katana));
+    const a = this.facing > 0 ? ang : Math.PI - ang, flip = Math.cos(a) >= 0 ? 1 : -1;
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    ctx.rotate(a);
+    ctx.scale(1, flip);
+    k.draw(ctx);
+    if (sheathed) {
+      ctx.fillStyle = '#0b0e12';
+      ctx.fillRect(5, -3.5, 25, 6);
+      ctx.fillStyle = '#1c232c';
+      ctx.fillRect(5, -3, 25, 5);
+      ctx.fillStyle = '#46586c';
+      ctx.fillRect(6, -2.5, 23, 1);
+      ctx.fillStyle = '#c9a83a';
+      ctx.fillRect(5, -3, 2, 5);
+      ctx.fillRect(28, -3, 2, 5);
+      ctx.fillStyle = '#7a2a3a';
+      ctx.fillRect(9, -3, 3, 5);
+    }
+    ctx.restore();
   }
 
   // A grenade out of the hand, thrown along the aim.
@@ -2766,10 +2847,28 @@ export class Fighter {
     if (this.guardT > 0) drawGuard(ctx, this.x, this.y, this.guardT, t);
     if (this.batCast) drawBatCast(ctx, this.x, this.y - 16, Math.min(1, this.batCast.t / BAT_CAST), t);
     const dm = this.deflect;
-    if (dm) {
-      const hx = this.x + Math.cos(this.aim) * 8, hy = this.y - 14 + Math.sin(this.aim) * 8;
-      if (dm.phase === 'guard') drawDeflectGuard(ctx, hx, hy, this.facing, this.aim, t, dm.spark);
-      else drawDeflectDash(ctx, hx, hy, dm.a, dm.trail.map((q, i) => ({ x: q.x, y: q.y, k: 1 - i / 12 })));
+    if (dm?.phase === 'guard') {
+      drawDeflectField(ctx, this.x, this.y - 14, dm.age, dm.t, t, dm.ripples);
+      // the way it's all going, the line stopping at a wall; how near the draw is, over the head
+      let len = 0;
+      if (this.seesThrough) {
+        const L = this.game.level, ux = Math.cos(this.aim), uy = Math.sin(this.aim);
+        while (len < DEFLECT_REACH && !L.solidAt(this.x + ux * (len + 4), this.y - 14 + uy * (len + 4))) len += 4;
+      }
+      drawDeflectAim(ctx, this.x, this.y - 14, this.aim, dm.age, t, dm.spark, len);
+      drawDeflectBar(ctx, this.x, Math.round(this.labelY(5)), 1 - dm.t / DEFLECT_TIME, dm.age > 0.25);
+    }
+    else if (dm?.phase === 'dash' && dm.trail.length) {
+      // the band of light, and copies of the body strung along it, in the colour of the field
+      const [c0] = this.paintSelf(0.72, '90, 255, 190');
+      ctx.save();
+      dm.trail.forEach((q, i) => {
+        if (i % 3 !== 2) return;
+        ctx.globalAlpha = (1 - i / dm.trail.length) * 0.55;
+        ctx.drawImage(c0, Math.round(q.x) - 32, Math.round(q.y + 14) - 50);
+      });
+      ctx.restore();
+      drawDeflectDash(ctx, dm.trail.slice(3), dm.a);   // (from just behind the body, not over its face)
     }
     if (this.powered) drawPowered(ctx, this.x + this.facing * 8, this.y - 14, t, 1);
     if (this.hackCast) drawHackCast(ctx, this.x + this.facing * 5, this.y - 22, Math.min(1, this.hackCast.t / HACK_CAST), t);
@@ -2956,16 +3055,34 @@ export class Fighter {
   }
 
   drawArms(ctx) {
+    if (this.wall) {
+      // (from over the head, down the side of the body to the belt: clear of the face)
+      const y = Math.round(this.y + this.pose.body), d = this.wall.dir;
+      drawWallSling(ctx, this.x + d * 4, y - 8, this.x + d * (HALF_W + 3), y - 34);
+    }
     if (this.bow && !this.onLadder) return this.drawBowArms(ctx);
     if (this.mura) return this.drawMuraArms(ctx);
     if (this.blaze) return this.drawBlazeArms(ctx);
     if (this.gal) return this.drawGalArms(ctx);
     if (this.summon) return this.drawSumArms(ctx);
     if (this.deflect) {
-      // both hands on the hilt, out in front
-      const y = this.y + this.pose.body - 14, ax = Math.cos(this.aim), ay = Math.sin(this.aim);
-      drawHand(ctx, 'grab', Math.round(this.x + ax * 7), Math.round(y + ay * 7));
-      drawHand(ctx, 'grab', Math.round(this.x + ax * 4), Math.round(y + ay * 4 + 1));
+      const m = this.deflect, y = this.y + this.pose.body, f = this.facing;
+      if (m.phase === 'guard') {
+        // the stance: the katana at the hip, the blade (in its scabbard) slanting away behind and a little down, the
+        // far hand steadying the scabbard, the near hand on the hilt and waiting
+        const hx = this.x + f * 5, hy = y - 11;
+        drawHand(ctx, 'open', Math.round(this.x - f * 1), hy + 2);
+        this.drawKatanaAt(ctx, hx, hy, Math.PI - 0.3, true);
+        drawHand(ctx, 'grab', Math.round(hx), hy);
+      } else {
+        // drawn: straight out along the cut; finishing, swung on through and held low
+        const ax = Math.cos(m.a), ay = Math.sin(m.a), done = m.phase === 'finish' ? 1 - m.t / DEFLECT_FINISH : 0;
+        const sw = done > 0 ? Math.min(1, done * 3) * 0.9 : 0, ang = (f > 0 ? m.a : Math.PI - m.a) + sw;
+        const hx = this.x + ax * 7, hy = y - 14 + ay * 7;
+        this.drawKatanaAt(ctx, hx, hy, ang, false);
+        drawHand(ctx, 'grab', Math.round(hx), Math.round(hy));
+        drawHand(ctx, 'grab', Math.round(hx - ax * 3), Math.round(hy - ay * 3));
+      }
       return;
     }
     const w = this.weapon, x = Math.round(this.x), y = Math.round(this.y), b = this.pose.body;
