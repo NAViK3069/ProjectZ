@@ -31,7 +31,7 @@ export class Nav {
     // (the places to go: those the fighters can get to from where they start - not the top of a fence, say)
     const start = level.spawns[0] && this.nodeBelow(level.spawns[0].x, level.spawns[0].y - 1), reach = new Set(start ? [start] : []);
     for (const n of reach) for (const e of n.edges) reach.add(e.to);
-    this.standable = [...this.nodes.values()].filter((n) => !n.ladder && (!start || reach.has(n)));
+    this.standable = [...this.nodes.values()].filter((n) => !n.ladder && !this.pads.has(n.id) && (!start || reach.has(n)));   // (nowhere to stand: a jump pad)
   }
 
   id(cx, cy) {
@@ -245,7 +245,7 @@ export class Nav {
     let best = from, bd = Infinity;
     for (let i = 0; i < list.length; i++) {
       const n = list[i], d = Math.abs(n.cx - to.cx) + Math.abs(n.cy - to.cy) * 1.5;
-      if (d < bd && !n.ladder) { bd = d; best = n; }
+      if (d < bd && !n.ladder && !this.pads.has(n.id)) { bd = d; best = n; }
       for (const e of n.edges) if (!seen.has(e.to)) { seen.add(e.to); list.push(e.to); }
     }
     return best;
@@ -254,6 +254,8 @@ export class Nav {
 
 const TIER = { pistol: 1, smg: 2, shotgun: 2.5, rifle: 3, lmg: 3.5, sniper: 3.2 };
 export const gunTier = (def) => (def ? TIER[def.cls] ?? 1 : 0) + (def && def.damage > 60 && def.cls === 'pistol' ? 0.8 : 0);
+
+const AIM_WANDER = 0.06;   // how far a bot's hand wanders off (rad, on NORMAL)
 
 export class Bot {
   constructor(game, f, skill = 1) {
@@ -273,9 +275,11 @@ export class Bot {
       known: new Map(),        // fighter -> { x, y, t }: where it last saw / heard each one
       mode: 'search', wander: null, pauseT: 0, lookT: 0, burstT: 0, spot: null, spotT: 0,
       bias: new Map(), biasT: 0, react: rand(0.35, 0.6) / this.skill,
-      skillT: rand(1, 3), lost: null, hopT: rand(1, 3),   // skillT: a beat before it thinks of its skill again; lost: where a foe vanished
+      skillT: rand(1, 3), lost: null, hopT: rand(6, 12),   // skillT: a beat before it thinks of its skill again; lost: where a foe vanished
       holdT: 0, dj: false,         // holding a jump down for a full one (and a second in the air, if it has to go higher)
-      tries: null, smash: null,    // tries: the prop in its way and how often it's jumped at it; smash: one it's breaking up
+      tries: null, smash: null, smashT: 0, leave: new Map(),   // tries: the prop in its way and how often it's jumped at it; smash: one it's breaking up, for how much longer; leave: ones it's given up on (-> till when)
+      padWas: 0,                   // (how long a jump pad's throw had to run, a moment ago)
+      shotT: 0,                    // a beat between single shots
       skip: new Map(), lootT: 0,   // pickups it couldn't get to (-> till when) and how long it's been after this one
       flips: 0, flipT: 1, flipX: 0, lastDir: 0, commit: 0, commitDir: 0,   // turning back and forth on the spot, and a way out of it
       flee: false,                 // cloaked to get away (not to stab)
@@ -304,7 +308,7 @@ export class Bot {
     const f = this.f, G = this.game, nav = G.nav;
     const c = { move: 0, up: false, down: false, jump: false, jumpHeld: false, sprint: false, fire: false, aim: null, target: null, reload: false, roll: false, melee: false, grenade: false, pickup: false };
     if (!f.alive) return c;
-    for (const k of ['repath', 'nadeT', 'rollT', 'punchT', 'targetT', 'pauseT', 'lookT', 'burstT', 'spotT', 'biasT', 'skillT', 'hopT']) this[k] -= dt;
+    for (const k of ['repath', 'nadeT', 'rollT', 'punchT', 'targetT', 'pauseT', 'lookT', 'burstT', 'spotT', 'biasT', 'skillT', 'hopT', 'shotT']) this[k] -= dt;
     if (this.biasT <= 0) this.rebias();
 
     // a cloaked fighter isn't seen at all - unless it's right up against the bot
@@ -333,7 +337,7 @@ export class Bot {
       this.targetT = rand(2, 4);
     }
     const t = this.target, vis = !!t && !unseen(t) && sees(t);
-    const aimY = t ? (t.roll ? t.y - 7 : t.y - 12) : 0;
+    const aimY = t ? (t.roll ? t.y - 7 : t.y - 8) : 0;
     const dist = t ? Math.hypot(t.x - f.x, aimY - s.y) : Infinity;
     this.seen = vis ? this.seen + dt : 0;
     this.unseen = vis ? 0 : (this.unseen ?? 9) + dt;
@@ -400,9 +404,12 @@ export class Bot {
     // ---- aim ----
     if (vis) {
       if (this.seen <= dt) this.aimErr = rand(-0.3, 0.3) / this.skill;
-      this.aimErr *= Math.exp(-2.2 * this.skill * dt);
+      this.aimErr *= Math.exp(-1.6 * this.skill * dt);
       const lead = ((t.vx * dist) / (w?.def.bulletSpeed ?? 700)) * 0.5;
-      const want = Math.atan2(aimY - s.y, t.x + lead - s.x) + this.aimErr + rand(-0.025, 0.025);
+      // a hand that wanders: it comes on to them and drifts off again, so some shots go home and some don't (the
+      // better the bot, the less it wanders)
+      const wander = (Math.sin(G.time * 1.9 + this.aggro * 20) + 0.6 * Math.sin(G.time * 4.3 + this.aggro * 50)) * AIM_WANDER / Math.pow(this.skill, 1.6);
+      const want = Math.atan2(aimY - s.y, t.x + lead - s.x) + this.aimErr + wander + rand(-0.025, 0.025);
       const d = Math.atan2(Math.sin(want - this.aim), Math.cos(want - this.aim));
       this.aim += Math.max(-7 * dt, Math.min(7 * dt, d));
       c.aim = this.aim;
@@ -423,12 +430,21 @@ export class Bot {
     }
 
     // ---- shoot: in bursts, with a beat to react first ----
-    if (armed && vis && this.seen > this.react) {
+    if (armed && vis && this.seen > this.react && !f.phantom) {
       const range = w.def.cls === 'shotgun' ? 170 : (w.def.range ?? 520);
-      if (this.burstT <= -0.15 && Math.random() < dt * 4) this.burstT = w.def.auto ? rand(0.3, 0.8) : rand(0.5, 1.2);
+      if (this.burstT <= -0.15 && Math.random() < dt * 4) {
+        this.burstT = w.def.auto ? rand(0.3, 0.8) : rand(0.5, 1.2);
+        this.aimErr = rand(-0.14, 0.14) / this.skill;   // (each burst: back on to them from where its hand has got to)
+      }
       if (dist < range && Math.abs(this.aimErr) < 0.15 && this.burstT > 0) {
         if (w.def.auto && !w.def.burst) c.fire = true;
-        else { this.fireToggle = !this.fireToggle; c.fire = this.fireToggle; }
+        else if (this.shotT <= 0) {
+          // a shot at a time, with a beat between - a long one, and the aim to find again, after a sniper's
+          const sniper = w.def.cls === 'sniper';
+          c.fire = true;
+          this.shotT = (sniper ? rand(1.1, 2) : rand(0.25, 0.7)) / this.skill;
+          this.aimErr = rand(-0.1, 0.1) / this.skill;
+        }
       }
     }
     if (w && w.ammo <= 0 && w.reserve > 0) c.reload = true;
@@ -436,7 +452,7 @@ export class Bot {
 
     // which slot: the best gun with ammo, otherwise the melee weapon / fists
     const slot = armed ? f.slotFor(w.def) : 1;
-    c.slot = !f.cloak && slot !== f.slot ? slot : 0;
+    c.slot = !f.cloak && !f.quick && slot !== f.slot ? slot : 0;   // (not in the middle of a quick melee: pulled straight back to the gun, the blow never landed and the arms flickered)
     // no gun: close in and hit them (combos with whatever's in slot 1)
     const reach = f.melee.def.reach + 2;
     if (t && !armed && vis) { goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? goal; key = t; sprint = dist < 200; fight = false; }
@@ -490,8 +506,17 @@ export class Bot {
     }
 
     this.useSkill(c, t, vis, dist, hpK, enemies);
+    // the purple card: it's safe only until it attacks - it holds its fire and gets out of there, or round to a better place
+    if (f.phantom) { c.fire = false; c.melee = false; c.grenade = false; }
+    if (f.deflect && t) { c.aim = Math.atan2(t.y - 14 - (f.y - 14), t.x - f.x); c.target = { x: t.x, y: t.y - 14 }; }
+    // a shield up close is about to go off: not stood right next to it, if it can shoot from further off
+    this.backOff = !!(t && t.barrier && armed && vis && dist < 80 && t.barrier.t < 2.5);
 
     if (fight && f.onLadder) { fight = false; goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? nav.nodeBelow(t.x, t.y); key = t; }
+    // the blue card: it runs (it's cheap); the green: it keeps out of it while it heals, if it's hurt
+    if (f.card?.on && f.card.kind === 'blue') sprint = true;
+    if (f.card?.on && f.card.kind === 'green' && hpK < 0.5 && vis) { this.spot = this.spot && this.mode === 'retreat' && this.spotT > 0 ? this.spot : this.coverFrom(t, true); this.spotT = Math.max(this.spotT, 1); goal = this.spot ?? goal; key = 'retreat'; fight = false; this.mode = 'retreat'; sprint = true; }
+    // (and red: it stays in the fight whatever its health - that's what it's for)
     if (fight) this.duel(dt, c, t);
     else if (this.pauseT > 0 && this.mode === 'search' && !f.onLadder) { if (!c.roll) c.move = 0; }   // a moment to look around
     else {
@@ -504,8 +529,9 @@ export class Bot {
       c.sprint = (sprint || this.runJump) && f.stamina > 30;   // (running at a long jump, too)
       this.runJump = false;
     }
+    if (this.backOff && f.onGround && !c.roll) c.move = -Math.sign(t.x - f.x) || c.move;
     if (this.mode === 'search' && f.onGround && c.move && this.hopT <= 0 && !this.path[0]?.edge.kind.match(/drop|climb/)) {
-      this.hopT = rand(1.5, 4);
+      this.hopT = rand(8, 16);
       if (this.safeAhead(c.move)) { c.jump = true; this.holdT = Math.random() < 0.5 ? 0.4 : 0; }
     }
     if (!fight) { this.obstacles(dt, c); this.unjitter(dt, c); this.reach(dt, c, key); }
@@ -522,7 +548,7 @@ export class Bot {
     // Turned round just now: it doesn't turn straight back. (Someone right overhead or crossing it had it
     // flipping from side to side every moment.) It's a beat before it can turn on them and shoot.
     this.turnT -= dt;
-    if (c.aim !== null && !f.roll) {
+    if (c.aim !== null && !f.roll && !this.smash) {   // (breaking something up: it faces that, and stays facing it)
       const side = Math.cos(c.aim);
       if (Math.abs(side) > 0.15 && Math.sign(side) !== f.facing) {
         if (this.turnT > 0) { c.aim = Math.PI - c.aim; c.target = null; c.fire = false; }
@@ -561,24 +587,38 @@ export class Bot {
   // that doesn't get it over (twice), or it's too tall to jump, knock it about till it breaks.
   obstacles(dt, c) {
     const f = this.f;
-    const p = this.smash && !this.smash.dead ? this.smash : (c.move && f.onGround ? this.propAhead(Math.sign(c.move)) : null);
+    const G = this.game, p = this.smash && !this.smash.dead ? this.smash : (c.move && f.onGround ? this.propAhead(Math.sign(c.move)) : null);
     if (!p) { this.smash = null; return; }
-    const b = p.box, rise = f.y - b.t, dir = Math.sign(c.move);
+    if (this.leave.get(p) > G.time) { this.smash = null; return; }
+    const b = p.box, rise = f.y - b.t, dir = Math.sign(c.move) || Math.sign(p.x - f.x);
     // only what's on the way: the next step of the route past it (not a ladder or a drop this side of it)
-    const step = this.path[0];
-    if (this.smash !== p && step) {
-      const tx = (step.node.cx + 0.5) * T;
-      if (step.edge.kind === 'climb' || step.edge.kind === 'drop' || (dir > 0 ? tx < b.l - 2 : tx > b.r + 2)) return;
+    const step = this.path[0], tx = step && (step.node.cx + 0.5) * T;
+    const offWay = step && (step.edge.kind === 'climb' || step.edge.kind === 'drop' || (dir > 0 ? tx < b.l - 2 : tx > b.r + 2));
+    // not what's in the way any more (the route's changed), or too much for it: left be
+    if (this.smash === p && ((offWay && this.mode !== 'loot') || (this.smashT -= dt) <= 0)) {
+      this.smash = null;
+      this.leave.set(p, G.time + 8);
+      this.tries = null;
+      this.repath = 0;
+      return;
     }
+    if (this.smash !== p && offWay) return;
     if (this.tries?.p !== p) this.tries = { p, n: 0 };
     if (this.smash === p || rise > 92 || this.tries.n >= 2) {
+      if (this.smash !== p) this.smashT = 4;
       this.smash = p;
       const dir = Math.sign(p.x - f.x) || f.facing;
-      c.move = Math.abs(p.x - f.x) > p.w / 2 + 9 ? dir : 0;   // right up to it
+      // right up to it - not pressed against it, nor back and forth at the edge of its reach - and turned
+      // to it the whole time, not only at each blow: between blows it looked the way it was going, and shook
+      const gap = Math.abs(p.x - f.x) - p.w / 2;
+      c.move = gap > 12 ? dir : 0;
       c.jump = false;
-      if (this.punchT <= 0 && Math.abs(p.x - f.x) < p.w / 2 + 16) {
+      c.fire = false;
+      c.aim = Math.atan2(Math.max(b.t + 6, f.y - 22) - (f.y - 14), p.x - f.x);
+      c.target = null;
+      this.aim = c.aim;
+      if (this.punchT <= 0 && gap < 16) {
         c.melee = true;
-        c.aim = Math.atan2(Math.max(b.t + 6, f.y - 22) - (f.y - 14), p.x - f.x);
         this.punchT = 0.28;
       }
       return;
@@ -628,17 +668,19 @@ export class Bot {
     } else if (Math.abs(dx) < 22 && Math.abs(dy) < 20) {
       // under a prop, or inside one's shape (one sat on top of it): break it open
       const over = G.props.find((p) => !p.dead && p.block && key.x > p.box.l - 4 && key.x < p.box.r + 4 && key.y > p.box.t + 4 && key.y < p.box.b + 6);
-      if (over && this.lootT > 1) this.smash = over;
+      if (over && this.lootT > 1 && this.smash !== over) { this.smash = over; this.smashT = 4; }
     }
-    if (this.lootT > 7) { this.skip.set(key, G.time + 12); this.lootT = 0; this.repath = 0; }
+    // (where it was going and still not got it: not stood about waiting, the time's better spent elsewhere)
+    if (this.lootT > 7 || (this.lootT > 2 && !this.path.length && f.onGround && !this.smash)) { this.skip.set(key, G.time + 12); this.lootT = 0; this.repath = 0; }
   }
 
   // Q, when it's worth it - each skill has its moment. (Not while one's still going:
   // a second Q would cut the cloak short, say.)
   useSkill(c, t, vis, dist, hpK, enemies) {
     const f = this.f, G = this.game, k = f.skill;
+    if (f.hackedT > 0) return;   // (Q does nothing, and it knows it)
     if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut) return;
+    if (f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;
     const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
@@ -664,8 +706,32 @@ export class Bot {
         go = vis && dist < 230;
         if (go) c.target = { x: t.x, y: t.y - 12 };
         break;
-      case 'demon':      // a fight coming: call up the swords
-        go = f.onGround && ((vis && dist < 320) || near.length >= 2);
+      case 'vampire':    // the bats go every way: best with someone close, better still with several, or when it needs the blood
+        go = near.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 170).length >= (hpK < 0.6 ? 1 : 2) || (vis && dist < 110);
+        break;
+      case 'deflect':    // being shot at from in front, from not too far: it turns them back (and dashes on them at the end)
+        go = vis && t.lastFireT < 0.35 && dist < 300 && !!t.gun;
+        break;
+      case 'sande':      // it's only moments: when someone's in sight and close enough to make them count - or to get out of it, hurt
+        go = (vis && dist < 260 && (!!f.bestGun() || dist < 90)) || (hpK < 0.35 && f.hurtT < 0.5);
+        break;
+      case 'shield':     // being shot at, or about to walk into it: not just because someone's there, it's only so much and it slows it
+        go = (f.hurtT < 0.5 && hpK < 0.85) || (vis && t.lastFireT < 0.3 && dist < 260 && hpK < 0.7);
+        break;
+      case 'cards':      // a fight going on, or (not a card it can count on, but) when it's getting hurt
+        go = (vis && dist < 340) || (hpK < 0.5 && f.hurtT > 1);
+        break;
+      case 'hack': {     // worth it when it cuts something off: someone in reach with a skill going - or two at once, or close and it's in trouble
+        const inReach = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 150);
+        const busy = (o) => o.cloak || o.decoy || o.veil || o.bow || o.mura || o.blaze || o.gal || o.summon || o.hook || o.swordsOut || o.lockOn || o.barrier || o.card || o.sande || o.deflect || o.batCast;
+        go = inReach.some(busy) || inReach.length >= 2 || (inReach.length === 1 && hpK < 0.5);
+        break;
+      }
+      case 'lock':       // someone in sight to shoot at, with a gun to do it
+        go = vis && !!f.bestGun() && dist < 360;
+        break;
+      case 'demon':      // a fight coming, and stamina for three swords at least
+        go = f.stamina >= 60 && f.onGround && ((vis && dist < 320) || near.length >= 2);
         break;
       case 'grapple':    // out of a fight going badly: up and away
         go = vis && hpK < 0.35 && Math.random() < 0.3;
@@ -723,7 +789,7 @@ export class Bot {
       if (!c.roll) c.move = this.burstT <= 0 ? this.toward(x, 4) : 0;
     }
     // shot at while moving to its next spot: now and then a jump to throw their aim (never a hop on the spot)
-    if (f.onGround && c.move && t.lastFireT < 0.2 && Math.random() < 0.03 && this.safeAhead(c.move)) { c.jump = true; this.holdT = 0.4; }
+    if (f.onGround && c.move && t.lastFireT < 0.2 && Math.random() < 0.012 && this.safeAhead(c.move)) { c.jump = true; this.holdT = 0.4; }
   }
 
   // Is there floor (not acid) under the next step that way?
@@ -750,7 +816,7 @@ export class Bot {
     // while it's still up at that height - turning back is what made it hop on the spot
     const j = this.jumping, jx = j && (j.edge.to.cx + 0.5) * T, jy = j && (j.edge.to.cy + 1) * T;
     if (j && (f.vy < 0 || f.y < jy + 4)) {
-      c.move = Math.sign(jx - f.x) || c.move;
+      if (j.edge.kind !== 'pad') c.move = Math.sign(jx - f.x) || c.move;   // (a jump pad's throw: straight up until it's clear - see follow)
       return;
     }
     if (!doomed(f.x + f.vx * 0.25)) return;
@@ -783,9 +849,31 @@ export class Bot {
     if (f.onGround && !f.onLadder) { this.commit = 0.4; this.commitDir = Math.random() < 0.5 ? -1 : 1; }
   }
 
+  // Thrown by a jump pad: it's never seen standing on one (it's up in the air again the moment it's down), so the
+  // route's worked out from the pad here and now. It goes on where the route goes, or anywhere else it can get to.
+  padThrow(goal) {
+    const f = this.f, nav = this.game.nav, now = this.game.time, cx = Math.floor(f.x / T), cy = Math.floor((f.y - 1) / T);
+    let pad = null;
+    for (let d = 0; d <= 4 && !pad; d++) if (nav.pads.has(nav.id(cx, cy + d))) pad = nav.nodes.get(nav.id(cx, cy + d));
+    if (!pad) return;
+    // (came down on it again: that throw was no good)
+    if (this.jumping?.edge.kind === 'pad') this.failed.set(this.jumping.edge, now + 15);
+    const avoid = new Set();
+    for (const [e, until] of this.failed) if (until > now) avoid.add(e);
+    const route = goal && goal !== pad ? nav.path(pad, goal, this.bias, avoid, nav.propCost(this.game.props, now)) : null;
+    const ways = pad.edges.filter((e) => !avoid.has(e)), e = route?.[0]?.edge ?? ways[Math.floor(Math.random() * ways.length)] ?? pad.edges[0];
+    if (!e) { this.path = []; this.jumping = null; return; }
+    this.path = route?.length ? route : [{ node: e.to, edge: e, from: pad }];
+    this.jumping = { edge: e, t: now };
+    this.goal = goal;
+    this.repath = rand(1.2, 2);
+  }
+
   // Follow the route to a node, pressing whatever each step needs.
   follow(dt, c, goal) {
     const f = this.f, nav = this.game.nav;
+    if (f.padT > this.padWas) this.padThrow(goal);
+    this.padWas = f.padT;
     // once on a ladder, climb the whole run the route asked for before thinking
     // again - a change of plan halfway up used to send it back down (and up...)
     if (!f.onLadder) this.climb = null;

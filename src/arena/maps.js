@@ -422,8 +422,12 @@ export const MAPS = {
       L.row(22, 44, 50, PLAT); L.ladder(43, 22, 26);
       L.row(18, 54, 59, PLAT); L.ladder(53, 18, 26);
       L.ladder(61, 14, 26);
-      L.dummies.push({ x: 32, y: 27 }, { x: 40, y: 27 }, { x: 56, y: 27 }, { x: 47, y: 27, patrol: [35, 59] }, { x: 47, y: 22 }, { x: 57, y: 18 });
-      L.deco.push({ kind: 'sign', x: 34, y: 16, text: 'FIRING RANGE' }, { kind: 'target', x: 36, y: 20 }, { kind: 'target', x: 59, y: 23 });
+      // at measured distances from the firing line (a cell's a metre: see how a shot falls off), one walking, one
+      // running, one on the catwalk, one up high
+      L.dummies.push({ x: 30, y: 27 }, { x: 35, y: 27 }, { x: 45, y: 27 }, { x: 55, y: 27 }, { x: 42, y: 27, patrol: [32, 52] }, { x: 50, y: 27, patrol: [38, 60], fast: true }, { x: 47, y: 22 }, { x: 57, y: 18 });
+      L.deco.push({ kind: 'sign', x: 34, y: 16, text: 'FIRING RANGE' }, { kind: 'target', x: 36, y: 20 }, { kind: 'target', x: 59, y: 23 }, { kind: 'monitors', x: 26, y: 15.5 }, { kind: 'vent', x: 50, y: 16 });
+      for (const [x, m] of [[30, '5 M'], [35, '10 M'], [45, '20 M'], [55, '30 M']]) L.signs.push({ x: x - 0.6, y: 25.3, text: m });
+      L.signs.push({ x: 25.5, y: 22, text: 'FIRING LINE' }, { x: 37, y: 18.2, text: 'ESC - SPARRING BOT' });
 
       // MOVEMENT COURSE (upstairs, cols 1-62)
       L.fill(7, 1, 12, 11, SOLID); L.row(12, 7, 12, LOW);        // a low tunnel: crouch or roll through
@@ -442,9 +446,13 @@ export const MAPS = {
         [74, 13, 75, PLAT], [84, 15, 87, PLAT], [95, 20, 97, PLAT], [77, 4, 80, PLAT]]) L.row(y, x0, x1, v ?? SOLID);
       L.deco.push({ kind: 'sign', x: 70, y: 2, text: 'GRAPPLE SHAFT - Q' }, { kind: 'sign', x: 78, y: 24, text: 'DEMOLITION' });
       L.dummies.push({ x: 94, y: 13 }, { x: 82, y: 9 });
+      // three together, for what hits a crowd
+      L.dummies.push({ x: 80, y: 27 }, { x: 82, y: 27 }, { x: 84, y: 26.99 });
+      L.signs.push({ x: 79, y: 24.5, text: 'AREA SKILLS' });
+      L.deco.push({ kind: 'tank', x: 90, y: 22.5 }, { kind: 'tank', x: 65, y: 22.5 }, { kind: 'pipes', y: 1 }, { kind: 'server', x: 97, y: 22.4 });
       for (const [k, x, y, lift] of [
         ['wcrate', 68, 27], ['wcrate', 69, 27], ['wcrate', 68, 27, 14], ['barrel', 72, 27], ['barrel', 73, 27], ['crate', 76, 27], ['crate', 77, 27], ['crate', 76, 27, 12],
-        ['pallet', 84, 27], ['wcrate', 84, 27, 3], ['sandbags', 88, 27], ['barrel', 91, 27], ['wcrate', 94, 27], ['wcrate', 95, 27], ['wcrate', 94, 27, 14], ['locker', 97, 27],
+        ['sandbags', 88, 27], ['barrel', 91, 27], ['wcrate', 94, 27], ['wcrate', 95, 27], ['wcrate', 94, 27, 14], ['locker', 97, 27],
         ['crate', 77, 17], ['barrel', 87, 21], ['crate', 30, 6], ['table', 26, 6],
       ]) L.prop(k, x, y, 0, lift ?? 0);
 
@@ -453,6 +461,7 @@ export const MAPS = {
       for (const x of [4, 15, 27, 40, 52]) L.lamp(x, 1);
       for (const x of [71, 82, 93]) L.lamp(x, 1);
       L.lamp(78, 18); L.lamp(88, 22);
+      for (const x of [68, 76, 84, 92]) L.lamp(x, 22, false);
     },
   },
 };

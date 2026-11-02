@@ -101,25 +101,19 @@ export function drawSword(ctx, gl, x, y, a, t, seed = 0, { scale = 1, alpha = 1,
 
 // The streak behind a sword in flight: (x, y) its middle, flying along a.
 export function drawSwordTrail(gl, x, y, a) {
-  const L = 44, ex = x - Math.cos(a) * L, ey = y - Math.sin(a) * L;
+  const L = 44, ux = Math.cos(a), uy = Math.sin(a), nx = -uy, ny = ux;
   gl.save();
   gl.globalCompositeOperation = 'lighter';
-  const gr = gl.createLinearGradient(x, y, ex, ey);
-  gr.addColorStop(0, 'rgba(190, 240, 255, 0.85)');
-  gr.addColorStop(0.4, 'rgba(80, 170, 255, 0.4)');
-  gr.addColorStop(1, 'rgba(40, 110, 255, 0)');
-  gl.strokeStyle = gr;
-  gl.lineWidth = 5;
-  gl.beginPath();
-  gl.moveTo(x, y);
-  gl.lineTo(ex, ey);
-  gl.stroke();
-  gl.lineWidth = 1.5;
-  gl.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-  gl.beginPath();
-  gl.moveTo(x, y);
-  gl.lineTo(x - Math.cos(a) * L * 0.4, y - Math.sin(a) * L * 0.4);
-  gl.stroke();
+  for (let i = 0; i < L; i++) {
+    const q = i / L, px = x - ux * i, py = y - uy * i, w = q < 0.4 ? 2 : q < 0.75 ? 1 : 0;
+    gl.fillStyle = q < 0.4 ? `rgba(255, 255, 255, ${(0.85 - q).toFixed(2)})` : `rgba(90, 180, 255, ${(0.6 * (1 - q)).toFixed(2)})`;
+    gl.fillRect(Math.round(px), Math.round(py), 1, 1);
+    for (let j = 1; j <= w; j++) {
+      gl.fillStyle = `rgba(80, 170, 255, ${(0.5 * (1 - q)).toFixed(2)})`;
+      gl.fillRect(Math.round(px + nx * j), Math.round(py + ny * j), 1, 1);
+      gl.fillRect(Math.round(px - nx * j), Math.round(py - ny * j), 1, 1);
+    }
+  }
   gl.restore();
 }
 

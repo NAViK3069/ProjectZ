@@ -75,3 +75,17 @@ export function glowAt(ctx, x, y, r, stops) {
   ctx.fillRect(x - r, y - r, r * 2, r * 2);
   ctx.restore();
 }
+
+// Pixels, not strokes, for an arc of an ellipse round (x, y) (tilted by tilt) from a0 to a1: in the current fillStyle.
+export function pixArc(ctx, x, y, rx, ry, tilt, a0, a1) {
+  const n = Math.max(2, Math.ceil(Math.abs(a1 - a0) * Math.max(rx, ry))), c = Math.cos(tilt), s = Math.sin(tilt);
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + ((a1 - a0) * i) / n, ex = Math.cos(a) * rx, ey = Math.sin(a) * ry;
+    ctx.fillRect(Math.round(x + ex * c - ey * s), Math.round(y + ex * s + ey * c), 1, 1);
+  }
+}
+// ... and for a straight line, a pixel at a time.
+export function pixLine(ctx, x0, y0, x1, y1) {
+  const n = Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))));
+  for (let i = 0; i <= n; i++) ctx.fillRect(Math.round(x0 + ((x1 - x0) * i) / n), Math.round(y0 + ((y1 - y0) * i) / n), 1, 1);
+}

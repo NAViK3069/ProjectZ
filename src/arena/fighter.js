@@ -18,6 +18,8 @@ import { MeleeWeapon, MELEE, FISTS, WIND, STRIKE } from '../combat/melee.js';
 import { T, SOLID, PLAT, LADDER, ACID, LOW, LOW_H } from './level.js';
 import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
 import { drawFlame } from './flame.js';
+import { drawVisor } from './visor.js';
+import { drawShieldBubble, drawCard, drawCardAura, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawDeflectGuard, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
 export const GRAVITY = 720, WALK = 86, AIR_ACCEL = 650, JUMP = 290, JUMP2 = 250, PAD_JUMP = 430;   // (the bots work out their routes by these)
@@ -32,7 +34,8 @@ const ROLL_CROUCH_IN = 0.6;   // a roll heading in under something low stays dow
 // the grapple (skill, Q): the line's speed and reach, how hard it reels in and
 // how fast it can pull, how long it holds on at most, the wait between shots
 // (three shots saved up, one coming back each GRAPPLE_CD, a short gap between them; aim within this much of someone and it locks on)
-const GRAPPLE_SPEED = 1200, GRAPPLE_RANGE = 360, GRAPPLE_PULL = 2600, GRAPPLE_MAX = 430, GRAPPLE_TIME = 1.6, GRAPPLE_CD = 2.5, GRAPPLE_SHOTS = 3, GRAPPLE_GAP = 0.2, GRAPPLE_LOCK = 26;
+const GRAPPLE_SPEED = 1200, GRAPPLE_RANGE = 360, GRAPPLE_PULL = 2600, GRAPPLE_MAX = 430, GRAPPLE_TIME = 1.6, GRAPPLE_CD = 2.5, GRAPPLE_GAP = 0.2, GRAPPLE_LOCK = 26;
+export const GRAPPLE_SHOTS = 2;
 const GRAPPLE_CUT = 48, SPIN_R = 30;   // reeled in through (or right up to) a foe: a spinning slash, this much to every foe this close
 // the cloak (skill, Q): how long it lasts, the wait after it ends, the dash in
 // to a stab (how far it reaches for someone, how fast), and a stab in the back
@@ -83,8 +86,37 @@ const BLAZE_CHARGE = 0.7, BLAZE_SPEED = 560, BLAZE_RANGE = 180, BLAZE_RECOVER = 
 const GAL_CAST = 0.8, GAL_RANGE = 240, GAL_CD = 16, GAL_WALL = 8;
 // the flying swords (skill, Q): the calling-up, the wait once they're all gone (the swords themselves: see main.js)
 const SUM_CAST = 0.6, SUM_CD = 15;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST };
+// the blue shield (skill, Q): how much it takes, for how long, the wait after. Not a free pass: it's only so much, a blow
+// from a melee weapon counts double on it and a blast half as much again, your feet and your shots are the weaker
+// behind it - and it goes off when it goes, not hard, at whoever's crowding you.
+const BARRIER_HP = 110, BARRIER_TIME = 4, BARRIER_CD = 16, BARRIER_SLOW = 0.85, BARRIER_GUN = 0.75, BARRIER_GUARD = 0.5;   // (the moment after it goes: nothing can touch you)
+// the buff cards (skill, Q): up over the head, turned over; how long each lasts; the wait after
+const CARD_UP = 0.5, CARD_TURN = 0.35, CARD_CD = 18;
+export const CARD_LAST = { red: 5, green: 6, blue: 7, purple: 2 };
+export const CARD_ALLY = 0.7;   // a teammate near by when the card's turned: this much of its effect, for this much of its time
+const CARD_FIRE = 0.6, CARD_MELEE = 0.3, CARD_HEAL = 0.045, CARD_SPEED = 1.3, CARD_DRAIN = 0.4;   // red: guns recover this much faster; green: of full health a second; blue: feet, what running costs
+// the shadow clone's charge: the next hit counts this much, for this long once the clone's gone
+const POWER_MUL = 1.8, POWER_AFTER = 2;
+// the hack (skill, Q): how long it's sent for, the wait after; those it gets: no skill for this long (the reach: see main.js)
+const HACK_CAST = 0.35, HACK_CD = 18;
+export const HACK_LOCK = 4;
+const KICK_CROUCH = 0.7, KICK_WALK = 1.15, KICK_RUN = 1.4, KICK_AIR = 1.6;
+// how much of a shot's hit is left at the end of its range, by the sort of gun (it holds up to a third of the way out)
+const FAR_HIT = { sniper: 0.85, rifle: 0.65, lmg: 0.65, smg: 0.5, pistol: 0.55, shotgun: 0.35 };
+// Sandevistan (skill, Q): how long it's yours (in your own time), how slow the world goes meanwhile, the wait after
+const SANDE_TIME = 2, SANDE_CD = 24;
+export const SANDE_WORLD = 0.06;
+// the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
+const BAT_CAST = 0.35, BAT_CD = 20;
+// deflect (skill, Q): how long the blade's up turning shots back, then the dash - how fast, how far, how hard - the wait after
+const DEFLECT_TIME = 1.5, DEFLECT_SPEED = 640, DEFLECT_REACH = 150, DEFLECT_CUT = 70, DEFLECT_CD = 14, DEFLECT_SLOW = 0.75;
+const HACK_HURT = 1.2;   // someone hacked takes this much more from everything
+const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can turn (rad/s, of its slowed time)
+export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
+// the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
+const LOCK_TIME = 3, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -253,7 +285,7 @@ export class Fighter {
   reset(x, y) {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
-      padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, shield: 0,
+      padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
       onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
@@ -331,15 +363,21 @@ export class Fighter {
   get box() {
     return { l: this.x - HALF_W, r: this.x + HALF_W, t: this.y - this.h, b: this.y };
   }
-  // What a bullet at (x, y) hits: the head (the face and brow - not the big
-  // hair over it, which shots go through), the body, or nothing (rolling: just the ball).
+  // How much a gun kicks and wanders, by how you're standing: steadiest down low, a little more on the move, more
+  // at a run, most in the air. (A target lock steadies any of it.)
+  get stanceKick() {
+    const m = !this.onGround && !this.onLadder ? KICK_AIR : this.crouch ? KICK_CROUCH : this.sprinting ? KICK_RUN : Math.abs(this.vx) > 25 ? KICK_WALK : 1;
+    return m * (this.lockOn ? LOCK_KICK : 1);
+  }
+  // What a bullet at (x, y) hits: the head (the whole head, as it is under the hair: 16 wide, 15 high, up to
+  // 27 over the feet), the body, or nothing (rolling: just the ball).
   hitPart(x, y) {
     const dx = (x - this.x) * this.facing;
-    if (this.vanish) return null;
+    if (this.vanish || this.phantom) return null;
     if (this.roll) return Math.abs(dx) <= 7 && y > this.y - ROLL_H && y <= this.y ? 'body' : null;
-    const d = this.crouch ? CROUCH_DROP + 3 : 0;   // ducked down: the head's lower (and a bit harder to hit)
-    if (dx >= -7 && dx <= 6 && y >= this.y - 21 + d && y < this.y - 14 + d) return 'head';
-    if (Math.abs(dx) <= 6 && y >= this.y - 14 + d && y <= this.y) return 'body';
+    const d = this.crouch ? CROUCH_DROP : 0;   // ducked down: the head's lower, the body shorter
+    if (dx >= -8 && dx <= 7 && y >= this.y - 27 + d && y < this.y - 12 + d) return 'head';
+    if (Math.abs(dx) <= 6 && y >= this.y - 12 + d && y <= this.y) return 'body';
     return null;
   }
   // the middle of the body (for aiming at)
@@ -376,7 +414,7 @@ export class Fighter {
     // swings round to the aim while it attacks (engage)
     const front = this.facing > 0 ? 0 : Math.PI, stance = this.meleeOut;
     const base = stance ? front + wrapAngle(this.aim - front) * w.engage : this.zeroAim();
-    const a = base - (w.climb + this.tilt) * this.facing;
+    const a = base - (w.climb * this.stanceKick + this.tilt) * this.facing;
     // (a reverse grip is held further out, so the blade hangs clear in front of the body)
     const reach = GUN_REACH - w.recoil - (w.reloading ? 1 : 0) + (w.def.reverse ? 3 : 0);
     const rest = w.def.restHeight ?? STANCE_HEIGHT;
@@ -466,10 +504,18 @@ export class Fighter {
     if (this.shield > 0) this.shield = c.fire || c.melee || c.grenade || c.skill ? 0 : this.shield - dt;
     if (this.hurtT > REGEN_DELAY && this.hp < this.maxHp && !this.isDecoy && this.game.regen !== false) this.hp = Math.min(this.maxHp, this.hp + REGEN * dt);
 
-    if (c.aim !== null && c.aim !== undefined) this.aim = c.aim;
-    this.aimTarget = c.target ?? null;
+    // caught in someone's Sandevistan: no rolling out of it, and it comes round as slowly as everything else
+    const frozen = this.frozen;
+    if (frozen) c = { ...c, roll: false };
+    if (c.aim !== null && c.aim !== undefined) {
+      if (frozen) { const d = Math.atan2(Math.sin(c.aim - this.aim), Math.cos(c.aim - this.aim)); this.aim += Math.max(-FROZEN_TURN * dt, Math.min(FROZEN_TURN * dt, d)); }
+      else this.aim = c.aim;
+    }
+    this.aimTarget = frozen ? null : c.target ?? null;
+    this._cursor = this.aimTarget;   // (where the mouse is: the target lock goes by that)
     const prey = this.lunge?.v ?? this.cloak?.prey;
     if (prey?.alive) { const s = this.seen(prey); this.aim = Math.atan2(s.y - 14 - (this.y - GUN_HEIGHT), s.x - this.x); }
+    this.lockAim();
     if (!this.roll) {
       const cs = Math.cos(this.aim), f = cs > 0.15 ? 1 : cs < -0.15 ? -1 : this.facing;
       if (f !== this.facing) { this.facing = f; this.settle = SETTLE_TIME; }
@@ -493,7 +539,7 @@ export class Fighter {
     this.sprinting = !!c.sprint && !!c.move && this.stamina > 0 && !this.winded && !this.onLadder && !this.roll && !this.crouch;
     this.boostT = Math.max(0, this.boostT - dt);   // an energy drink: running costs nothing for a while
     if (this.sprinting) {
-      if (this.boostT <= 0) this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt);
+      if (this.boostT <= 0) this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt * (1 - (1 - CARD_DRAIN) * this.cardPower('blue')));
       if (this.stamina <= 0) this.windOut();
     } else if ((this.staminaRest -= dt) <= 0) this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt);
 
@@ -515,7 +561,7 @@ export class Fighter {
     }
 
     // dive roll (costs stamina)
-    if (c.roll && !this.roll && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
+    if (c.roll && !this.roll && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
       const dir = c.move ? Math.sign(c.move) : this.facing;
       // a roll gives a cloak away - unless there's a foe close by: then it stays
       // hidden through the roll and comes up out of it stabbing them (roll past
@@ -534,6 +580,8 @@ export class Fighter {
     }
     this.skillCD -= dt;
     if (this.game.noCooldown?.(this)) this.skillCD = Math.min(this.skillCD, 0);   // (training: skills can go without their wait)
+    this.updateBuffs(dt, c);
+    if (this.hackedT > 0) { this.hackedT -= dt; c = { ...c, skill: false }; }   // (hacked: Q does nothing)
     if (this.skill === 'grapple') this.updateGrapple(dt, c);
     else if (this.skill === 'cloak') this.updateCloak(dt, c);
     else if (this.skill === 'decoy') this.updateDecoy(dt, c);
@@ -542,6 +590,13 @@ export class Fighter {
     else if (this.skill === 'blaze') this.updateBlaze(dt, c);
     else if (this.skill === 'galaxy') this.updateGalaxy(dt, c);
     else if (this.skill === 'demon') this.updateSummon(dt, c);
+    else if (this.skill === 'lock') this.updateLock(dt, c);
+    else if (this.skill === 'shield') this.updateBarrier(dt, c);
+    else if (this.skill === 'cards') this.updateCard(dt, c);
+    else if (this.skill === 'hack') this.updateHack(dt, c);
+    else if (this.skill === 'sande') this.updateSande(dt, c);
+    else if (this.skill === 'vampire') this.updateBats(dt, c);
+    else if (this.skill === 'deflect') this.updateDeflect(dt, c);
     if (this.hook?.state !== 'on' && this.trail.length) this.trail.pop();   // the grapple's afterimages catching up once it lets go
     const reeling = this.hook?.state === 'on';
     if (this.roll) {
@@ -581,7 +636,7 @@ export class Fighter {
       const sp = Math.hypot(this.vx, this.vy);
       if (sp > GRAPPLE_MAX) { this.vx *= GRAPPLE_MAX / sp; this.vy *= GRAPPLE_MAX / sp; }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.batCast ? 0.5 : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -617,6 +672,15 @@ export class Fighter {
         if (dy > 4) this.dropT = 0.1;   // down through a catwalk to get at them
       }
     }
+    // deflect's dash: straight along the mouse, off the ground
+    const cutting = this.deflect?.phase === 'dash';
+    if (cutting) {
+      const m = this.deflect;
+      this.aim = m.a;
+      this.vx = Math.cos(m.a) * DEFLECT_SPEED;
+      this.vy = Math.sin(m.a) * DEFLECT_SPEED;
+      if (this.vy > 100) this.dropT = 0.1;
+    }
     const dashing = this.blaze?.phase === 'dash';
     if (dashing) {
       // the flame fist's dash: straight down the line it was thrown along, no falling
@@ -624,11 +688,12 @@ export class Fighter {
       this.vy = Math.sin(this.blaze.a) * BLAZE_SPEED;
       if (this.vy > 100) this.dropT = 0.1;   // (down through a catwalk too)
     }
-    if (!this.onLadder && !this.lunge && !dashing) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
+    if (!this.onLadder && !this.lunge && !dashing && !cutting) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
 
     const wasGround = this.onGround, fall = this.vy, px = this.x, py = this.y;
     this.move(dt);
     if (dashing) this.blazeStep(Math.hypot(this.x - px, this.y - py), dt);
+    if (cutting) this.deflectStep(Math.hypot(this.x - px, this.y - py), dt);
     // climbed down to the floor (or walking off along it): off the ladder
     if (this.onLadder && (c.down || (c.move && !c.up)) && this.hits(this.x - HALF_W, this.y, this.x + HALF_W, this.y + 1)) {
       this.onLadder = false;
@@ -665,7 +730,7 @@ export class Fighter {
 
   updateCombat(dt, c) {
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -711,7 +776,7 @@ export class Fighter {
     if (this.slot === 1) {
       const m = this.melee;
       if ((c.fire || c.melee || (this.quick && c.meleeHeld)) && !busy) m.attack();   // F held: keep punching
-      m.update(dt);
+      m.update(dt * (1 + CARD_MELEE * this.cardPower('red')));
       this.tilt += (m.raising * RAISE_TILT - this.tilt) * Math.min(1, dt * 16);
       if (m.events.includes('strike')) {
         this.strike(m);
@@ -731,6 +796,7 @@ export class Fighter {
       if (this.onLadder) { w.reloadQueued = false; if (w.reloading) w.cancelReload(); }
       else if (c.reload) w.startReload();
       w.update(dt);
+      if (w.cooldown > 0) w.cooldown -= dt * CARD_FIRE * this.cardPower('red');
       for (const e of w.events) this.reloadEvent(e);
       // the main game's tilts: muzzle up mid-reload, down feeding shells, up from the floor when drawn
       let tilt = !w.reloading ? 0
@@ -997,7 +1063,22 @@ export class Fighter {
 
   // unseen - unless an archery bow's lock is on them, which shows them to everyone
   get stealthed() {
-    return (!!this.cloak && !this.cloak.out) || !!this.veil;
+    return (!!this.cloak && !this.cloak.out) || !!this.veil || this.phantom;
+  }
+  get frozen() {   // (the world's stopped, and not for them)
+    return (this.game.timeK ?? 1) < 1 && !this.sande;
+  }
+  get phantom() {   // (the purple card: gone, and nothing can touch you)
+    return this.cardPower('purple') > 0;
+  }
+  // How much of a card's effect this one has: all of it, drawn themselves; a teammate's share of it.
+  cardPower(kind) {
+    return this.card?.on && this.card.kind === kind ? 1 : this.allyCard?.kind === kind ? CARD_ALLY : 0;
+  }
+  // Whoever's looking at the screen isn't fooled by this one being unseen: it's them, or someone on their side.
+  get seesThrough() {
+    const v = this.game.viewer;
+    return !!v && (v === this || !this.game.foes(v, this));
   }
   get hidden() {
     return this.stealthed && !(this.exposeT > 0);
@@ -1115,6 +1196,7 @@ export class Fighter {
     this.decoyLife = DECOY_LIFE;
     this.veil = { t: VEIL_TIME };
     this.hook = null;
+    this.powered = { after: -1, hit: -1 };   // (the next hit counts for more: while the double's up, and a moment after)
     // only you see it happen: to anyone else the double just carries on being you
     this.fade = { t: 0, dur: 0.4, out: true, seed: Math.random() * 100, rgb: SHADOW, secret: true };
     this.game.fx.mist(this.x, this.y, 26, this);
@@ -1135,6 +1217,7 @@ export class Fighter {
     this.game.dropDecoy(d);
     this.unveil();
     this.skillCD = DECOY_CD;
+    if (this.powered && this.powered.after < 0) this.powered.after = POWER_AFTER;
   }
 
   // ---------- archery (skill, Q) ----------
@@ -1599,14 +1682,17 @@ export class Fighter {
 
   // ---------- flying swords (skill, Q) ----------
   // Q: weapons away, both hands thrown up - a magic circle opens upright behind you (slowed right down, no
-  // attacking or rolling) - and out of it come five swords of light, to hang in a fan behind you and go for
-  // whoever comes near, one blow each (see main.js). The wait starts when the last of them has gone.
+  // attacking or rolling) - and out of it come swords of light, to hang in a fan behind you and go for whoever
+  // comes near, one blow each (see main.js). They're paid for in stamina: the whole bar goes at once, a sword for
+  // every 20 of it, up to five. The wait starts when the last of them has gone.
 
   updateSummon(dt, c) {
     const m = this.summon;
     if (!m) {
-      if (c.skill && this.skillCD <= 0 && !this.swordsOut && !this.onLadder && !this.roll && this.alive) {
-        this.summon = { t: 0, seed: Math.random() * 100 };
+      if (c.skill && this.skillCD <= 0 && !this.swordsOut && !this.onLadder && !this.roll && this.alive && this.stamina >= SWORD_COST) {
+        this.summon = { t: 0, seed: Math.random() * 100, n: Math.min(5, Math.floor(this.stamina / SWORD_COST)) };
+        this.stamina = 0;
+        this.sprinting = false;
         if (this.weapon?.reloading) this.weapon.cancelReload();
         this.hook = null;
       }
@@ -1614,7 +1700,7 @@ export class Fighter {
     }
     m.t += dt;
     if (m.t >= SUM_CAST) {
-      this.game.summonSwords?.(this, m.seed);
+      this.game.summonSwords?.(this, m.seed, m.n);
       this.summon = null;
       this.swordsOut = true;
     }
@@ -1637,6 +1723,266 @@ export class Fighter {
       ctx.fillRect(Math.round(hx + (tx - hx) * ph), Math.round(hy + (ty - hy) * ph), 1, 1);
     }
     ctx.globalAlpha = 1;
+  }
+
+  // ---------- target lock (skill, Q) ----------
+  // Q: a visor of hologram comes up over the eyes, and for 4 s the sight's on whichever foe is nearest the mouse - point
+  // at someone else and it goes to them. Whoever's locked is what the gun goes for, and it kicks less. Everyone sees the
+  // mark (see main.js). Not the unseen: nothing to lock on to. Nor through a wall.
+  updateLock(dt, c) {
+    const m = this.lockOn;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive) {
+        this.lockOn = { t: LOCK_TIME, k: 0, acq: 0, target: null };
+        this.game.fx.sparks(this.x + this.facing * 6, this.y - 18, 8, this.facing, 0, '#8fe8ff');
+      }
+      return;
+    }
+    m.t -= dt;
+    m.k += dt;
+    m.acq += dt;
+    if (m.t <= 0) { this.lockOn = null; this.skillCD = LOCK_CD; return; }
+    const to = this._cursor ?? { x: this.x + Math.cos(this.aim) * 140, y: this.y - GUN_HEIGHT + Math.sin(this.aim) * 140 };
+    let best = null, bd = Infinity;
+    for (const v of this.game.fighters) {
+      if (v === this || !v.alive || v.vanish || v.stealthed || !this.game.foes(this, v)) continue;
+      const s = this.seen(v);
+      if (Math.hypot(s.x - this.x, s.y - this.y) > LOCK_RANGE || !this.game.los(this.x, this.y - GUN_HEIGHT, s.x, s.y - 12)) continue;
+      // (the one it's on: a little harder to take it off, or it flicks between two side by side)
+      const d = Math.hypot(s.x - to.x, s.y - 12 - to.y) - (v === m.target ? LOCK_STICK : 0);
+      if (d < bd) { bd = d; best = v; }
+    }
+    if (best !== m.target) { m.target = best; m.acq = 0; }
+  }
+  // Whoever's locked: the aim's on them.
+  lockAim() {
+    const v = this.lockOn?.target;
+    if (!v?.alive || v.vanish || v.stealthed || this.frozen) return;
+    const s = this.seen(v), tx = s.x, ty = s.y - 9;
+    let a = Math.atan2(ty - (this.y - GUN_HEIGHT), tx - this.x);
+    // (a bot's hand isn't as steady as a machine's)
+    if (this.bot) a += Math.sin(this.game.time * 3.3) * 0.05;
+    this.aim = a;
+    this.aimTarget = this.bot ? null : { x: tx, y: ty };
+  }
+
+  // ---------- what's running whatever the skill's doing ----------
+  updateBuffs(dt, c) {
+    if (this.guardT > 0) this.guardT -= dt;
+    const al = this.allyCard;
+    if (al) {
+      if (al.kind === 'green' && this.game.regen !== false) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * CARD_HEAL * CARD_ALLY * dt);
+      if ((al.left -= dt) <= 0 || (al.kind === 'purple' && (c.fire || c.melee || c.grenade))) {
+        if (al.kind === 'purple') this.fade = { t: 0, dur: 0.25, out: false, seed: Math.random() * 100, rgb: '180, 110, 255' };
+        this.allyCard = null;
+      }
+    }
+    const p = this.powered;
+    if (p) {
+      if (p.hit >= 0 && (p.hit -= dt) < 0) this.powered = null;
+      else if (p.after >= 0 && (p.after -= dt) < 0) this.powered = null;
+    }
+  }
+
+  // ---------- blue shield (skill, Q) ----------
+  // Q: a sphere of blue plates round you. It takes what's thrown at you till it's taken BARRIER_HP or its time's up -
+  // then it goes off, a light shove and a little hurt to whoever's close (see main.js). See BARRIER_HP for what it costs.
+  updateBarrier(dt, c) {
+    const b = this.barrier;
+    if (!b) {
+      if (c.skill && this.skillCD <= 0 && this.alive) {
+        this.barrier = { hp: BARRIER_HP, max: BARRIER_HP, t: BARRIER_TIME, age: 0, hit: 0 };
+        this.game.fx.motes(this.x, this.y - 12, 14, ['#ffffff', '#6ad8ff', '#2a8cff']);
+      }
+      return;
+    }
+    b.age += dt;
+    b.hit = Math.max(0, b.hit - dt * 5);
+    if ((b.t -= dt) <= 0) this.breakBarrier(false);
+  }
+  // It's gone: it goes off, and the wait starts. (Hacked away: it just goes out.)
+  breakBarrier(broken, quiet = false) {
+    if (!this.barrier) return;
+    this.barrier = null;
+    this.skillCD = BARRIER_CD;
+    if (quiet) return;
+    this.guardT = BARRIER_GUARD;
+    this.game.barrierBurst?.(this, broken);
+  }
+
+  // ---------- buff cards (skill, Q) ----------
+  // Q: a card comes up over your head, face down, and turns over: whatever it is, you've got it. Red: your gun
+  // recovers faster. Green: health coming back. Blue: quicker feet, and running costs less. Purple: gone for a
+  // moment and nothing can touch you - until you attack. The host deals (see main.js: pickCard): here on a
+  // player's own screen, it waits at the turn to hear what it is.
+  updateCard(dt, c) {
+    const m = this.card;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive) {
+        this.card = { t: 0, kind: null, on: false, left: 0, total: 1 };
+        this.game.fx.sparks(this.x, this.y - 34, 8, 0, -1, '#ffe08a');
+      }
+      return;
+    }
+    m.t += dt;
+    if (!m.kind && m.t >= CARD_UP) m.kind = this.game.pickCard?.() ?? null;
+    if (!m.on) {
+      if (m.kind && m.t >= CARD_UP + CARD_TURN) {
+        m.on = true;
+        m.left = m.total = CARD_LAST[m.kind];
+        if (m.kind === 'purple') this.fade = { t: 0, dur: 0.3, out: true, seed: Math.random() * 100, rgb: '180, 110, 255' };
+        this.game.shareCard?.(this, m.kind);
+      }
+      return;
+    }
+    if (m.kind === 'green' && this.game.regen !== false) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * CARD_HEAL * dt);
+    // (the phantom: over the moment you attack - nobody gets to shoot from where they can't be touched)
+    const ends = (m.left -= dt) <= 0 || (m.kind === 'purple' && (c.fire || c.melee || c.grenade));
+    if (ends) {
+      if (m.kind === 'purple') this.fade = { t: 0, dur: 0.25, out: false, seed: Math.random() * 100, rgb: '180, 110, 255' };
+      this.card = null;
+      this.skillCD = CARD_CD;
+    }
+  }
+
+  // ---------- hack (skill, Q) ----------
+  // Q: a moment sending, a wave of signal goes out (see main.js: hackBurst), and every foe in reach has whatever
+  // they've got going cut off, and no skill for HACK_LOCK. It goes through walls, signal does.
+  updateHack(dt, c) {
+    const m = this.hackCast;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
+        this.hackCast = { t: 0 };
+        this.hook = null;
+      }
+      return;
+    }
+    if ((m.t += dt) >= HACK_CAST) {
+      this.hackCast = null;
+      this.skillCD = HACK_CD;
+      this.game.hackBurst?.(this);
+    }
+  }
+  // Got by a hack: everything going is cut off.
+  hacked(time) {
+    this.hook = null;
+    if (this.cloak) this.uncloak();
+    if (this.decoy) this.dropDecoy();
+    this.bow = null;
+    this.mura = null;
+    this.blaze = null;
+    this.gal = null;
+    this.summon = null;
+    this.lockOn = null;
+    this.hackCast = null;
+    this.powered = null;
+    this.batCast = null;
+    if (this.deflect) { this.deflect = null; this.skillCD = DEFLECT_CD; }
+    if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
+    this.breakBarrier(false, true);
+    if (this.allyCard) { this.allyCard = null; }
+    if (this.card) { if (this.phantom) this.fade = { t: 0, dur: 0.2, out: false, seed: Math.random() * 100, rgb: '180, 110, 255' }; this.card = null; }
+    this.hackedT = time;
+    if (this.flash !== undefined) this.flash = 0.06;
+  }
+
+  // ---------- Sandevistan (skill, Q) ----------
+  // Q: for a couple of seconds of your own time, the whole world all but stops (see main.js: everyone else, and
+  // everything flying, runs at SANDE_WORLD) and you go on as you were. Anyone else with it can set theirs off in that
+  // moment too, and move with you. Your shots hang in the air with the rest till it's over.
+  updateSande(dt, c) {
+    const m = this.sande;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive) this.sande = { t: SANDE_TIME, age: 0 };
+      return;
+    }
+    m.age += dt;
+    if ((m.t -= dt) <= 0) { this.sande = null; this.skillCD = SANDE_CD; }
+  }
+  // After-images: every so often a hard-edged copy of the body in the next colour, left where it was, fading.
+  drawSandeTrail(ctx) {
+    const now = performance.now() / 1000, list = (this._sandeTrail ??= { items: [], pool: [], last: 0, hue: 0 });
+    if (this.alive && this.sande && now - list.last > 0.034) {
+      list.last = now;
+      const it = list.items.length >= 16 ? list.items.shift() : { cv: list.pool.pop() ?? makeCanvas(64, 64) };
+      const [c, g] = it.cv, hue = SANDE_HUES[list.hue++ % SANDE_HUES.length];
+      const [src] = this.paintSelf(0.7, hue);
+      g.globalCompositeOperation = 'copy';
+      g.drawImage(src, 0, 0);
+      g.globalCompositeOperation = 'source-over';
+      it.x = Math.round(this.x); it.y = Math.round(this.y); it.at = now; it.c = c;
+      list.items.push(it);
+    }
+    // (they don't all go at once: each fades, and those past it go back to be used again)
+    // (laid over one another as colour, not added up: added, they burnt out white where they crowded over the body)
+    const life = 0.55;
+    ctx.save();
+    for (const it of list.items) {
+      const k = 1 - (now - it.at) / life;
+      if (k <= 0 || now - it.at < 0.05) continue;
+      ctx.globalAlpha = k * 0.62;
+      ctx.drawImage(it.c, it.x - 32, it.y - 50);
+    }
+    ctx.restore();
+    while (list.items.length && now - list.items[0].at > life) list.pool.push(list.items.shift().cv);
+  }
+
+  // ---------- vampire (skill, Q) ----------
+  // Q: a moment calling, then a swarm of bats bursts out every way at once, each to bite whoever it finds and take the
+  // blood back to you, health for what it drew (see main.js).
+  updateBats(dt, c) {
+    const m = this.batCast;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) this.batCast = { t: 0 };
+      return;
+    }
+    if ((m.t += dt) >= BAT_CAST) {
+      this.batCast = null;
+      this.skillCD = BAT_CD;
+      this.game.summonBats?.(this);
+    }
+  }
+
+  // ---------- deflect (skill, Q) ----------
+  // Q: the katana out, going so fast shots from in front turn back the way you're aiming (see main.js) - no shooting, no
+  // rolling, slower on your feet. At the end of it (or Q again) a dash along the mouse, cutting whoever's in the way.
+  updateDeflect(dt, c) {
+    const m = this.deflect;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && !this.onLadder && !this.roll && this.alive) {
+        this.deflect = { phase: 'guard', t: DEFLECT_TIME, age: 0, spark: 0, a: this.aim, dist: 0, hit: [], trail: [] };
+        if (this.weapon?.reloading) this.weapon.cancelReload();
+        this.hook = null;
+      }
+      return;
+    }
+    m.spark = Math.max(0, m.spark - dt * 5);
+    if (m.phase === 'guard') {
+      m.age += dt;
+      if ((m.t -= dt) <= 0 || (c.skill && m.age > 0.25)) {
+        m.phase = 'dash';
+        m.a = this.aim;
+        m.dist = 0;
+        this.onLadder = false;
+        this.crouch = false;
+        this.game.fx.sparks(this.x, this.y - 14, 8, -Math.cos(m.a), -Math.sin(m.a), '#7affd0');
+        if (this.game.viewer === this) this.game.kick?.(-Math.cos(m.a) * 3, -Math.sin(m.a) * 3);
+      }
+    }
+  }
+  deflectStep(moved, dt) {
+    const m = this.deflect;
+    m.dist += moved;
+    m.trail.unshift({ x: this.x, y: this.y - 14 });
+    m.trail.length = Math.min(m.trail.length, 12);
+    this.game.deflectCut?.(this, m, DEFLECT_CUT);
+    // the end of its reach, or a wall
+    if (m.dist >= DEFLECT_REACH || moved < DEFLECT_SPEED * dt * 0.3) {
+      this.vx *= 0.25;
+      this.vy = Math.min(0, this.vy * 0.25);
+      this.deflect = null;
+      this.skillCD = DEFLECT_CD;
+    }
   }
 
   // A grenade out of the hand, thrown along the aim.
@@ -1707,16 +2053,17 @@ export class Fighter {
   shoot(g) {
     const w = this.weapon, d = w.def, m = this.gunPoint(g, w.muzzle);
     const pellets = d.pellets ?? 1, dir = this.shotDir(g, m), rnd = this.shotSeed ? seeded(this.shotSeed) : Math.random;
-    const air = this.onGround ? 1 : 1.5;
+    const kickK = this.stanceKick, far = FAR_HIT[d.cls] ?? 0.6, weak = this.barrier ? BARRIER_GUN : 1;
     for (let i = 0; i < pellets; i++) {
-      const spread = pellets > 1 ? ((i / (pellets - 1)) * 2 - 1 + (rnd() - 0.5) * 0.4) * w.spread : (rnd() * 2 - 1) * w.spread * air;
+      // (a shotgun's fan: only half as much of it, it's a fan whatever you're doing)
+      const spread = pellets > 1 ? ((i / (pellets - 1)) * 2 - 1 + (rnd() - 0.5) * 0.4) * w.spread * (1 + (kickK - 1) * 0.5) : (rnd() * 2 - 1) * w.spread * kickK;
       const speed = d.bulletSpeed * (pellets > 1 ? 0.85 + rnd() * 0.3 : 1);
-      this.game.fireBullet(this, m.x, m.y, dir + spread, speed, w.damage * DAMAGE * gunMul(d) * (this.game.gunDamage ?? 1), d.range ?? 520, d.pierce ?? 0);
+      this.game.fireBullet(this, m.x, m.y, dir + spread, speed, w.damage * DAMAGE * gunMul(d) * (this.game.gunDamage ?? 1) * weak, d.range ?? 520, d.pierce ?? 0, far);
     }
     if (!d.action && !d.keepsShells) this.ejectShell(g);
     this.lastFireT = 0;
     // a shove from the heavy ones, mostly felt in the air
-    const kick = Math.min(110, w.damage * DAMAGE * gunMul(d) * pellets * 0.7) * (this.onGround ? 0.25 : 0.8);
+    const kick = Math.min(110, w.damage * DAMAGE * gunMul(d) * pellets * 0.7) * (this.onGround ? 0.25 : 0.8) * (this.lockOn ? LOCK_KICK : 1);
     this.vx -= Math.cos(g.a) * kick;
     if (!this.onGround) this.vy -= Math.sin(g.a) * kick * 0.4;
     this.game.muzzle(m.x, m.y, g.a, w, this);
@@ -1890,8 +2237,27 @@ export class Fighter {
   hurt(dmg, from, kx, ky, head = false) {
     if (!this.alive || this.vanish) return false;
     if (this.roll && this.roll.t < ROLL_SAFE && !this.blast) return false;   // diving under it
-    if (this.shield > 0) return false;   // just beamed back in
-    const d = dmg * (head ? HEAD_MUL : 1);
+    if (this.shield > 0 || this.phantom || this.guardT > 0) return false;   // just beamed back in; the purple card; the shield just gone
+    let d = dmg * (head ? HEAD_MUL : 1) * (this.hackedT > 0 ? HACK_HURT : 1);
+    // whoever hit them with a clone's charge on: it counts for more, the once (a shotgun's pellets all count as the one)
+    const hitter = from?.powered;
+    let charged = false;
+    if (hitter) {
+      if (hitter.hit < 0) hitter.hit = 0.08;
+      d *= POWER_MUL;
+      charged = true;
+    }
+    // the shield takes it first, what's left of it - a melee blow counts double on it, a blast half as much again
+    const b = this.barrier;
+    if (b) {
+      const worth = this.blast ? 1.5 : this.hitHow ? 2 : 1;
+      b.hit = 1;
+      b.hp -= d * worth;
+      this.game.onShieldHit?.(this, d);
+      if (b.hp > 0) { this.vx += kx * 0.2; this.vy += ky * 0.2; this.hitBy = from?.isDecoy ? from.owner : from; return true; }
+      this.breakBarrier(true);
+      return true;   // (what broke it stops there: the moment after, nothing can touch you)
+    }
     this.hp -= d;
     this.flash = 0.06;
     this.hurtT = 0;
@@ -1900,7 +2266,7 @@ export class Fighter {
     this.vy += ky * (this.dummy ? 0.25 : 1);
     if (this.onLadder && Math.abs(kx) > 80) this.onLadder = false;
     // the damage number that pops up (head / blast / critical / melee / body), training's meter
-    this.game.onHurt?.(this, d, head ? 'head' : this.blast ? 'blast' : this.hitHow === 'BACKSTAB' ? 'crit' : this.hitHow ? 'melee' : 'body', from);
+    this.game.onHurt?.(this, d, charged ? 'crit' : head ? 'head' : this.blast ? 'blast' : this.hitHow === 'BACKSTAB' ? 'crit' : this.hitHow ? 'melee' : 'body', from);
     if (this.vanish) return false;   // a shadow clone going up in mist
     if (this.veil) this.dropDecoy();   // hurt behind a shadow clone: you're seen, and the double goes (never the two of you at once)
     // hurt while cloaked: seen (a stab already going in finishes first)
@@ -1920,6 +2286,17 @@ export class Fighter {
     this.blaze = null;
     this.gal = null;
     this.summon = null;
+    this.lockOn = null;
+    this.barrier = null;
+    this.guardT = 0;
+    this.card = null;
+    this.allyCard = null;
+    this.powered = null;
+    this.hackCast = null;
+    this.hackedT = 0;
+    this.sande = null;
+    this.batCast = null;
+    this.deflect = null;
     this.alive = false;
     this.hp = 0;
     this.killer = killer;
@@ -2144,8 +2521,8 @@ export class Fighter {
     if (!this.alive) return this.drawCorpse(ctx);
     if (this.fade && !this.painting && !(this.fade.secret && this.game.viewer !== this)) return this.drawFade(ctx);
     if (this.hidden && !this.painting) {
-      if (this.glimpsed) return;   // (drawn after the lighting, glowing: see drawGlimpse)
-      if (this.game.viewer !== this) return;
+      if (this.glimpsed && !this.seesThrough) return;   // (drawn after the lighting, glowing: see drawGlimpse)
+      if (!this.seesThrough) return;
       // you, cloaked: a faint violet ghost of yourself, a band of it flickering sideways now and then
       const [c] = this.paintSelf(0.55, this.veil ? SHADOW : undefined), x = Math.round(this.x), y = Math.round(this.y), t = this.game.time;
       const glitch = Math.sin(t * 3.1) > 0.7 ? Math.floor((t * 20) % 48) : -9;
@@ -2358,12 +2735,53 @@ export class Fighter {
     }
     ctx.globalAlpha = 1;
   }
+  // Whatever's said over someone's head goes above their name and health, one above another: where the top of a
+  // thing h high goes, this frame (main.js sets _labelUp back to 0 each frame).
+  labelY(h) {
+    const y = this.y - (this.bow ? 48 : 36) - 10 - (this._labelUp ?? 0) - h;
+    this._labelUp = (this._labelUp ?? 0) + h + 2;
+    return y;
+  }
+  // After the lighting: the newer skills' looks. What's going on with someone unseen is for themselves alone to see.
+  drawSkillLooks(ctx) {
+    if (!this.alive) return;
+    const t = this.game.time, mine = this.seesThrough;
+    if (this.hidden && !mine) return;
+    const b = this.barrier;
+    if (b) drawShieldBubble(ctx, this.x, this.y - 14, Math.max(0, b.hp / b.max), b.hit, b.age, b.t, t);
+    if (this.hackedT > 0) drawHacked(ctx, this.x, this.y, this.hackedT, HACK_LOCK, t, 1, this.labelY(HACKED_H));
+    const m = this.card;
+    if (m) {
+      if (m.on) drawCardAura(ctx, this.x, this.y, m.kind, t, 1, this.vx, this.facing);
+      if (!(m.on && m.kind === 'purple' && !mine)) {
+        const flipEnd = CARD_UP + CARD_TURN, full = !m.on || m.t < flipEnd + CARD_HOLD, h = full ? (m.kind ? 34 : 26) : 16;
+        drawCard(ctx, this.x, this.labelY(h) + h, m.kind, m.t, CARD_UP, flipEnd, t, m.on ? m.left / m.total : 1);
+      }
+    }
+    const al = this.allyCard;
+    if (al) {
+      drawCardAura(ctx, this.x, this.y, al.kind, t, 2, this.vx, this.facing);
+      if (!(al.kind === 'purple' && !mine)) drawCard(ctx, this.x, this.labelY(16) + 16, al.kind, 99, 0, 0.01, t, al.left / al.total);
+    }
+    if (this.guardT > 0) drawGuard(ctx, this.x, this.y, this.guardT, t);
+    if (this.batCast) drawBatCast(ctx, this.x, this.y - 16, Math.min(1, this.batCast.t / BAT_CAST), t);
+    const dm = this.deflect;
+    if (dm) {
+      const hx = this.x + Math.cos(this.aim) * 8, hy = this.y - 14 + Math.sin(this.aim) * 8;
+      if (dm.phase === 'guard') drawDeflectGuard(ctx, hx, hy, this.facing, this.aim, t, dm.spark);
+      else drawDeflectDash(ctx, hx, hy, dm.a, dm.trail.map((q, i) => ({ x: q.x, y: q.y, k: 1 - i / 12 })));
+    }
+    if (this.powered) drawPowered(ctx, this.x + this.facing * 8, this.y - 14, t, 1);
+    if (this.hackCast) drawHackCast(ctx, this.x + this.facing * 5, this.y - 22, Math.min(1, this.hackCast.t / HACK_CAST), t);
+  }
   // After the lighting: the line glows (a soft cyan along it, brighter at the claw).
   drawHookGlow(ctx) {
     this.drawBlaze(ctx);
     this.drawGalCast(ctx);
     this.drawSumCast(ctx);
-    if (this.alive && this.glimpsed) this.drawGlimpse(ctx);
+    if (this.alive && this.lockOn && !this.roll && this.flipT < 0) drawVisor(ctx, this.x, this.y + this.pose.head - 17, this.facing, this.lockOn.k, this.lockOn.t, this.game.time);
+    this.drawSkillLooks(ctx);
+    if (this.alive && this.glimpsed && !this.seesThrough) this.drawGlimpse(ctx);
     this.drawArchery(ctx);
     this.drawMurasaki(ctx);
     if (this.alive) for (const sl of this.slashes) if (sl.spin) this.drawSpinGlow(ctx, sl);
@@ -2414,7 +2832,7 @@ export class Fighter {
       ctx.restore();
     };
     const g = this.gun;
-    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon)) return;   // (put away too while the archery bow's out)
+    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect)) return;   // (put away too while the archery bow's out)
     if (g.def.cls === 'pistol') put(g, Math.PI * 0.62, 2, 10);   // holstered
     else put(g, -Math.PI * 0.75, 3, 13);                         // across the back at 45 degrees
   }
@@ -2543,6 +2961,13 @@ export class Fighter {
     if (this.blaze) return this.drawBlazeArms(ctx);
     if (this.gal) return this.drawGalArms(ctx);
     if (this.summon) return this.drawSumArms(ctx);
+    if (this.deflect) {
+      // both hands on the hilt, out in front
+      const y = this.y + this.pose.body - 14, ax = Math.cos(this.aim), ay = Math.sin(this.aim);
+      drawHand(ctx, 'grab', Math.round(this.x + ax * 7), Math.round(y + ay * 7));
+      drawHand(ctx, 'grab', Math.round(this.x + ax * 4), Math.round(y + ay * 4 + 1));
+      return;
+    }
     const w = this.weapon, x = Math.round(this.x), y = Math.round(this.y), b = this.pose.body;
     if (this.onLadder) {
       // both hands on the rungs, the gun slung

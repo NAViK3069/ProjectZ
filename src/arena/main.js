@@ -15,7 +15,7 @@ import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K he
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
-import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW } from './fighter.js';
+import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, CARD_LAST, CARD_ALLY } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier } from './ai.js';
@@ -23,6 +23,9 @@ import { drawBolts, drawVoidHole } from './void.js';
 import { drawBlast } from './flame.js';
 import { drawCircle, drawHole, drawBoom } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
+import { drawLockBeam, drawLockMark } from './visor.js';
+import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBlood, CARDS } from './skillfx.js';
+import { sound } from './sound.js';
 import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -74,8 +77,8 @@ const OPTIONS = [
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
-  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], [null, 'NO SKILL']]],
-  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], [null, 'NONE']]],
+  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], [null, 'NO SKILL']]],
+  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -138,7 +141,7 @@ const FIST_ICON = sprite(9, 7, (g) => g.drawImage(HANDS.open.img, 1, 0, HANDS.op
 // ---------- the game ----------
 
 const game = {
-  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [],
+  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [], bursts: [], bats: [], bloods: [],
   get gunDamage() { return settings.dmg; },
   get regen() { return !overtime; },   // out of a fight for a while, you heal (not once the lab's venting)
   get viewer() { return player; },
@@ -147,7 +150,38 @@ const game = {
   kick: (dx, dy) => renderer.kick(dx, dy),
   loose: (f, targets, point) => loose(f, targets, point),
   flameFist: (f, x, y, a, v) => flameFist(f, x, y, a, v),
-  summonSwords: (f, seed) => summonSwords(f, seed),
+  summonSwords: (f, seed, n) => summonSwords(f, seed, n),
+  barrierBurst: (f, broken) => barrierBurst(f, broken),
+  summonBats: (f) => summonBats(f),
+  // deflect's dash: whoever it passes through, the once
+  deflectCut(f, m, dmg) {
+    const ux = Math.cos(m.a), uy = Math.sin(m.a);
+    for (const v of this.fighters) {
+      if (v === f || !v.alive || v.vanish || !this.foes(f, v) || (v.hidden && !v.glimpsed) || m.hit.includes(v)) continue;
+      if (Math.hypot(v.x - f.x, v.y - 14 - (f.y - 14)) > 22) continue;
+      m.hit.push(v);
+      v.hitHow = 'DEFLECT';
+      v.hurt(dmg, f, ux * 240, -120);
+      this.fx.sparks(v.x, v.y - 14, 12, ux, uy, '#7affd0');
+      this.punches.push({ x: v.x, y: v.y - 14, ax: ux, ay: uy, t: 0, seed: Math.random() * 100 });
+    }
+  },
+  hackBurst: (f) => hackBurst(f),
+  pickCard: () => pick(Object.keys(CARDS)),
+  // the card's turned: teammates near by get their share of it
+  shareCard(f, kind) {
+    for (const o of this.fighters) {
+      if (o === f || !o.alive || o.isDecoy || o.vanish || this.foes(f, o) || Math.hypot(o.x - f.x, o.y - f.y) > CARD_SHARE) continue;
+      const left = CARD_LAST[kind] * CARD_ALLY;
+      o.allyCard = { kind, left, total: left };
+      if (kind === 'purple') o.fade = { t: 0, dur: 0.3, out: true, seed: Math.random() * 100, rgb: '180, 110, 255' };
+      this.fx.sparks(o.x, o.y - 18, 8, 0, -1, '#ffe08a');
+    }
+  },
+  onShieldHit(v, d) {
+    this.numbers.push({ text: Math.round(d), x: v.x + rand(-5, 5), y: v.y - 34, t: 0, color: '#8fdcff', big: false });
+    this.fx.sparks(v.x, v.y - 14, 3, 0, -1, '#8fdcff');
+  },
   galaxy: (f, x, y, seed) => game.galaxies.push({ owner: f, x, y, seed, t: 0, boomed: false, burn: new Map() }),
   hollowPurple: (f, x, y, a) => game.voids.push({ owner: f, x, y, x0: x, y0: y, a, sp: 120, dist: 0, t: 0, hit: new Set(), done: -1 }),   // whose eyes the screen is (a cloaked fighter shows only to itself)
   // what everyone starts a round with
@@ -192,7 +226,13 @@ const game = {
     const color = kind === 'crit' ? '#ff3a2a' : kind === 'head' ? '#ffd84a' : kind === 'blast' ? '#ff8a3c' : kind === 'melee' ? '#ff6a6a' : '#f2f2ea';
     const n = String(Math.max(1, Math.round(dmg)));
     this.numbers.push({ text: kind === 'crit' ? `CRIT ${n}!` : n, x: v.x + rand(-5, 5), y: v.y - 34, t: 0, color, big: kind === 'head' || kind === 'crit' || dmg >= 60 });
-    if (v.dummy) stats.record(dmg, kind);
+    if (v.dummy || v.sparring) {
+      stats.record(dmg, kind);
+      stats.lastHit = dmg;
+      if (from) stats.lastDist = Math.hypot(v.x - from.x, v.y - from.y) / 16;
+      // what's going into this one: the number over its head
+      (v._hits ??= []).push({ d: dmg, at: this.time });
+    }
   },
   // G: a weapon thrown at someone - it spins, hits for a knock, then lands to be picked up
   throwWeapon(f, thing, x, y, vx, vy) {
@@ -205,14 +245,14 @@ const game = {
     for (let i = 1; i < n; i++) if (level.solidAt(x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n)) return false;
     return true;
   },
-  fireBullet(f, x, y, a, speed, dmg, range, pierce) {
+  fireBullet(f, x, y, a, speed, dmg, range, pierce, far = 1) {
     const s = f.shoulder;
     if (!this.los(s.x, s.y, x, y)) {
       this.fx.sparks(x, y, 3, -Math.cos(a), -Math.sin(a));   // the gun's poked into a wall
       return;
     }
     // (id, sq: online, how a shot's known; rw: how far behind now its shooter saw everyone - see pastOf)
-    const b = { id: (this.shotIds = (this.shotIds ?? 0) + 1), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, done: new Set(), dead: false, sq: f.shotSeed ?? 0, rw: f.rewind ?? 0 };
+    const b = { id: (this.shotIds = (this.shotIds ?? 0) + 1), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, far, done: new Set(), dead: false, sq: f.shotSeed ?? 0, rw: f.rewind ?? 0 };
     this.bullets.push(b);
     this.onShot?.(b);
   },
@@ -399,10 +439,10 @@ function makeFighters() {
   });
   player = game.fighters[0];
   if (!settings.skills) for (const f of game.fighters) f.skill = null;
-  bots = game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.85 + i * 0.12) * settings.skill));
+  bots = game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.9 + i * 0.04) * settings.skill));
 }
 // a bot's skill, by the setting: the one picked, or one at random
-const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon'];
+const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon', 'lock', 'shield', 'cards', 'hack', 'sande', 'vampire', 'deflect'];
 const botSkill = () => (settings.botskill === 'random' ? pick(BOT_SKILLS) : settings.botskill ?? null);
 const teamMode = () => settings.mode === 'teams' && state !== 'training';   // (training's just you and the dummies, whatever the room says)
 const tagColor = (f) => (teamMode() ? TEAMS[f.team]?.color ?? f.color : f.color);
@@ -432,6 +472,9 @@ function startRound() {
   game.fists = [];
   game.galaxies = [];
   game.swordSets = [];
+  game.bursts = [];
+  game.bats = [];
+  game.bloods = [];
   game.punches = [];
   game.numbers = [];
   game.fx = new Fx(level);
@@ -1081,7 +1124,7 @@ function drawGalaxies(ctx) {
 }
 
 // ---------- flying swords ----------
-// Called up by the skill: five swords of light come out of the circle behind their summoner and hang there in a
+// Called up by the skill: swords of light (as many as it had the stamina for) come out of the circle behind their summoner and hang there in a
 // fan, not going round. With a foe in reach and in sight they all turn to point at them; then, one at a time, one
 // draws back and flies straight in to stab them - steering after them a little, stopped by a wall, one blow each.
 // The skill's wait starts when the last has gone, or they burn out unused. The look of it: swords.js.
@@ -1091,9 +1134,11 @@ const SWORD_SPEED = 580, SWORD_REACH = 320, SWORD_TURN = 6, SWORD_COME = 0.75;  
 const STAB_LIFE = 0.45;   // how long the burst where one lands shows
 // where they hang, from the summoner's feet, and which way from straight up they point
 const SWORD_REST = [{ x: 0, y: -46, a: 0 }, { x: -16, y: -38, a: -0.14 }, { x: 16, y: -38, a: 0.14 }, { x: -21, y: -17, a: -0.42 }, { x: 21, y: -17, a: 0.42 }];
-function summonSwords(f, seed) {
-  const swords = SWORD_REST.map((r, i) => ({ i, state: 'rest', ang: -Math.PI / 2 + r.a, _a: -Math.PI / 2 + r.a, x: f.x, y: f.y, vx: 0, vy: 0, dist: 0, aimT: 0, target: null }));
-  game.swordSets.push({ owner: f, x: f.x, y: f.y - 17, t: 0, life: SWORD_LIFE, seed, cd: SWORD_COME, lock: null, swords });
+// (fewer than five: which of the places they take, so that the fan stays even)
+const SWORD_PLACES = { 1: [0], 2: [1, 2], 3: [0, 1, 2], 4: [1, 2, 3, 4], 5: [0, 1, 2, 3, 4] };
+function summonSwords(f, seed, n = SWORD_COUNT) {
+  const swords = SWORD_PLACES[n].map((i) => [SWORD_REST[i], i]).map(([r, i]) => ({ i, state: 'rest', ang: -Math.PI / 2 + r.a, _a: -Math.PI / 2 + r.a, x: f.x, y: f.y, vx: 0, vy: 0, dist: 0, aimT: 0, target: null }));
+  game.swordSets.push({ owner: f, x: f.x, y: f.y - 17, t: 0, life: SWORD_LIFE, seed, cd: SWORD_COME, lock: null, total: n, swords });
   game.fx.sparks(f.x, f.y - 17, 26, 0, -1, '#8fe0ff');
   game.fx.motes(f.x, f.y - 17, 16, ['#ffffff', '#8fe0ff', '#43a6ff']);
   game.lights.flash(f.x, f.y - 17, 130, '120, 200, 255', 0.3);
@@ -1219,6 +1264,157 @@ function drawSwordsHanging(g, gl) {
     }
   }
 }
+// ---------- the vampire's bats ----------
+// A swarm bursting out every way from the caster. Each flies on with a flutter, going for the nearest foe it can smell;
+// it bites once and it's done, and the blood it drew goes back to the caster, health for what it took. Walls turn them.
+const BAT_COUNT = 16, BAT_SPEED = 215, BAT_LIFE = 1.15, BAT_BITE = 8, BAT_SMELL = 95, BAT_TURN = 5;
+function summonBats(f) {
+  for (let i = 0; i < BAT_COUNT; i++) {
+    const a = (i / BAT_COUNT) * Math.PI * 2 + rand(-0.12, 0.12), sp = BAT_SPEED * rand(0.85, 1.15);
+    game.bats.push({ owner: f, x: f.x + Math.cos(a) * 6, y: f.y - 16 + Math.sin(a) * 6, a, sp, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: -i * 0.008, seed: Math.random() * 100 });
+  }
+  game.fx.sparks(f.x, f.y - 16, 18, 0, -1, '#ff4a5a');
+  game.lights.flash(f.x, f.y - 16, 120, '255, 50, 70', 0.25);
+}
+function updateBats(dt) {
+  for (const b of game.bats) {
+    if ((b.t += dt) < 0) continue;
+    if (b.t > BAT_LIFE) { b.done = true; game.fx.sparks(b.x, b.y, 3, 0, -1, '#8a1020'); continue; }
+    let tgt = null, best = BAT_SMELL;
+    for (const v of game.fighters) {
+      if (!v.alive || v.vanish || !game.foes(b.owner, v) || (v.hidden && !v.glimpsed)) continue;
+      const d = Math.hypot(v.x - b.x, v.y - 14 - b.y);
+      if (d < best) { best = d; tgt = v; }
+    }
+    if (tgt) {
+      const want = Math.atan2(tgt.y - 14 - b.y, tgt.x - b.x), d = Math.atan2(Math.sin(want - b.a), Math.cos(want - b.a));
+      b.a += Math.max(-BAT_TURN * dt, Math.min(BAT_TURN * dt, d));
+    }
+    b.a += Math.sin(game.time * 11 + b.seed) * dt * 3.2;   // (the flutter)
+    b.vx = Math.cos(b.a) * b.sp;
+    b.vy = Math.sin(b.a) * b.sp;
+    const nx = b.x + b.vx * dt, ny = b.y + b.vy * dt;
+    if (level.solidAt(nx, ny)) b.a += Math.PI * 0.75; else { b.x = nx; b.y = ny; }
+    for (const v of game.fighters) {
+      if (!v.alive || v.vanish || !game.foes(b.owner, v) || (v.hidden && !v.glimpsed)) continue;
+      if (Math.hypot(v.x - b.x, v.y - 14 - b.y) > 11) continue;
+      const before = v.hp;
+      v.hitHow = 'BATS';
+      if (v.hurt(BAT_BITE, b.owner, b.vx * 0.15, -30)) {
+        const drawn = Math.max(0, before - v.hp);
+        if (drawn > 0 && !v.isDecoy) game.bloods.push({ owner: b.owner, x: b.x, y: b.y, vx: -b.vx * 0.5 + rand(-60, 60), vy: -140 + rand(-50, 20), t: 0, heal: drawn, seed: b.seed });
+        game.fx.blood(v.x, v.y - 14, 4, Math.cos(b.a), Math.sin(b.a));
+      }
+      b.done = true;
+      break;
+    }
+  }
+  game.bats = game.bats.filter((b) => !b.done);
+  // the blood on its way home: thrown clear, then drawn in harder and harder
+  for (const o of game.bloods) {
+    o.t += dt;
+    const f = o.owner;
+    if (!f?.alive) { o.done = true; continue; }
+    const dx = f.x - o.x, dy = f.y - 14 - o.y, d = Math.hypot(dx, dy) || 1, pull = 500 + o.t * 1700;
+    o.vx += (dx / d) * pull * dt;
+    o.vy += (dy / d) * pull * dt;
+    o.vx *= Math.exp(-1.6 * dt);
+    o.vy *= Math.exp(-1.6 * dt);
+    o.x += o.vx * dt;
+    o.y += o.vy * dt;
+    if (d < 9 || o.t > 3) {
+      o.done = true;
+      f.hp = Math.min(f.maxHp, f.hp + o.heal);
+      game.numbers.push({ text: `+${Math.round(o.heal)}`, x: f.x + rand(-6, 6), y: f.y - 34, t: 0, color: '#ff7a8a', big: false });
+      game.fx.sparks(f.x, f.y - 14, 3, 0, -1, '#ff5a6a');
+    }
+  }
+  game.bloods = game.bloods.filter((o) => !o.done);
+}
+function drawBats(ctx) {
+  for (const o of game.bloods) drawBlood(ctx, o.x, o.y, o.vx ?? 0, o.vy ?? 0, game.time);
+  for (const b of game.bats) if (b.t >= 0) drawBat(ctx, b.x, b.y, b.a, performance.now() / 1000, b.seed);
+}
+
+// ---------- the blue shield's burst, the hack's wave ----------
+const CARD_SHARE = 110;   // how near a teammate has to be to get a share of a buff card
+const SHIELD_BLAST = 26, SHIELD_REACH = 68, BURST_LIFE = 0.7, HACK_REACH = 170;
+function barrierBurst(f, broken) {
+  const x = f.x, y = f.y - 14;
+  game.bursts.push({ kind: 'shield', x, y, t: 0, seed: Math.random() * 100, r: SHIELD_REACH });
+  game.lights.flash(x, y, 110, '120, 200, 255', 0.2);
+  if (Math.hypot(player.x - x, player.y - y) < 180) renderer.kick(rand(-3, 3), rand(-3, 3));
+  // a shove and a little hurt, no more - a bit less if it only ran out of time
+  for (const o of game.fighters) {
+    if (o === f || !o.alive || o.vanish || !game.foes(f, o)) continue;
+    const dx = o.x - x, dy = o.y - 14 - y, d = Math.hypot(dx, dy) || 1;
+    if (d > SHIELD_REACH || !game.los(x, y, o.x, o.y - 14)) continue;
+    const k = 1 - d / SHIELD_REACH;
+    o.blast = true;
+    o.hitHow = 'BLUE SHIELD';
+    o.hurt(SHIELD_BLAST * (broken ? 1 : 0.7) * (0.4 + 0.6 * k), f, (dx / d) * 300 * (0.4 + k), -120 - 120 * k);
+    o.blast = false;
+  }
+  for (const p of game.props) if (!p.dead && Math.hypot(p.x - x, p.y - p.h / 2 - y) < SHIELD_REACH) game.damageProp(p, 20, f, Math.sign(p.x - x) * 120, -60);
+}
+function hackBurst(f) {
+  const x = f.x, y = f.y - 18, links = [];
+  for (const o of game.fighters) {
+    if (o === f || !o.alive || o.vanish || !game.foes(f, o)) continue;
+    if (Math.hypot(o.x - x, o.y - 14 - y) > HACK_REACH) continue;
+    links.push({ x: o.x, y: o.y - 16 });
+    if (o.isDecoy) { o.die(f, 'HACK', 0, 0); continue; }   // (a shadow clone's nothing but signal)
+    // swords hanging behind them: gone
+    for (const d of game.swordSets) if (d.owner === o) { for (const s of d.swords) game.fx.motes(s.state === 'out' ? s.x : o.x, s.state === 'out' ? s.y : o.y - 30, 5, ['#ffffff', '#8fe0ff', '#3aff8a']); d.swords = []; d.over = true; o.swordsOut = false; o.skillCD = SKILL_CD.demon; }
+    o.hacked(HACK_LOCK);
+    game.fx.sparks(o.x, o.y - 18, 8, 0, -1, '#3aff8a');
+  }
+  game.swordSets = game.swordSets.filter((d) => !d.over);
+  game.bursts.push({ kind: 'hack', x, y, t: 0, seed: Math.random() * 100, r: HACK_REACH, links });
+  game.lights.flash(x, y, 130, '60, 255, 140', 0.25);
+}
+function updateBursts(dt) {
+  for (const b of game.bursts) b.t += dt;
+  game.bursts = game.bursts.filter((b) => b.t < BURST_LIFE);
+}
+function drawBursts(ctx) {
+  for (const b of game.bursts) {
+    const k = b.t / BURST_LIFE;
+    if (b.kind === 'shield') drawShieldBurst(ctx, b.x, b.y, k, game.time, b.seed, b.r);
+    else drawHackWave(ctx, b.x, b.y, k, game.time, b.seed, b.r, b.links);
+  }
+}
+
+// ---------- Sandevistan ----------
+// While anyone has it going the world is all but stopped (see tick): drained of colour, the ones with it in full colour
+// over the top of that, their after-images strung out behind them.
+const sandeUsers = () => game.fighters.filter((f) => f.alive && f.sande);
+function drawSande(ctx) {
+  const users = sandeUsers();
+  const trails = game.fighters.filter((f) => f._sandeTrail?.items.length);
+  if (!users.length && !trails.length) { sandeOut = Math.max(0, sandeOut - 1 / 60 / 0.2); if (!sandeOut) return; }
+  if (users.length) sandeOut = 1;
+  const lead = users.reduce((a, f) => (!a || f.sande.age < a.sande.age ? f : a), null);
+  const age = lead?.sande.age ?? 9, rampIn = Math.min(1, age / 0.14), rampOut = lead ? Math.min(1, lead.sande.t / 0.18) : 0;
+  const k = users.length ? rampIn * Math.max(rampOut, users.length > 1 ? 1 : rampOut) : sandeOut;
+  const v = ctx.getTransform(), sx = lead ? v.a * lead.x + v.e : 0, sy = lead ? v.d * (lead.y - 14) + v.f : 0;
+  drawSandeScreen(ctx, ctx.canvas, k, age, performance.now() / 1000, sx, sy);
+  if (!users.length) sandeOut = Math.max(0, sandeOut - 1 / 60 / 0.2);
+  for (const f of game.fighters) if (f._sandeTrail?.items.length || f.sande) { if (f.alive && (!f.hidden || f === player)) f.drawSandeTrail(ctx); }
+  for (const f of users) if (!f.hidden || f === player) f.draw(ctx);
+}
+let sandeOut = 0;
+// The target lock's mark on whoever's locked, for all to see: the line to them, the mark round them, a word over them.
+function drawLocks(ctx) {
+  for (const f of game.fighters) {
+    const m = f.lockOn, v = m?.target;
+    if (!f.alive || !v?.alive || v.vanish || v.stealthed) continue;
+    const y = v.y - 14;
+    drawLockBeam(ctx, f.x, f.y - 17, v.x, y, game.time);
+    drawLockMark(ctx, ctx, v.x, y, m.acq, m.t, game.time);
+    if (m.acq > 0.2 && m.t > 0.6) drawText(ctx, 'LOCKED', Math.round(v.x - textWidth('LOCKED') / 2), Math.round(v.labelY(7)), 1, '#ff6a75', '#2a060c');
+  }
+}
 // After the lighting, over everything: the swords in flight and the bursts where they land.
 function drawSwordsOnTop(ctx) {
   for (const d of game.swordSets) for (const s of d.swords) {
@@ -1268,11 +1464,22 @@ function updateBullets(dt) {
         const part = seen ? o.hitPart(b.x + o.x - seen.x, b.y + o.y - seen.y) : o.hitPart(b.x, b.y);
         if (!part) continue;
         b.done.add(o);
-        if (o.shield > 0) { fx.sparks(b.x, b.y, 4, -dx, -dy, '#8ff0ff'); b.dead = true; break; }
-        const head = part === 'head';
+        // the katana up: a shot from in front goes back along their aim, as hard as it came, theirs now
+        if (o.deflect?.phase === 'guard' && dx * Math.cos(o.aim) + dy * Math.sin(o.aim) < 0.25) {
+          b.dead = true;
+          o.deflect.spark = 1;
+          fx.sparks(b.x, b.y, 8, -dx, -dy, '#7affd0');
+          game.lights.flash(b.x, b.y, 40, '90, 255, 190', 0.08);
+          game.fireBullet(o, o.x + Math.cos(o.aim) * 14, o.y - 14 + Math.sin(o.aim) * 14, o.aim + rand(-0.02, 0.02), b.speed, b.dmg, Math.max(320, b.travelled + b.left), b.pierce, b.far);
+          break;
+        }
+        if (o.shield > 0 || o.guardT > 0) { fx.sparks(b.x, b.y, 4, -dx, -dy, '#8ff0ff'); b.dead = true; break; }
+        const head = part === 'head', shielded = !!o.barrier;
         o.hitHow = null;
-        if (!o.hurt(b.dmg, b.owner, dx * b.dmg * 2.2, dy * b.dmg * 1.2 - 15, head)) continue;   // rolled under it
-        fx.blood(b.x, b.y, head ? 10 : 6, dx, dy);
+        // weaker the further it's come: full to a third of its range, down to its gun's `far` at the end, the shove with it
+        const spent = b.travelled / Math.max(1, b.travelled + b.left), hit = b.dmg * (spent < 0.33 ? 1 : 1 + ((b.far ?? 1) - 1) * ((spent - 0.33) / 0.67));
+        if (!o.hurt(hit, b.owner, dx * hit * 2.2, dy * hit * 1.2 - 15, head)) continue;   // rolled under it
+        if (!shielded) fx.blood(b.x, b.y, head ? 10 : 6, dx, dy);
         if (o === player) renderer.kick(dx * 3, dy * 3);
         if (b.pierce > 0) b.pierce--;
         else { b.dead = true; break; }
@@ -1532,6 +1739,23 @@ function updatePickups(dt) {
 // ---------- camera ----------
 
 let spectating = null, titlePan = 0;
+// Dead, waiting to come back or out of it: left and right click go on to the next one still in it, and back.
+function spectateInput() {
+  if (onMenu() || paused || player.alive || online.watching || online.menuOpen || locker) return;
+  const dir = input.wasPressed('Mouse0') ? 1 : input.wasPressed('Mouse2') ? -1 : 0;
+  if (!dir) return;
+  const list = game.fighters.filter((o) => o.alive && !o.isDecoy && !o.dummy && o !== player && (!o.hidden || o.seesThrough));
+  if (!list.length) return;
+  const at = list.indexOf(spectating);
+  spectating = list[at < 0 ? 0 : (at + dir + list.length) % list.length];
+}
+function drawSpectating(u, W, H) {
+  if (onMenu() || player.alive || online.watching || state === 'match' || !spectating?.alive || spectating === player) return;
+  kit.text(`WATCHING ${spectating.name}`, W / 2, H - 42 * u, { color: tagColor(spectating), align: 'center' });
+  kit.text('LEFT / RIGHT CLICK: SOMEONE ELSE', W / 2, H - 31 * u, { small: true, color: KC.muted, align: 'center' });
+}
+const LOOK_DEAD_X = 90, LOOK_DEAD_Y = 64, LOOK_EASE = 2.6;   // how far from the body the mouse can go before the camera looks that way, how slowly it eases over
+let lookX = 0, lookY = 0;
 function updateCamera(dt) {
   const cam = renderer.camera;
   let tx, ty;
@@ -1551,11 +1775,19 @@ function updateCamera(dt) {
     const target = f.alive ? f : f.corpse ?? f;
     tx = target.x;
     ty = target.y - 20;
+    // Looking ahead, toward the mouse: not at all while it's anywhere near the body - a little wave of the hand there
+    // doesn't move the world - and once it's further out, gently, the look easing over rather than following every twitch.
+    let lx = 0, ly = 0;
     if (f === player && input.mouse.active && player.alive) {
-      const m = mouseWorld();
-      tx += Math.max(-90, Math.min(90, (m.x - player.x) * 0.3));
-      ty += Math.max(-60, Math.min(60, (m.y - player.y) * 0.3));
+      const m = mouseWorld(), past = (d, near) => (Math.abs(d) <= near ? 0 : (d - Math.sign(d) * near));
+      lx = Math.max(-90, Math.min(90, past(m.x - player.x, LOOK_DEAD_X) * 0.3));
+      ly = Math.max(-60, Math.min(60, past(m.y - player.y, LOOK_DEAD_Y) * 0.3));
     }
+    const lk = 1 - Math.exp(-LOOK_EASE * dt);
+    lookX += (lx - lookX) * lk;
+    lookY += (ly - lookY) * lk;
+    tx += lookX;
+    ty += lookY;
   }
   const k = 1 - Math.exp(-6 * dt);
   cam.x += (tx - cam.x) * k;
@@ -1590,6 +1822,7 @@ function drawWorld() {
   game.fx.draw(ctx);
 
   // light it
+  for (const f of game.fighters) f._labelUp = 0;   // (what's said over their heads: see Fighter.labelY)
   const extra = [];
   // a little light on each fighter so they read in the dark corners
   for (const f of game.fighters) if (f.alive && !f.hidden) extra.push({ x: f.x, y: f.y - 14, r: 30, rgb: '190, 210, 230', k: 0.22 });
@@ -1638,7 +1871,11 @@ function drawWorld() {
   drawArrows(ctx);
   drawVoids(ctx);
   drawFists(ctx);
+  drawSande(ctx);
+  drawBats(ctx);
   drawSwordsOnTop(ctx);
+  drawLocks(ctx);
+  drawBursts(ctx);
   for (const b of game.bullets) drawBullet(ctx, b);
   for (const f of game.fighters) f.drawFlash(ctx);
   drawNumbers(ctx);
@@ -1646,10 +1883,18 @@ function drawWorld() {
   // name tags, health and stamina over heads (at a fixed height: they don't
   // dip with a roll or a crouch)
   for (const f of game.fighters) {
-    if (!f.alive || (f.hidden && f !== player)) continue;
+    if (!f.alive || (f.hidden && !f.seesThrough)) continue;
     const x = Math.round(f.x), y = Math.round(f.y - (f.bow ? 48 : 36));   // (lifted clear of the archery bow while it's up)
     const you = f === player && !online.watching, name = you ? 'YOU' : f.name, w = textWidth(name);
     if (!you || state === 'intro') drawText(ctx, name, x - Math.floor(w / 2), y - 8, 1, tagColor(f));
+    // a training dummy: what it's taking, a second at a time, over its name
+    if (f._hits?.length) {
+      f._hits = f._hits.filter((h) => game.time - h.at < 2);
+      if (f._hits.length) {
+        const sum = f._hits.reduce((a, h) => a + h.d, 0), label = `${Math.round(sum / 2)}/S`, tw = textWidth(label);
+        drawText(ctx, label, x - Math.floor(tw / 2), y - 16, 1, '#ffd84a');
+      }
+    }
     // stamina only shows while it's in use (and a moment after it's full
     // again), fading in and out
     if (f.stamina < MAX_STAMINA) f.staminaSeen = game.time;
@@ -1759,7 +2004,61 @@ function centerText(ctx, text, y, size, color, u) {
   drawText(ctx, text, Math.round(renderer.width / 2 - w / 2), Math.round(y), u * size, color);
 }
 
+// ---------- sound ----------
+// The volumes: a panel over whatever's up (from the main menu, the pause menu, the room's menu).
+let soundPanel = false;
+const SOUND_ROWS = [['master', 'ALL SOUND'], ['sfx', 'EFFECTS'], ['music', 'MUSIC']];
+let soundBars = [], soundDrag = null;
+function soundInput() {
+  const c = kit.click;
+  if (c === 'snd:close' || input.wasPressed('Escape')) { soundPanel = false; soundDrag = null; return; }
+  // a bar: click on it, or hold and drag along it
+  if (c?.startsWith('snd:bar:')) soundDrag = c.slice(8);
+  if (!input.mouse.down) soundDrag = null;
+  if (soundDrag) {
+    const bar = soundBars.find((b) => b.key === soundDrag);
+    if (bar) {
+      const v = Math.max(0, Math.min(1, (input.mouse.x * renderer.dpr - bar.x) / bar.w));
+      const was = sound.vol[soundDrag];
+      sound.set(soundDrag, v);
+      if (sound.vol[soundDrag] !== was) sound.play('ui', { gap: 0.09 });
+    }
+  }
+}
+function drawSoundPanel(u, W, H) {
+  kit.shade(0.6);
+  kit.hits = [];
+  const pw = Math.min(W - 16 * u, 270 * u), rowH = 18 * u, ph = 26 * u + SOUND_ROWS.length * rowH + 30 * u, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
+  let y = kit.panel(px, py, pw, ph, { title: 'SOUND', note: 'ESC TO CLOSE' });
+  soundBars = [];
+  const labelW = 76 * u, pctW = 34 * u, bx = px + 8 * u + labelW, bw = pw - 16 * u - labelW - pctW, bh = 9 * u, blocks = 20;
+  for (const [key, label] of SOUND_ROWS) {
+    const by = y + 2 * u, v = sound.vol[key], hot = soundDrag === key || kit.hover === `snd:bar:${key}`;
+    kit.text(label, px + 8 * u, by + 1 * u, { color: hot ? KC.gold : KC.muted });
+    // the bar: a trough of blocks, lit as far as it's turned up, the last lit one bright
+    kit.rect(bx - u, by - u, bw + 2 * u, bh + 2 * u, KC.ink);
+    kit.rect(bx, by, bw, bh, '#141c19');
+    const gap = u, bwEach = (bw - gap * (blocks - 1)) / blocks, lit = Math.round(v * blocks);
+    for (let i = 0; i < blocks; i++) {
+      const on = i < lit;
+      kit.rect(bx + i * (bwEach + gap), by + u, Math.max(1, bwEach), bh - 2 * u, !on ? '#222c28' : i === lit - 1 ? '#ffffff' : hot ? KC.gold : KC.teal);
+    }
+    kit.text(v ? `${Math.round(v * 100)}%` : 'OFF', px + pw - 8 * u, by + u, { color: v ? '#ffffff' : KC.faint, align: 'right' });
+    kit.hit(`snd:bar:${key}`, bx - 4 * u, y, bw + 8 * u, rowH - 2 * u);
+    soundBars.push({ key, x: bx, w: bw });
+    y += rowH;
+  }
+  y += 6 * u;
+  kit.button('snd:close', px + 8 * u, y, pw - 16 * u, 16 * u, 'DONE', { kind: 'primary' });
+}
 function drawHud() {
+  drawHudUnder();
+  const u = hudScale(), W = renderer.width, H = renderer.height;
+  drawSpectating(u, W, H);
+  if (soundPanel) drawSoundPanel(u, W, H);
+  sound.watch(game, player, renderer.camera, !onMenu() && (game.timeK ?? 1) < 1, kit.click);
+}
+function drawHudUnder() {
   const ctx = renderer.ctx, u = hudScale(), W = renderer.width, H = renderer.height;
   // (one map to the next, behind the menus: through black)
   const dark = onMenu() ? Math.max(backdropFade, state === 'title' ? 0 : 1 - backdropT / 0.6) : 0;
@@ -1846,8 +2145,9 @@ const canReset = () => (state === 'fight' || state === 'training') && player.ali
 const pauseItems = () => [
   ['resume', 'RESUME', 'ESC'],
   ...(canReset() ? [['kill', 'RESET CHARACTER (DIE)', 'K']] : []),
+  ['sound', 'SOUND', 'M'],
   ...(state === 'training'
-    ? [['reset', 'RESET THE RANGE', 'R'], ['menu', 'MAIN MENU', 'Q']]
+    ? [['spar', bots.length ? 'SPARRING BOT: ON' : 'SPARRING BOT: OFF', 'B'], ['reset', 'RESET THE RANGE', 'R'], ['menu', 'MAIN MENU', 'Q']]
     : [['restart', 'RESTART THE MATCH', 'R'], ['setup', 'ROOM SETUP', 'S'], ['menu', 'MAIN MENU', 'Q']]),
 ];
 function drawPause(ctx, u, W, H) {
@@ -1863,6 +2163,8 @@ function drawPause(ctx, u, W, H) {
 function pauseInput() {
   const c = kit.click?.startsWith('pause:') ? kit.click.slice(6) : null;
   if (c === 'resume') paused = false;
+  else if (input.wasPressed('KeyM') || c === 'sound') soundPanel = true;
+  else if (state === 'training' && (input.wasPressed('KeyB') || c === 'spar')) toggleSparring();
   else if (canReset() && (input.wasPressed('KeyK') || c === 'kill')) { paused = false; player.die(null, 'RESET', 0, 0); }
   else if (input.wasPressed('KeyQ') || c === 'menu') { paused = false; state = 'menu'; banner = null; }
   else if (input.wasPressed('KeyR') || c === 'restart' || c === 'reset') { paused = false; if (state === 'training') startTraining(); else startMatch(); }
@@ -1910,7 +2212,7 @@ function drawCards(ctx, u, W) {
       const k = f.skill === 'grapple' && f.charges > 0 ? 1 : Math.max(0, Math.min(1, 1 - f.skillCD / SKILL_CD[f.skill])), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
-      if (on) { const left = Math.max(0, f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (game.swordSets.find((d) => d.owner === f)?.swords.length ?? 0) / SWORD_COUNT) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
+      if (on) { const left = Math.max(0, f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / SKILL_TIME.sande : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
       else if (!ready) px(x + 16, y + 18 + 7 * (1 - k), 8, 7 * k, '#22343a');
       text('Q', x + 19, y + 19, on ? '#d8c8ff' : ready ? '#8ff0ff' : '#4a5a5c');
     }
@@ -1972,7 +2274,7 @@ function drawCards(ctx, u, W) {
   return (y + CH + 1) * u;
 }
 // A skill going (cast, out, or what it called up still about).
-const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
+const skillOn = (f) => !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
 
 // Your skill, bottom right: its picture and name, Q, and how it stands - READY (lit, with a
 // flash the moment it comes ready), going, or the wait left as a bar filling back up.
@@ -1980,7 +2282,8 @@ function drawSkillBox(u, W, H, f) {
   const info = SKILL_INFO.find((k) => k.key === f?.skill);
   if (!info || !f.alive) return;
   const shots = f.skill === 'grapple';   // (the line's saved up: ready while there's one left)
-  const cd = Math.max(0, f.skillCD ?? 0), total = SKILL_CD[f.skill], on = skillOn(f), ready = (shots ? f.charges > 0 : cd <= 0) && !on;
+  const swords = f.skill === 'demon', puffed = swords && f.stamina < SWORD_COST, hacked = f.hackedT > 0;   // (the swords are paid for in stamina)
+  const cd = Math.max(0, f.skillCD ?? 0), total = SKILL_CD[f.skill], on = skillOn(f), ready = (shots ? f.charges > 0 : cd <= 0) && !on && !puffed && !hacked;
   if (ready && f.readySeen === false) f.readyAt = game.time;
   f.readySeen = ready;
   const flash = Math.max(0, 1 - (game.time - (f.readyAt ?? -9)) / 0.7);
@@ -2004,15 +2307,17 @@ function drawSkillBox(u, W, H, f) {
   if (ready) {
     const pulse = 0.6 + 0.4 * Math.sin(game.time * 6);
     ctx.globalAlpha = pulse;
-    kit.text(shots ? 'PRESS Q' : 'READY  -  PRESS Q', x + 31 * u, y + 17 * u, { small: true, color: KC.green });
+    kit.text(shots ? 'PRESS Q' : swords ? `Q  -  ${Math.min(5, Math.floor(f.stamina / SWORD_COST))} OF 5 SWORDS` : 'READY  -  PRESS Q', x + 31 * u, y + 17 * u, { small: true, color: KC.green });
     ctx.globalAlpha = 1;
-    if (shots) for (let i = 0; i < 3; i++) {
-      // the three shots: full, the one coming back filling up, empty
-      const px = x + w - (5 + (3 - i) * 7) * u + 6 * u, k = i < f.charges ? 1 : i === f.charges ? Math.max(0, 1 - cd / total) : 0;
+    if (shots) for (let i = 0; i < GRAPPLE_SHOTS; i++) {
+      // the shots: full, the one coming back filling up, empty
+      const px = x + w - (5 + (GRAPPLE_SHOTS - i) * 7) * u + 6 * u, k = i < f.charges ? 1 : i === f.charges ? Math.max(0, 1 - cd / total) : 0;
       kit.rect(px, y + 17 * u, 5 * u, 5 * u, KC.ink);
       kit.rect(px + u, y + 18 * u, 3 * u * k, 3 * u, info.color);
     }
-  } else if (on) kit.text('IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  } else if (hacked) kit.text(`HACKED  -  ${f.hackedT.toFixed(1)} S`, x + 31 * u, y + 17 * u, { small: true, color: '#3aff8a' });
+  else if (on) kit.text(f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'DASH!') : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.ceil(f.barrier.hp)}  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  else if (puffed && cd <= 0) kit.text('NOT ENOUGH STAMINA', x + 31 * u, y + 17 * u, { small: true, color: '#ffa080' });
   else {
     // the wait: a bar filling back up, the seconds left beside it
     const bw = w - 31 * u - 30 * u, k = Math.max(0, Math.min(1, 1 - cd / total));
@@ -2126,7 +2431,7 @@ function drawScores(ctx, u, W, H) {
 function drawCrosshair(ctx, u) {
   if (!input.mouse.active || online.watching) return;
   const d = renderer.dpr, x = Math.round(input.mouse.x * d), y = Math.round(input.mouse.y * d);
-  const spread = player.weapon ? Math.round(2 + player.weapon.recoil * 1.2) : 2;
+  const spread = player.weapon ? Math.round((2 + player.weapon.recoil * 1.2) * player.stanceKick) : 2;
   for (const [col, o] of [['#050604', 1], ['#e8ffd0', 0]]) {
     ctx.fillStyle = col;
     for (const [dx, dy, w, h] of [[-spread - 3, 0, 3, 1], [spread + 1, 0, 3, 1], [0, -spread - 3, 1, 3], [0, spread + 1, 1, 3]]) ctx.fillRect(x + (dx - o * 0) * u - o * u, y + dy * u - o * u, (w + o * 2) * u, (h + o * 2) * u);
@@ -2351,7 +2656,7 @@ function startTraining() {
   paused = false;
   banner = { text: 'TRAINING', sub: 'TAB (OR E AT A CABINET) FOR GUNS, SKILLS AND MEDKITS - ESC FOR THE MENU', t: 2.4, color: '#8ff0ff' };
   locker = null;
-  game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = [];
+  game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = []; game.bursts = []; game.bats = []; game.bloods = [];
   stats.reset();
   player = new Fighter(game, images, ROSTER[0]);
   player.team = 0;
@@ -2364,11 +2669,13 @@ function startTraining() {
     f.team = 9;
     f.reset((d.x + 0.5) * 16, d.y * 16);
     f.gun = null;
+    f.tall = d.tall;
     f.give(pick(GUN_POOL), 0);   // something in its hands (it never fires it)
     f.slot = 2;
     f.grenades = 0;
     f.dummy = f.immortal = true;
     f.patrol = d.patrol ? d.patrol.map((c) => (c + 0.5) * 16) : null;
+    f.quick0 = d.fast ? 1 : 0.6;
     f.walk = 1;
     return f;
   });
@@ -2381,6 +2688,23 @@ function startTraining() {
 
 // Training each frame: smashed crates come back, dummies heal up and the walking one walks.
 const AT_EASE = 0.6;   // how far down (rad) a dummy points its gun
+// A bot to practise on that moves and dodges and shoots back (you can't die here, and it can't either).
+function toggleSparring() {
+  if (bots.length) {
+    game.fighters = game.fighters.filter((f) => !f.sparring);
+    bots = [];
+    return;
+  }
+  const f = new Fighter(game, images, { name: 'SPARRING', color: '#ff8a5a', hue: 200, sat: 1 });
+  f.team = 8;
+  f.bot = true;
+  f.sparring = f.immortal = true;
+  f.reset(player.x + (player.x < PW / 2 ? 160 : -160), player.y);
+  f.give('m4a1', 900);
+  f.slot = 2;
+  game.fighters.push(f);
+  bots = [new Bot(game, f, 0.7)];
+}
 function updateTraining(dt) {
   if (state !== 'training') return;
   stats.update();
@@ -2404,7 +2728,7 @@ function updateTraining(dt) {
     if (f.patrol) {
       if (f.x < f.patrol[0]) f.walk = 1;
       if (f.x > f.patrol[1]) f.walk = -1;
-      c = { ...IDLE, move: f.walk * 0.6, aim: ease(f.walk) };
+      c = { ...IDLE, move: f.walk * (f.quick0 ?? 0.6), aim: ease(f.walk) };
     } else c = { ...IDLE, aim: ease(player.hidden ? f.facing : player.x < f.x ? -1 : 1) };   // (you cloaked: they don't see you come)
     f.update(dt, c);
   }
@@ -2462,19 +2786,29 @@ const CLONE_ICON = sprite(13, 11, (g) => {
   fig(1, '#d8dce0', '#9aa4b0');
   for (let i = 0; i < 13; i += 2) rect(g, '#7a8aaa', i, 9 + (i % 4 ? 1 : 0), 2, 1);
 });
-const BOW_ICON = sprite(12, 12, (g) => {
-  // a bow of light drawn back, an arrow on it pointing up and out
-  for (let i = 0; i <= 10; i++) { const a = -0.2 - (i / 10) * 1.9; rect(g, i === 5 ? '#ffffff' : '#5aff7a', Math.round(6 + Math.cos(a + 0.75) * 5), Math.round(6 + Math.sin(a + 0.75) * 5), 1, 1); }
-  for (let i = 0; i < 9; i++) rect(g, i > 6 ? '#ffffff' : '#c8ffc8', 2 + i, 9 - i, 1, 1);
-  rect(g, '#d8ffd8', 9, 1, 2, 1); rect(g, '#d8ffd8', 10, 2, 1, 2);
+const BOW_ICON = sprite(14, 14, (g) => {
+  // a bow of green light, seen side on, its string drawn back and an arrow on it, pointing up and to the right
+  const ink = '#06180c', limb = '#2ad05a', hi = '#a8ffb8';
+  for (const [c, cells] of [[ink, [[2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 2], [8, 3], [9, 4], [9, 5], [10, 6], [10, 7], [10, 8], [10, 9], [11, 10], [11, 11]]], [limb, [[1, 2], [2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 3], [8, 4], [8, 5], [9, 6], [9, 7], [9, 8], [9, 9], [10, 10], [10, 11]]], [hi, [[3, 2], [4, 2], [7, 3], [8, 4], [9, 7]]]]) for (const [x, y] of cells) rect(g, c, x, y, 1, 1);
+  // the string: from the top tip back to the hand and down to the bottom tip
+  for (let i = 0; i < 5; i++) { rect(g, '#d8ffe0', 1 + i, 3 + i, 1, 1); rect(g, '#d8ffe0', 5 + i, 8 + Math.round(i * 0.7), 1, 1); }
+  // the arrow, from the hand out past the bow, white
+  for (let i = 0; i < 8; i++) rect(g, i > 5 ? '#ffffff' : '#7aff9a', 4 + i, 8 - i, 1, 1);
+  rect(g, '#ffffff', 10, 0, 3, 1); rect(g, '#ffffff', 12, 0, 1, 3); rect(g, '#7aff9a', 11, 1, 1, 1);
+  rect(g, '#2ad05a', 2, 8, 2, 1); rect(g, '#2ad05a', 3, 9, 1, 2);   // (the flights)
 });
-const VOID_ICON = sprite(13, 11, (g) => {
-  // a red and a blue orb either side of a purple one
-  const orb = (cx, cy, r, rim, core) => { for (let j = -r - 1; j <= r + 1; j++) for (let i = -r - 1; i <= r + 1; i++) { const d = Math.hypot(i, j); if (d <= r + 0.4) rect(g, d > r - 1.2 ? rim : core, cx + i, cy + j, 1, 1); } };
-  orb(2, 3, 1.6, '#ff3a4a', '#30000a');
-  orb(10, 3, 1.6, '#3a9aff', '#000a2a');
-  orb(6, 6, 3.4, '#b050ff', '#12001e');
-  rect(g, '#f0d8ff', 4, 4, 1, 1);
+const VOID_ICON = sprite(15, 13, (g) => {
+  // red from one side and blue from the other, meeting and going to a great purple orb with a white-hot heart
+  const dot = (x, y, c) => rect(g, c, x, y, 1, 1);
+  for (let j = 0; j < 13; j++) for (let i = 0; i < 15; i++) {
+    const d = Math.hypot(i - 7, j - 6.5);
+    if (d <= 5.6) dot(i, j, d > 4.7 ? '#3a0a6a' : d > 3.8 ? '#8a30e0' : d > 2.4 ? '#c070ff' : d > 1.2 ? '#f0d8ff' : '#ffffff');
+  }
+  // the streams going in
+  for (const [c, cells] of [['#ff3a4a', [[0, 2], [1, 2], [1, 3], [2, 3], [3, 4]]], ['#ffb0b8', [[0, 1], [2, 2], [3, 3]]], ['#3a9aff', [[14, 10], [13, 10], [13, 9], [12, 9], [11, 8]]], ['#b8e0ff', [[14, 11], [12, 10], [11, 9]]]]) for (const [x, y] of cells) dot(x, y, c);
+  // a band of it going round
+  for (const [x, y] of [[3, 7], [4, 8], [5, 9], [6, 9]]) dot(x, y, '#ff8ac8');
+  for (const [x, y] of [[11, 6], [10, 5], [9, 4], [8, 4]]) dot(x, y, '#8ac8ff');
 });
 const FIST_FIRE_ICON = sprite(11, 12, (g) => {
   // a fist with fire going up off it
@@ -2500,6 +2834,43 @@ const SWORDS_ICON = sprite(11, 12, (g) => {
     ['#d6f6ff', 3, 8, 5, 1], ['#ffffff', 5, 8, 1, 1], ['#1f62dc', 5, 9, 1, 2], ['#d6f6ff', 5, 11, 1, 1],
   ]) rect(g, c, x, y, w, h);
 });
+const LOCK_ICON = sprite(11, 11, (g) => {
+  // a sight: a ring broken at the four points, brackets of red in it, a dot at the heart
+  for (let j = 0; j < 11; j++) for (let i = 0; i < 11; i++) { const d = Math.hypot(i - 5, j - 5); if (d > 3.9 && d < 5.1 && i !== 5 && j !== 5) rect(g, '#8fe8ff', i, j, 1, 1); }
+  for (const [c, x, y, w, h] of [['#ff4a55', 5, 0, 1, 3], ['#ff4a55', 5, 8, 1, 3], ['#ff4a55', 0, 5, 3, 1], ['#ff4a55', 8, 5, 3, 1], ['#ffffff', 5, 5, 1, 1]]) rect(g, c, x, y, w, h);
+});
+const SHIELD_ICON = sprite(11, 12, (g) => {
+  // a shield of blue plates
+  for (const [c, x, y, w, h] of [['#2a8cff', 1, 1, 9, 6], ['#2a8cff', 2, 7, 7, 2], ['#2a8cff', 3, 9, 5, 1], ['#2a8cff', 4, 10, 3, 1], ['#2a8cff', 5, 11, 1, 1], ['#c8f4ff', 1, 0, 9, 1], ['#6ad8ff', 2, 2, 3, 3], ['#6ad8ff', 6, 2, 3, 3], ['#6ad8ff', 4, 6, 3, 3], ['#ffffff', 5, 1, 1, 9]]) rect(g, c, x, y, w, h);
+});
+const CARDS_ICON = sprite(12, 12, (g) => {
+  // two cards, fanned: the back of one, the face of the other
+  for (const [c, x, y, w, h] of [['#d8b860', 0, 2, 7, 10], ['#1a1430', 1, 3, 5, 8], ['#d8b860', 3, 6, 1, 2], ['#ece6d4', 5, 0, 7, 10], ['#7a1410', 6, 1, 5, 8], ['#ff5a48', 7, 3, 3, 3], ['#ffd25a', 8, 2, 1, 3], ['#ffffff', 8, 5, 1, 1]]) rect(g, c, x, y, w, h);
+});
+const HACK_ICON = sprite(11, 11, (g) => {
+  // a broken lock in code
+  for (const [c, x, y, w, h] of [['#3aff8a', 2, 5, 7, 6], ['#08120c', 4, 7, 3, 2], ['#3aff8a', 3, 1, 1, 4], ['#3aff8a', 3, 0, 4, 1], ['#3aff8a', 7, 1, 1, 2], ['#b8ffd8', 0, 3, 1, 2], ['#b8ffd8', 10, 5, 1, 2], ['#ff3a55', 9, 1, 1, 2], ['#ff3a55', 1, 8, 1, 1]]) rect(g, c, x, y, w, h);
+});
+const SANDE_ICON = sprite(11, 12, (g) => {
+  // the spine: a column of bright vertebrae, wings of after-image off them
+  for (let i = 0; i < 5; i++) {
+    const y = 1 + i * 2;
+    rect(g, '#ffffff', 5, y, 1, 1);
+    rect(g, '#7affc8', 3, y, 2, 1); rect(g, '#7affc8', 6, y, 2, 1);
+    rect(g, i % 2 ? '#ff5ac8' : '#5af0ff', 1, y, 2, 1); rect(g, i % 2 ? '#ff5ac8' : '#5af0ff', 8, y, 2, 1);
+  }
+  rect(g, '#7affc8', 5, 0, 1, 12);
+});
+const VAMPIRE_ICON = sprite(13, 10, (g) => {
+  // a bat, wings spread, red eyes, a drop of blood under it
+  for (const [c, x, y, w, h] of [['#1a0610', 5, 1, 3, 5], ['#1a0610', 5, 0, 1, 1], ['#1a0610', 7, 0, 1, 1], ['#1a0610', 1, 2, 4, 2], ['#1a0610', 8, 2, 4, 2], ['#c01a30', 0, 1, 2, 1], ['#c01a30', 11, 1, 2, 1], ['#c01a30', 0, 3, 1, 2], ['#c01a30', 12, 3, 1, 2], ['#1a0610', 2, 4, 3, 1], ['#1a0610', 8, 4, 3, 1], ['#ff5a6a', 5, 2, 1, 1], ['#ff5a6a', 7, 2, 1, 1], ['#ff3a4a', 6, 7, 1, 2], ['#ff8a96', 6, 7, 1, 1], ['#b01828', 5, 8, 3, 2]]) rect(g, c, x, y, w, h);
+});
+const DEFLECT_ICON = sprite(12, 12, (g) => {
+  // a katana on the slant, a bright arc swept round in front of it
+  for (let i = 0; i < 9; i++) { rect(g, '#ffffff', 3 + i, 8 - i, 1, 1); rect(g, '#c8d8e0', 3 + i, 9 - i, 1, 1); }
+  rect(g, '#7affd0', 1, 8, 3, 3); rect(g, '#101418', 0, 10, 2, 2); rect(g, '#1a4a40', 2, 9, 1, 1);
+  for (let i = 0; i <= 8; i++) { const a = -0.3 + i * 0.26; rect(g, i % 3 ? '#3ae8a0' : '#c8ffe8', Math.round(4 + Math.cos(a) * 7), Math.round(4 + Math.sin(a) * 7), 1, 1); }
+});
 const NO_SKILL = sprite(9, 9, (g) => {
   for (let j = 0; j < 9; j++) for (let i = 0; i < 9; i++) { const d = Math.hypot(i - 4, j - 4); if (d > 3 && d < 4.6) rect(g, '#c83a2a', i, j, 1, 1); }
   for (let i = 1; i < 8; i++) rect(g, '#c83a2a', i, 8 - i, 1, 1);
@@ -2507,14 +2878,21 @@ const NO_SKILL = sprite(9, 9, (g) => {
 
 // Every skill: its name, picture, colour and what it does (for the lists to pick one from, and the skill bay).
 const SKILL_INFO = [
-  { key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, color: '#9ad0ff', desc: '3 SHOTS SAVED UP - ZIP TO WHERE YOU AIM, OR LOCK ON TO A FOE' },
+  { key: 'grapple', name: 'GRAPPLE LINE', img: GRAPPLE_ICON, color: '#9ad0ff', desc: '2 SHOTS SAVED UP - ZIP TO WHERE YOU AIM, OR LOCK ON TO A FOE' },
   { key: 'cloak', name: 'CLOAK', img: CLOAK_ICON, color: '#a89aff', desc: '8 S UNSEEN WITH A KNIFE - ONE STAB, X4.5 IN THE BACK' },
-  { key: 'decoy', name: 'SHADOW CLONE', img: CLONE_ICON, color: '#8aa8ff', desc: 'A DOUBLE OUT OF THE MIST FIGHTS FOR YOU, 3 S UNSEEN' },
+  { key: 'decoy', name: 'SHADOW CLONE', img: CLONE_ICON, color: '#8aa8ff', desc: 'A DOUBLE FIGHTS FOR YOU, 3 S UNSEEN, AND YOUR NEXT HIT COUNTS X1.8' },
   { key: 'archery', name: 'ARCHERY', img: BOW_ICON, color: '#7aff8a', desc: 'LOCK ON TO EVERY FOE NEAR, EVEN THE UNSEEN - NOBODY: IT RAINS ROUND YOU' },
   { key: 'murasaki', name: 'MURASAKI', img: VOID_ICON, color: '#c07aff', desc: 'RED AND BLUE MADE ONE: A PURPLE THAT ERASES ALL IN ITS LINE' },
   { key: 'blaze', name: 'FLAME FIST', img: FIST_FIRE_ICON, color: '#ff9a4a', desc: 'FISTS ALIGHT, THEN A DASH AND A PUNCH THE WAY YOU AIM' },
   { key: 'galaxy', name: 'GALAXY', img: GALAXY_ICON, color: '#7af0ff', desc: 'A BLACK HOLE WHERE YOU AIM: DRAGS THEM IN, THEN GOES OFF' },
-  { key: 'demon', name: 'FLYING SWORDS', img: SWORDS_ICON, color: '#8fe0ff', desc: 'FIVE SWORDS OF LIGHT HANG BEHIND YOU, THEN FLY AT WHOEVER COMES NEAR' },
+  { key: 'demon', name: 'FLYING SWORDS', img: SWORDS_ICON, color: '#8fe0ff', desc: 'TAKES ALL YOUR STAMINA: A SWORD FOR EVERY 20%, THEY FLY AT WHOEVER COMES NEAR' },
+  { key: 'lock', name: 'TARGET LOCK', img: LOCK_ICON, color: '#8fe8ff', desc: '3 S: YOUR SHOTS GO FOR THE FOE NEAREST THE MOUSE, WITH LESS KICK. THEY SEE IT' },
+  { key: 'shield', name: 'BLUE SHIELD', img: SHIELD_ICON, color: '#6ad8ff', desc: 'TAKES 110 DAMAGE FOR 4 S, THEN GOES OFF: UNTOUCHABLE FOR 0.5 S. SLOWER, WEAKER SHOTS' },
+  { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'DRAW A CARD: RED FIRE RATE, GREEN HEAL, BLUE SPEED, PURPLE UNSEEN. TEAMMATES NEAR SHARE IT' },
+  { key: 'vampire', name: 'VAMPIRE', img: VAMPIRE_ICON, color: '#ff5a6a', desc: 'BATS BURST OUT EVERY WAY: THE BLOOD THEY DRAW COMES BACK TO YOU AS HEALTH' },
+  { key: 'deflect', name: 'DEFLECT', img: DEFLECT_ICON, color: '#7affd0', desc: 'KATANA OUT: SHOTS FROM IN FRONT GO BACK WHERE YOU AIM, THEN DASH AND CUT' },
+  { key: 'sande', name: 'SANDEVISTAN', img: SANDE_ICON, color: '#7affc8', desc: '2 S: THE WORLD ALL BUT STOPS AND YOU MOVE ON. SHOTS HANG TILL IT ENDS' },
+  { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT, 4 S' },
 ];
 // the choices for a pick list: each skill (with its wait), then none - and for the bots, RANDOM first
 function skillItems(forBots = false) {
@@ -2618,7 +2996,7 @@ function takeItem(it) {
     w.ammo = w.magSize;
     w.ammoSource.give(null, Math.max(0, w.magSize * 6 - w.reserve));
   }
-  else if (it.kind === 'skill') { f.uncloak(); f.dropDecoy(); f.bow = null; f.mura = null; f.blaze = null; f.gal = null; f.summon = null; f.skill = it.key; f.skillCD = 0; f.hook = null; }
+  else if (it.kind === 'skill') { f.uncloak(); f.dropDecoy(); f.bow = null; f.mura = null; f.blaze = null; f.gal = null; f.summon = null; f.lockOn = null; f.barrier = null; f.card = null; f.powered = null; f.hackCast = null; f.sande = null; f.batCast = null; f.deflect = null; f.skill = it.key; f.skillCD = 0; f.hook = null; }
   else if (it.kind === 'cooldown') { skillCooldowns = !skillCooldowns; f.skillCD = 0; }
   else if (it.kind === 'heal') { f.hp = f.maxHp; game.fx.sparks(f.x, f.y - 14, 10, 0, -1, '#8aff9a'); }
   else if (it.kind === 'drink') { f.stamina = MAX_STAMINA; f.winded = false; f.boostT = 15; game.fx.sparks(f.x, f.y - 14, 8, 0, -1, '#8ff0ff'); }
@@ -2757,12 +3135,12 @@ function drawMeter(ctx, u, W) {
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x * u), Math.round(y * u), Math.round(w * u), Math.round(h * u)); };
   const text = (t, x, y, c, size = 1) => drawText(ctx, String(t), Math.round(x * u), Math.round(y * u), u * size, c);
   const s = stats, w = 92, x = W / u - w - 6, y = 52;
-  px(x - 1, y - 1, w + 2, 46, HUDC.frame);
-  px(x, y, w, 44, HUDC.panel);
+  px(x - 1, y - 1, w + 2, 62, HUDC.frame);
+  px(x, y, w, 60, HUDC.panel);
   px(x, y, w, 1, HUDC.panelHi);
   text('DPS', x + 4, y + 4, '#a7ae98');
   text(Math.round(s.dps), x + 4, y + 11, s.dps > 0 ? '#ffd84a' : HUDC.text, 2);
-  [['PEAK', Math.round(s.peak)], ['TOTAL', Math.round(s.total)], ['HITS', s.hits], ['HEAD', s.hits ? `${Math.round((100 * s.heads) / s.hits)}%` : '-'], ['LAST', game.time - s.lastT < 3 ? Math.round(s.last) : '-']].forEach(([k, v], i) => {
+  [['LAST', Math.round(s.lastHit ?? 0)], ['AT', s.lastDist ? `${Math.round(s.lastDist)} M` : '-'], ['PEAK', Math.round(s.peak)], ['TOTAL', Math.round(s.total)], ['HITS', s.hits], ['HEAD', s.hits ? `${Math.round((100 * s.heads) / s.hits)}%` : '-'], ['LAST', game.time - s.lastT < 3 ? Math.round(s.last) : '-']].forEach(([k, v], i) => {
     text(k, x + 44, y + 4 + i * 8, '#6f7a62');
     text(v, x + w - 4 - textWidth(String(v)), y + 4 + i * 8, HUDC.text);
   });
@@ -2798,6 +3176,7 @@ function mainMenuInput() {
   mainMenuInput.lx = input.mouse.x;
   mainMenuInput.ly = input.mouse.y;
   if (kit.click?.startsWith('mode:')) return pickMode(MODES[+kit.click.slice(5)]);
+  if (kit.click === 'open-sound') { soundPanel = true; return; }
   if (input.wasPressed('Enter', 'Space')) pickMode(MODES[modeSel]);
 }
 
@@ -2816,6 +3195,7 @@ function drawMainMenu(ctx, u, W, H) {
     kit.button(`mode:${i}`, x, y, bw, bh, m.name, { size: 2, sub: m.soon ? 'COMING SOON' : m.desc, selected: modeSel === i });
     y += bh + 5 * u;
   });
+  kit.button('open-sound', W - 70 * u, H - 34 * u, 64 * u, 16 * u, 'SOUND');
   kit.hints('W S / MOUSE  CHOOSE      ENTER / CLICK  GO');
 }
 
@@ -2846,7 +3226,7 @@ function startNetMatch(roster, mapKey, me, host) {
   player = game.fighters.find((f) => f.peer === me) ?? game.fighters[0];
   for (const f of game.fighters) f.deaths = 0;
   if (!settings.skills) for (const f of game.fighters) f.skill = null;
-  bots = host ? game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.85 + i * 0.12) * settings.skill)) : [];
+  bots = host ? game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.9 + i * 0.04) * settings.skill)) : [];
   round = 0;
   champion = null;
   game.walkover = false;
@@ -2875,7 +3255,7 @@ function changeNetSetting(i, dir) {
 initOnline({
   game, settings, OPTIONS, input, renderer, images, IDLE, MAP_KEYS, pick, weapons: WEAPONS, iconOf,
   drawText, textWidth, centerText, panel, playerControl, startNetMatch, addNetFighter, changeNetSetting, kit, tagColor,
-  skillItems, skillName, openPicker, pickMap, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
+  skillItems, skillName, openPicker, pickMap, openSound() { soundPanel = true; }, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
   get state() { return state; }, set state(v) { state = v; },
   get player() { return player; }, set player(v) { player = v; },
   get stateT() { return stateT; }, set stateT(v) { stateT = v; },
@@ -2933,7 +3313,7 @@ function menuBackdrop(dt) {
   if (game.fighters.length) {
     game.fighters = [];
     bots = [];
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'fists', 'numbers', 'feed']) game[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'bursts', 'bats', 'bloods', 'fists', 'numbers', 'feed']) game[name] = [];
   }
   const picked = state === 'title' && settings.map !== 'random' ? settings.map : null;
   backdropT -= dt;
@@ -2951,7 +3331,9 @@ function tick(realDt, draw = true) {
   netUpdate(realDt);
   kit.pointer(input, renderer.dpr);   // (what the mouse is over on the menus, what's clicked)
   // menus (a pick list open over one takes the keys and clicks)
-  if (picker) pickerInput();
+  if (!soundPanel && !picker) spectateInput();
+  if (soundPanel) soundInput();
+  else if (picker) pickerInput();
   else if (state === 'menu') mainMenuInput();
   else if (state === 'soon') { if (input.wasPressed('Escape', 'Enter', 'Space') || kit.click === 'back') state = 'menu'; }
   else if (state === 'title') titleInput();
@@ -2978,8 +3360,11 @@ function tick(realDt, draw = true) {
     updateCamera(realDt);
   } else if (!paused) {
     const dt = realDt * slow;
-    game.time += dt;
-    updateRounds(dt, realDt);
+    // Sandevistan: while anyone's got it going, the world's time all but stops, and only theirs goes on
+    game.timeK = sandeUsers().length ? SANDE_WORLD : 1;
+    const wdt = dt * game.timeK, own = (f) => (f.sande ? dt : wdt);
+    game.time += wdt;
+    updateRounds(wdt, realDt);
     if (banner) { banner.t -= realDt; if (banner.t <= 0) banner = null; }
     const live = state === 'fight' || state === 'end' || state === 'training';
     const cabinetOpen = !!locker;   // (the E that shuts it doesn't open it again)
@@ -2991,30 +3376,32 @@ function tick(realDt, draw = true) {
     else if (state === 'training' && !cabinetOpen && player.alive && input.wasPressed('Tab')) { openLocker({ use: 'all' }); pc = IDLE; }
     if (online.tabOpen) pc = { ...pc, fire: false, melee: false };   // (the host, over the scores: the mouse is for KICK and BAN)
     if (pc.pickup) player.pickupPressed = true;
-    player.update(dt, pc);
+    player.update(own(player), pc);
     updateRemotes(dt, live);   // (hosting online: the other players' fighters, by their controls)
-    for (const b of bots) b.f.update(dt, live ? b.control(dt) : IDLE);
-    updateDecoys(dt, live);
-    updateBullets(dt);
-    updateGrenades(dt);
-    updateThrown(dt);
-    updateArrows(dt);
-    updateVoids(dt);
-    updateFists(dt);
-    updateGalaxies(dt);
-    updateSwords(dt);
-    updatePickups(dt);
-    updateTraining(dt);
-    for (const n of game.numbers) n.t += dt;
+    for (const b of bots) b.f.update(own(b.f), live ? b.control(own(b.f)) : IDLE);
+    updateDecoys(wdt, live);
+    updateBullets(wdt);
+    updateGrenades(wdt);
+    updateThrown(wdt);
+    updateArrows(wdt);
+    updateVoids(wdt);
+    updateFists(wdt);
+    updateGalaxies(wdt);
+    updateSwords(wdt);
+    updateBats(wdt);
+    updateBursts(wdt);
+    updatePickups(wdt);
+    updateTraining(wdt);
+    for (const n of game.numbers) n.t += wdt;
     game.numbers = game.numbers.filter((n) => n.t < 0.9);
     // off the bottom of an open map (the rooftops): gone
     for (const f of game.fighters) if (f.alive && f.y > PH + 40) f.die(null, 'FELL', 0, 0);
     for (const p of game.pickups) if (p.y > PH + 60) p.life = 0;
     for (const f of game.fighters) f.pickupPressed = false;
-    game.fx.update(dt);
-    for (const b of game.blasts) b.t += dt;
+    game.fx.update(wdt);
+    for (const b of game.blasts) b.t += wdt;
     game.blasts = game.blasts.filter((b) => b.t < 0.35);
-    game.lights.update(dt);
+    game.lights.update(wdt);
     if (game.lights.sparked) {
       const l = game.lights.sparked;
       game.fx.sparks(l.x, l.y, 5, 0, 1, '#ffe2a0');

@@ -39,6 +39,7 @@ import { Prop } from './props.js';
 import { Weapon } from '../combat/weapons.js';
 import { MeleeWeapon, MELEE } from '../combat/melee.js';
 import { K } from '../ui/kit.js';
+import { SANDE_WORLD } from './fighter.js';
 
 let A = null;   // what this needs of the game (main.js)
 const STEP = 1 / 60;   // a command: this much of a player's time
@@ -66,7 +67,7 @@ const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost thei
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
-  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], [null, 'NO SKILL'],
+  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], [null, 'NO SKILL'],
 ];
 
 const N = {
@@ -293,10 +294,10 @@ function handDelta(f, out) {
   N.sent.set(f, last);
 }
 // Lists sent whole, while there's anything in them and it's changed (things few and short-lived)
-const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets']];
+const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets'], ['ba', 'bats'], ['bo', 'bloods']];
 // Things that happen once and run their course on each screen: sent the once
-const ONCE = [['nu', 'numbers'], ['bl', 'blasts'], ['pu', 'punches'], ['fi', 'fists'], ['fe', 'feed']];
-const LIFE = { numbers: 0.9, blasts: 0.35, punches: 0.45, fists: 0.6 };
+const ONCE = [['nu', 'numbers'], ['bl', 'blasts'], ['pu', 'punches'], ['bu', 'bursts'], ['fi', 'fists'], ['fe', 'feed']];
+const LIFE = { numbers: 0.9, blasts: 0.35, punches: 0.45, bursts: 0.7, fists: 0.6 };
 const uidOf = (o) => (o.uid ??= ++N.uids);
 const fastOf = (f) => [ser(f.x), ser(f.y), Math.round(f.vx), Math.round(f.vy), Math.round(f.aim * 1000) / 1000, (f.onGround ? 1 : 0) | (f.onLadder ? 2 : 0) | (f.crouch ? 4 : 0) | (f.facing > 0 ? 8 : 0)];
 function snapshot() {
@@ -304,7 +305,7 @@ function snapshot() {
   N.snapN++;
   const s = { t: Math.round(g.time * 1000) / 1000, rt: Math.round(performance.now()) / 1000 };
   // how the round stands: what's changed
-  const hd = { st: A.state, sT: Math.round(A.stateT * 10) / 10, rd: A.round, rT: Math.round(A.roundT * 2) / 2, ot: A.overtime, sl: A.slow, wi: ser(A.winner), ch: ser(A.champion), bk: A.banner?.text ?? null, la: g.lights.lamps.map((l) => (l.on ? 1 : 0)).join('') };
+  const hd = { st: A.state, sT: Math.round(A.stateT * 10) / 10, rd: A.round, rT: Math.round(A.roundT * 2) / 2, ot: A.overtime, sl: A.slow, tk: g.timeK ?? 1, wi: ser(A.winner), ch: ser(A.champion), bk: A.banner?.text ?? null, la: g.lights.lamps.map((l) => (l.on ? 1 : 0)).join('') };
   const h = {};
   for (const k in hd) { const j = JSON.stringify(hd[k]); if (N.hdrSent[k] !== j) { h[k] = hd[k]; N.hdrSent[k] = j; } }
   if ('bk' in h) h.bn = ser(A.banner);
@@ -480,7 +481,7 @@ function applyHeader(h) {
     N.later = [];
     N.pickups.clear();
     N.trk.clear();
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'numbers', 'blasts', 'punches', 'fists', 'feed']) g[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'numbers', 'blasts', 'punches', 'bursts', 'fists', 'feed']) g[name] = [];
   }
   if ('st' in h) A.state = h.st;
   if ('sT' in h) A.stateT = h.sT;
@@ -491,6 +492,7 @@ function applyHeader(h) {
   if ('bn' in h) A.banner = rev(h.bn);
   if ('wi' in h) A.winner = rev(h.wi);
   if ('ch' in h) A.champion = rev(h.ch);
+  if ('tk' in h) g.timeK = h.tk;
   if ('la' in h) [...h.la].forEach((c, i) => { const l = g.lights.lamps[i]; if (l) l.on = c === '1'; });
 }
 function askResync() {
@@ -503,7 +505,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'hook', 'skillCD'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'deflect', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
@@ -611,11 +613,12 @@ export function updateRemotes(dt, live) {
   for (const f of A.game.fighters) {
     if (!f.peer || f.peer === myId() || f.isDecoy) continue;
     const e = N.ctl.get(f.peer), m = N.members.find((x) => x.id === f.peer), on = live && m && !m.away;
-    if (!e) { f.update(dt, A.IDLE); continue; }
+    const wk = f.sande ? 1 : A.game.timeK ?? 1;   // (Sandevistan: they're in the world's time, unless it's theirs)
+    if (!e) { f.update(dt * wk, A.IDLE); continue; }
     if (!f.alive || !on) {
       e.ran = now;
       if (e.q.length) { e.ack = e.q.at(-1).seq; e.q.length = 0; }
-      f.update(dt, A.IDLE);
+      f.update(dt * wk, A.IDLE);
       continue;
     }
     // (by the clock: after the host itself has stalled the game only makes up so much of that time)
@@ -634,12 +637,12 @@ export function updateRemotes(dt, live) {
       if (c.pickup) f.pickupPressed = true;
       f.shotSeed = c.seq;
       f.preyHint = c.prey === undefined ? undefined : A.game.fighters.find((o) => o.nid === c.prey) ?? null;
-      f.update(STEP * A.slow, c);
+      f.update(STEP * A.slow * (f.sande ? 1 : A.game.timeK ?? 1), c);
       ran++;
     }
     if (!e.q.length) e.pace = Math.min(e.pace, STEP);
     // gone quiet: hands off, rather than hang in the air as they were
-    if (!ran && !e.q.length && now - e.at > CTL_STALE * 1000) f.update(dt, A.IDLE);
+    if (!ran && !e.q.length && now - e.at > CTL_STALE * 1000) f.update(dt * wk, A.IDLE);
     fxBy = 0;
   }
 }
@@ -749,22 +752,28 @@ export function clientFrame(dt) {
     f.y = y;
     f.aim = aim;
   }
-  carryShots(dt, then, self);
-  carryThings(dt, then, hostNow, self);
+  // Sandevistan: all that's flying, in the world's time (it's drawn by the clock, so its clock's held back)
+  const wk = self?.sande || g.fighters.some((q) => q.alive && q.sande) ? SANDE_WORLD : 1, wdt = dt * wk;
+  if (wk < 1) {
+    for (const b of N.shots) b.rt0 += dt * (1 - wk);
+    for (const name of ['grenades', 'thrown', 'arrows', 'voids', 'bats', 'bloods']) for (const o of g[name]) if (o?._rt !== undefined) o._rt += dt * (1 - wk);
+  }
+  carryShots(wdt, then, self);
+  carryThings(wdt, then, hostNow, self);
   for (const p of g.props) if (p._tx !== undefined && (p.x !== p._tx || p.y !== p._ty)) {
     if (Math.hypot(p._tx - p.x, p._ty - p.y) > 60 || Math.abs(p._tx - p.x) + Math.abs(p._ty - p.y) < 0.05) { p.x = p._tx; p.y = p._ty; }
     else { const k = Math.min(1, dt * 22); p.x += (p._tx - p.x) * k; p.y += (p._ty - p.y) * k; }
   }
   for (const p of g.props) p.flash -= dt;
   for (const p of g.pickups) { p.life -= dt; p.bob += dt; p.beam -= dt; p.ready = p.beam <= 0; }
-  for (const o of g.galaxies) if (typeof o?.t === 'number') o.t += dt;
+  for (const o of g.galaxies) if (typeof o?.t === 'number') o.t += wdt;
   for (const name in LIFE) {
-    for (const o of g[name]) o.t += dt;
+    for (const o of g[name]) o.t += wdt;
     g[name] = g[name].filter((o) => o.t < LIFE[name]);
   }
   g.feed = g.feed.filter((k) => k.t > 0);
-  g.fx.update(dt);
-  g.lights.update(dt);
+  g.fx.update(wdt);
+  g.lights.update(wdt);
   if (A.banner) { A.banner.t -= dt; if (A.banner.t <= 0) A.banner = null; }
   if (N.watching) {
     const f = A.player;
@@ -827,7 +836,7 @@ function carryThings(dt, then, hostNow, self) {
   const g = A.game, k = Math.min(1, dt * 30);
   // (a flying sword: on the way it was going, between the host's words)
   for (const d of g.swordSets) for (const s of d.swords ?? []) if (s.state === 'out') { s.x += s.vx * dt; s.y += s.vy * dt; }
-  for (const name of ['grenades', 'thrown', 'arrows', 'voids']) for (const o of g[name]) {
+  for (const name of ['grenades', 'thrown', 'arrows', 'voids', 'bats', 'bloods']) for (const o of g[name]) {
     if (!o || o._hx === undefined) continue;
     const vx = o.vx ?? (o.sp !== undefined && o.done < 0 ? Math.cos(o.a) * o.sp : 0), vy = o.vy ?? (o.sp !== undefined && o.done < 0 ? Math.sin(o.a) * o.sp : 0);
     if (typeof o.t === 'number' && name === 'arrows') o.t += dt;
@@ -857,7 +866,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)
@@ -973,12 +982,14 @@ function runOwn(f, dt) {
   if (c.slot) N.latch.slot = c.slot;
   if (c.cycle) N.latch.cycle = c.cycle;
   // (not while its skill has the aim: a stab on its way in, the flame fist's dash)
-  if (c.aim !== null && c.aim !== undefined && !gh.lunge && !gh.cloak?.prey && !gh.blaze) f.aim = c.aim;
-  f.aimTarget = c.target ?? null;
+  const held = (A.game.timeK ?? 1) < 1 && !gh.sande;
+  if (c.aim !== null && c.aim !== undefined && !gh.lunge && !gh.cloak?.prey && !gh.blaze && gh.deflect?.phase !== 'dash' && !held) f.aim = c.aim;
+  f.aimTarget = held ? null : c.target ?? null;
+  f.lockAim();   // (the target lock's aim, on the fighter that does the shooting)
   N.acc = Math.min(N.acc + dt, STEP * 12);
   while (N.acc >= STEP) {
     N.acc -= STEP;
-    const cmd = { ...c, ...NO_PRESS, ...N.latch, seq: ++N.seq, dt: STEP * A.slow, kx: 0, ky: 0 };
+    const cmd = { ...c, ...NO_PRESS, ...N.latch, seq: ++N.seq, dt: STEP * A.slow * (gh.sande ? 1 : A.game.timeK ?? 1), kx: 0, ky: 0 };
     N.latch = {};
     stepOwn(gh, f, cmd);
     if (N.pending.length < MAX_PENDING) N.pending.push(cmd);
@@ -1065,7 +1076,7 @@ function resetOwn() {
 // What a screen that was only drawing the game has in the air: it isn't the real thing, and can't be run as if it was
 function clearAir() {
   const g = A.game;
-  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'fists', 'numbers']) g[name] = [];
+  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'blasts', 'punches', 'bursts', 'fists', 'numbers']) g[name] = [];
   N.shots = [];
   N.local = [];
   N.later = [];
@@ -1771,6 +1782,7 @@ export function netGameInput() {
   if (N.mode === 'host' && click?.startsWith('tab-kick:')) return kick(click.slice(9));
   if (N.mode === 'host' && click?.startsWith('tab-ban:')) { if (sure(click)) kick(click.slice(8), true); return; }
   if (N.watching && click === 'net-join') return N.room.send({ t: 'join' }, N.room.hostId);
+  if (N.menu && click === 'net-sound') return A.openSound();
   if (I.wasPressed('Escape') || click === 'net-resume') N.menu = !N.menu;
   else if (N.menu && canReset() && (click === 'net-kill' || I.wasPressed('KeyK'))) {
     // stuck somewhere? out of it the hard way
@@ -2137,7 +2149,7 @@ export function drawNetOverlay(ctx, u, W, H) {
   if (N.msgT > 0) k.toast(N.msg);
   if (!N.menu) return;
   k.shade(0.65);
-  const host = N.mode === 'host', reset = canReset(), pw = 220 * u, ph = 26 * u + 16 * u + (reset ? 4 : 3) * 23 * u + 10 * u, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
+  const host = N.mode === 'host', reset = canReset(), pw = 220 * u, ph = 26 * u + 16 * u + (reset ? 5 : 4) * 23 * u + 10 * u, px = Math.round(W / 2 - pw / 2), py = Math.round(H / 2 - ph / 2);
   let y = k.panel(px, py, pw, ph, { title: N.roomName.slice(0, 20) });
   k.text('THE GAME GOES ON WHILE THIS IS OPEN', W / 2, y, { small: true, color: K.muted, align: 'center' });
   y += 14 * u;
@@ -2147,6 +2159,8 @@ export function drawNetOverlay(ctx, u, W, H) {
     k.button('net-kill', px + 8 * u, y, pw - 16 * u, 18 * u, 'RESET CHARACTER (DIE) - K');
     y += 23 * u;
   }
+  k.button('net-sound', px + 8 * u, y, pw - 16 * u, 18 * u, 'SOUND');
+  y += 23 * u;
   k.button('net-room', px + 8 * u, y, pw - 16 * u, 18 * u, host ? 'END THE MATCH - ALL TO THE ROOM' : 'BACK TO THE ROOM');
   y += 23 * u;
   const ask = asking('net-leave');
