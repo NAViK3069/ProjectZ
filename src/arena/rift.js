@@ -65,6 +65,49 @@ export function drawRiftPortal(ctx, x, y, k, t, seed, fade = 1) {
   });
 }
 
+// The first rift before the other end's open: only a crack in the air, foot at (x, y) - a jagged split of light stood up
+// on end, forks off it, light leaking out round it, widening and closing a little as it pulses. Nothing goes through
+// yet. k: 0 .. 1 of it tearing.
+export function drawRiftCrack(ctx, x, y, k, t, seed) {
+  const X = Math.round(x), top = Math.round(y - 30), tick = Math.floor(t * 12), grow = ease(k), H = 28 * grow;
+  if (H < 2) return;
+  glowAt(ctx, X, Math.round(y - 15), 18, [[0, `rgba(170, 90, 255, ${0.35 * grow})`], [1, 'rgba(60, 20, 160, 0)']]);
+  // the split itself: a zigzag down from the top, a fixed shape that only shivers
+  const pts = [];
+  for (let i = 0; i <= 7; i++) {
+    const q = i / 7, jx = (hash(i, 1, seed) - 0.5) * 6 + (hash(i, tick, seed) - 0.5) * 1;
+    pts.push([X + jx * Math.sin(q * Math.PI), top + 2 + (30 - H) / 2 + q * H]);
+  }
+  const wide = 0.5 + 0.5 * Math.sin(t * 6);
+  ctx.save();
+  ctx.fillStyle = V.ink;
+  for (let i = 1; i < pts.length; i++) for (const o of [-1, 0, 1]) pixLine(ctx, pts[i - 1][0] + o * wide, pts[i - 1][1], pts[i][0] + o * wide, pts[i][1]);
+  ctx.restore();
+  lit(ctx, () => {
+    ctx.globalAlpha = grow;
+    for (let i = 1; i < pts.length; i++) {
+      ctx.fillStyle = V.mid;
+      pixLine(ctx, pts[i - 1][0] - 1 - wide, pts[i - 1][1], pts[i][0] - 1 - wide, pts[i][1]);
+      pixLine(ctx, pts[i - 1][0] + 1 + wide, pts[i - 1][1], pts[i][0] + 1 + wide, pts[i][1]);
+      ctx.fillStyle = (i + tick) % 3 ? V.light : V.white;
+      pixLine(ctx, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+    }
+    // forks off it
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (hash(i, 3, seed) < 0.45) continue;
+      const side = hash(i, 4, seed) > 0.5 ? 1 : -1, len = 3 + hash(i, 5, seed) * 4;
+      ctx.fillStyle = V.pink;
+      pixLine(ctx, pts[i][0], pts[i][1], pts[i][0] + side * len, pts[i][1] - len * 0.6);
+    }
+    // light leaking out of it
+    for (let i = 0; i < 10; i++) {
+      const ph = (t * 1.3 + hash(i, 6, seed)) % 1, p = pts[Math.floor(hash(i, 7, seed) * pts.length)], side = i % 2 ? 1 : -1;
+      ctx.globalAlpha = (1 - ph) * grow;
+      ctx.fillStyle = i % 3 ? V.light : V.white;
+      ctx.fillRect(Math.round(p[0] + side * (2 + ph * 8)), Math.round(p[1] - ph * 4), 1, 1);
+    }
+  });
+}
 // The path between them: dots of violet, light running along it from the first rift to the second.
 export function drawRiftPath(ctx, path, t, fade = 1) {
   if (path.length < 2) return;

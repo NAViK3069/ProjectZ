@@ -25,7 +25,7 @@ import { drawCircle, drawHole, drawBoom } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
 import { drawLockBeam, drawLockMark } from './visor.js';
 import { drawArrow, drawArrowRing } from './archery.js';
-import { drawRiftPortal, drawRiftPath, drawRiftTraveller, drawRiftBurst } from './rift.js';
+import { drawRiftPortal, drawRiftPath, drawRiftTraveller, drawRiftBurst, drawRiftCrack } from './rift.js';
 import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBatTrail, drawBlood, drawDeflectCut, drawChidoriHit, drawStealBurst, drawStealMark, DEFLECT_R, CARDS, CARD_LEAN, CARD_PICK, cardToward } from './skillfx.js';
 import { sound } from './sound.js';
 import { TouchControls, isPhone } from './touch.js';
@@ -176,7 +176,7 @@ const game = {
     }
   },
   hackBurst: (f) => hackBurst(f),
-  // the jumper: the first rift, where they stand (the path laid after them: see updateRifts)
+  // the jumper: the first rift, where they stand - only a crack in the air till the other end's open (see updateRifts)
   openRift(f) {
     this.rifts.push({ id: (this.riftIds = (this.riftIds ?? 0) + 1), owner: f, a: { x: f.x, y: f.y }, b: null, path: [{ x: f.x, y: f.y }], t: 0, open: false, life: RIFT_LIFE, seed: Math.random() * 10 });
     this.bursts.push({ kind: 'rift', x: f.x, y: f.y - 15, t: 0 });
@@ -1405,7 +1405,7 @@ function drawBats(ctx) {
 // While the jumper's in the other place, the path's laid after them; once they're out, the second rift opens there and
 // the two are joined. Anyone at all who steps into one goes as light along the path, as it was walked, and out of the
 // other - a moment before they'll go back in. The rifts last RIFT_LIFE; a path too short is no rift at all.
-const RIFT_LIFE = 14, RIFT_SPEED = 480, RIFT_MIN = 40, RIFT_MAX = 340, RIFT_POINTS = 240, RIFT_IN = 11, RIFT_AGAIN = 1.2;   // (RIFT_MAX: as long as a path gets - that far, and the way back opens)
+const RIFT_LIFE = 14, RIFT_SPEED = 480, RIFT_MIN = 40, RIFT_MAX = 340, RIFT_POINTS = 240, RIFT_IN = 11, RIFT_AGAIN = 1.2, RIFT_HURT = 12;   // (RIFT_HURT: what it takes out of the jumper's foes, going through)   // (RIFT_MAX: as long as a path gets - that far, and the way back opens)
 const riftLen = (r) => { let d = 0; r.lens = [0]; for (let i = 1; i < r.path.length; i++) r.lens.push((d += Math.hypot(r.path[i].x - r.path[i - 1].x, r.path[i].y - r.path[i - 1].y))); return d; };
 function riftAt(r, d) {
   const L = r.lens, P = r.path;
@@ -1423,6 +1423,8 @@ function riftOut(f, r) {
   f.vy = -80;
   f.jump = null;
   f.riftCool = RIFT_AGAIN;
+  // the jumper's foes don't come through it whole: a little taken out of them
+  if (r.owner && f !== r.owner && game.foes(r.owner, f)) { f.hitHow = 'RIFT'; f.hurt(RIFT_HURT, r.owner, out * 40, -40); }
   game.bursts.push({ kind: 'rift', x: end.x, y: end.y - 15, t: 0 });
   game.fx.sparks(end.x, end.y - 14, 12, out, -0.5, '#d0a8ff');
   game.lights.flash(end.x, end.y - 14, 80, '170, 90, 255', 0.15);
@@ -1446,8 +1448,12 @@ function updateRifts(dt) {
       r.b = { ...r.path[r.path.length - 1] };
       r.t = 0;
       if (o) o.riftCool = RIFT_AGAIN;   // (not straight back in where they came out)
-      game.bursts.push({ kind: 'rift', x: r.b.x, y: r.b.y - 15, t: 0 });
-      game.lights.flash(r.b.x, r.b.y - 15, 110, '170, 90, 255', 0.25);
+      // both ends at once: the crack bursts open, the other end tears open - ready
+      for (const e of [r.a, r.b]) {
+        game.bursts.push({ kind: 'rift', x: e.x, y: e.y - 15, t: 0 });
+        game.lights.flash(e.x, e.y - 15, 110, '170, 90, 255', 0.25);
+        game.fx.sparks(e.x, e.y - 15, 14, 0, 0, '#d0a8ff');
+      }
       continue;
     }
     if ((r.life -= dt) <= 0) r.dead = true;
@@ -1482,7 +1488,9 @@ function drawRiftsUnder(ctx) {
   for (const r of game.rifts) {
     const fade = r.open ? Math.min(1, r.life / 0.5) : 1;
     drawRiftPath(ctx, r.path, game.time, fade);
-    drawRiftPortal(ctx, r.a.x, r.a.y, Math.min(1, (r.open ? 1 : r.t / 0.3)), game.time, r.seed, fade);
+    // (the first: only a crack till the other end's open - then it bursts open into a rift too, both ready)
+    if (r.open) drawRiftPortal(ctx, r.a.x, r.a.y, Math.min(1, r.t / 0.3), game.time, r.seed, fade);
+    else drawRiftCrack(ctx, r.a.x, r.a.y, Math.min(1, r.t / 0.25), game.time, r.seed);
     if (r.b) drawRiftPortal(ctx, r.b.x, r.b.y, Math.min(1, r.t / 0.3), game.time, r.seed + 3, fade);
   }
 }
