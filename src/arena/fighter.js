@@ -110,7 +110,10 @@ const ease = (k) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);   // (fast
 const OCTO_ICONS = {};   // (a gun's picture, for throwing it away)
 const FAR_HIT = { sniper: 0.85, rifle: 0.65, lmg: 0.65, smg: 0.5, pistol: 0.55, shotgun: 0.35 };
 // Sandevistan (skill, Q): how long it's yours (in your own time), how slow the world goes meanwhile, the wait after
-const SANDE_TIME = 2, SANDE_CD = 24;
+// Sandevistan: as long as the stamina it's set off with - the least, a full bar - and what it needs at all; it all goes
+// into it, the bar running down with the time, and starts again from empty after
+const SANDE_MIN_T = 0.5, SANDE_MAX_T = 2.6, SANDE_CD = 24, SANDE_SPEED = 1.45;
+export const SANDE_NEED = 15;   // (SANDE_SPEED: how much quicker in it - on your feet, and the gun and blade in your hands)
 export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
 const BAT_CAST = 0.35, BAT_CD = 20, WRAITH_TIME = 2.5, WRAITH_SPEED = 1.5;   // (wraith form: how long at most, how much faster)
@@ -140,7 +143,7 @@ export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot
 // the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
 const LOCK_TIME = 3, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
 export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_TIME, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -540,9 +543,10 @@ export class Fighter {
     if (this.shield > 0) this.shield = c.fire || c.melee || c.grenade || c.skill ? 0 : this.shield - dt;
     if (this.hurtT > REGEN_DELAY && this.hp < this.maxHp && !this.isDecoy && this.game.regen !== false) this.hp = Math.min(this.maxHp, this.hp + REGEN * dt);
 
-    // caught in someone's Sandevistan: no rolling out of it, and it comes round as slowly as everything else
+    // caught in someone's Sandevistan: no rolling out of it, no shooting, hitting, throwing or skills till it's over,
+    // and it comes round as slowly as everything else
     const frozen = this.frozen;
-    if (frozen) c = { ...c, roll: false };
+    if (frozen) c = { ...c, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: false };
     if (c.aim !== null && c.aim !== undefined) {
       if (frozen) { const d = Math.atan2(Math.sin(c.aim - this.aim), Math.cos(c.aim - this.aim)); this.aim += Math.max(-FROZEN_TURN * dt, Math.min(FROZEN_TURN * dt, d)); }
       else this.aim = c.aim;
@@ -575,7 +579,7 @@ export class Fighter {
     this.sprinting = !!c.sprint && !!c.move && this.stamina > 0 && !this.winded && !this.onLadder && !this.roll && !this.crouch;
     this.boostT = Math.max(0, this.boostT - dt);   // an energy drink: running costs nothing for a while
     if (this.sprinting) {
-      if (this.boostT <= 0) this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt * (1 - (1 - CARD_DRAIN) * this.cardPower('blue')) * (this.octo ? 2 : 1));   // (the octo arms out: twice as hard going)
+      if (this.boostT <= 0 && !this.sande) this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt * (1 - (1 - CARD_DRAIN) * this.cardPower('blue')) * (this.octo ? 2 : 1));   // (the octo arms out: twice as hard going)
       if (this.stamina <= 0) this.windOut();
     } else if ((this.staminaRest -= dt) <= 0) this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt);
 
@@ -713,7 +717,7 @@ export class Fighter {
         this.wall = null;
       }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.sande ? SANDE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -861,7 +865,7 @@ export class Fighter {
     if (this.slot === 1) {
       const m = this.melee;
       if ((c.fire || c.melee || (this.quick && c.meleeHeld)) && !busy) m.attack();   // F held: keep punching
-      m.update(dt * (1 + CARD_MELEE * this.cardPower('red')));
+      m.update(dt * (1 + CARD_MELEE * this.cardPower('red')) * (this.sande ? SANDE_SPEED : 1));
       this.tilt += (m.raising * RAISE_TILT - this.tilt) * Math.min(1, dt * 16);
       if (m.events.includes('strike')) {
         this.strike(m);
@@ -880,7 +884,7 @@ export class Fighter {
       // (both hands on the rungs: no reloading, and what was going on stops)
       if (this.onLadder) { w.reloadQueued = false; if (w.reloading) w.cancelReload(); }
       else if (c.reload) w.startReload();
-      w.update(dt);
+      w.update(dt * (this.sande ? SANDE_SPEED : 1));   // (in a Sandevistan: firing, reloading, working the action, all quicker)
       if (w.cooldown > 0) w.cooldown -= dt * CARD_FIRE * this.cardPower('red');
       for (const e of w.events) this.reloadEvent(e);
       // the main game's tilts: muzzle up mid-reload, down feeding shells, up from the floor when drawn
@@ -1941,17 +1945,26 @@ export class Fighter {
   }
 
   // ---------- Sandevistan (skill, Q) ----------
-  // Q: for a couple of seconds of your own time, the whole world all but stops (see main.js: everyone else, and
-  // everything flying, runs at SANDE_WORLD) and you go on as you were. Anyone else with it can set theirs off in that
-  // moment too, and move with you. Your shots hang in the air with the rest till it's over.
+  // Q: for a moment of your own time - as long as the stamina you've got: SANDE_MIN_T on next to none, SANDE_MAX_T on a
+  // full bar, all of it used - the whole world all but stops (see main.js: everyone else, and
+  // everything flying, runs at SANDE_WORLD) and you go on as you were. Everyone caught in it can't shoot, hit, throw,
+  // roll or use a skill (their own Sandevistan included) till it's over. Your shots hang in the air with the rest.
   updateSande(dt, c) {
     const m = this.sande;
     if (!m) {
-      if (c.skill && this.skillCD <= 0 && this.alive) this.sande = { t: SANDE_TIME, age: 0 };
+      if (c.skill && this.skillCD <= 0 && this.alive && this.stamina >= SANDE_NEED) {
+        const k = this.stamina / MAX_STAMINA, t = SANDE_MIN_T + (SANDE_MAX_T - SANDE_MIN_T) * k;
+        this.sande = { t, total: t, age: 0, from: this.stamina };
+      }
       return;
     }
     m.age += dt;
-    if ((m.t -= dt) <= 0) { this.sande = null; this.skillCD = SANDE_CD; }
+    m.t -= dt;
+    // the stamina's what it's running on: the bar going down with the time left
+    this.stamina = m.from * Math.max(0, m.t / m.total);
+    this.winded = false;
+    this.staminaRest = 0.4;
+    if (m.t <= 0) { this.sande = null; this.skillCD = SANDE_CD; this.stamina = 0; }
   }
   // After-images: every so often a hard-edged copy of the body in the next colour, left where it was, fading.
   drawSandeTrail(ctx) {

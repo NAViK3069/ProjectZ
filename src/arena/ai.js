@@ -756,7 +756,7 @@ export class Bot {
         go = vis && t.lastFireT < 0.35 && dist < 300 && !!t.gun;
         break;
       case 'sande':      // it's only moments: when someone's in sight and close enough to make them count - or to get out of it, hurt
-        go = (vis && dist < 260 && (!!f.bestGun() || dist < 90)) || (hpK < 0.35 && f.hurtT < 0.5);
+        go = (vis && dist < 260 && (!!f.bestGun() || dist < 90) && f.stamina >= 60) || (hpK < 0.35 && f.hurtT < 0.5 && f.stamina >= 30);   // (it's as long as the stamina: not wasted on a little)
         break;
       case 'shield':     // being shot at, or about to walk into it: not just because someone's there, it's only so much and it slows it
         go = (f.hurtT < 0.5 && hpK < 0.85) || (vis && t.lastFireT < 0.3 && dist < 260 && hpK < 0.7);
