@@ -121,7 +121,7 @@ const STEAL_RANGE = 150, STEAL_BREAK = 190, STEAL_LOCK = 0.9, STEAL_CD = 14, STE
 const UNSTEALABLE = ['grapple', 'steal'];   // (they can be hacked - cut off a moment - but there's nothing to take)
 // octo arms (skill, Q): reaching out for the guns, how long they're out at most, the wait after; how hard their shots
 // are next to the same gun in hand; what kinds of gun they grab
-const OCTO_REACH = 0.9, OCTO_TIME = 4, OCTO_CD = 22, OCTO_DMG = 0.6, OCTO_GONE = 0.55, OCTO_KINDS = ['pistol', 'smg', 'rifle', 'shotgun', 'lmg'];
+const OCTO_REACH = 0.9, OCTO_TIME = 4, OCTO_CD = 22, OCTO_DMG = 0.45, OCTO_GONE = 0.55, OCTO_KINDS = ['pistol', 'smg', 'rifle', 'shotgun', 'lmg'];
 // where each gun hangs, from the feet, facing right (x forward): two up over the head, two out behind; and which way each
 // arm reaches first, for its gun
 const OCTO_SLOTS = [[11, -45], [-9, -50], [-27, -35], [-27, -15]], OCTO_REACH_AT = [[30, -34], [-6, -58], [-44, -30], [-40, 4]];
