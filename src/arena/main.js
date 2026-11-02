@@ -2417,6 +2417,7 @@ function drawNextSkill(u, W, H) {
 }
 function nextSkillInput() {
   const c = kit.click;
+  if (player.alive && online.isClient) player.nextSkill = undefined;   // (back in: the pick's been used - the host doesn't send its going)
   if (!c?.startsWith('nextsk:') || player.alive || !picking()) return;
   const key = c.slice(7);
   if (online.isClient) { online.sendPick(key); player.nextSkill = key; }   // (the host has the say: see online.js)
