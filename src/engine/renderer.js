@@ -11,6 +11,7 @@ export class Renderer {
     this.viewHeight = viewHeight;
     this.viewWidth = viewWidth;
     this.fit = fit;
+    this.zoom = 0;   // whole steps closer in than the fit (see setZoom)
     this.maxDpr = maxDpr;   // (a phone's very fine screen: fewer pixels to fill, the same size on the glass)
     this.camera = { x: 0, y: 0 };
     this.shake = { x: 0, y: 0 };   // short camera kick (recoil etc), decays on its own
@@ -27,10 +28,17 @@ export class Renderer {
     this.height = Math.round(innerHeight * this.dpr);
     this.canvas.width = this.width;
     this.canvas.height = this.height;
-    this.scale = Math.max(2, Math[this.fit === 'floor' ? 'floor' : 'round'](Math.min(this.height / this.viewHeight, this.width / this.viewWidth)));
+    this.fitScale = Math.max(2, Math[this.fit === 'floor' ? 'floor' : 'round'](Math.min(this.height / this.viewHeight, this.width / this.viewWidth)));
+    this.setZoom(this.zoom);
+    this.vignette = null;
+  }
+
+  // Closer in by whole steps (art pixels stay on whole device pixels), from the fit itself up to twice as close.
+  setZoom(steps) {
+    this.zoom = Math.max(0, Math.min(this.fitScale, steps));
+    this.scale = this.fitScale + this.zoom;
     this.viewW = this.width / this.scale;
     this.viewH = this.height / this.scale;
-    this.vignette = null;
   }
 
   kick(dx, dy) {

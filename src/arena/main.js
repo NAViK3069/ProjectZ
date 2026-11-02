@@ -3424,9 +3424,16 @@ function drawFrame() {
   drawHud();
   touch?.draw(renderer.ctx, renderer.dpr);
 }
+let zoomSteps = 0;
 function tick(realDt, draw = true) {
   netUpdate(realDt);
   touch?.update(realDt);
+  // O: the camera closer in, P: back out, no further than the view everyone starts with. Only over a fight (the menus' backdrop stays as it is).
+  const fightOn = ['intro', 'fight', 'end', 'match', 'training'].includes(state);
+  if (fightOn && !paused && input.wasPressed('KeyO')) zoomSteps = Math.min(renderer.fitScale, zoomSteps + 1);
+  if (fightOn && !paused && input.wasPressed('KeyP')) zoomSteps = Math.max(0, zoomSteps - 1);
+  const zoomNow = fightOn ? zoomSteps : 0;
+  if (renderer.zoom !== zoomNow) renderer.setZoom(zoomNow);
   if (touch?.blocked && !online.active && (state === 'fight' || state === 'training')) paused = true;   // (out of full screen, or turned upright: it waits for you)
   kit.pointer(input, renderer.dpr);   // (what the mouse is over on the menus, what's clicked)
   // menus (a pick list open over one takes the keys and clicks)
