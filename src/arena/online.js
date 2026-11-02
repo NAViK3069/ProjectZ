@@ -107,6 +107,7 @@ export const online = {
   get tabOpen() { return N.mode === 'host' && A.input.down('Tab') && ['intro', 'fight', 'end'].includes(A.state); },
   tabButtons,
   drawCrown,
+  sendPick: (key) => N.room?.send({ t: 'pick', skill: key }),   // (dead, PICK WHEN YOU DIE: the next life's skill, to the host)
   get hostId() { return N.room?.hostId ?? null; },
   isScreen: (state) => state === 'net-servers' || state === 'net-lobby' || state === 'net-room',
 };
@@ -1461,6 +1462,9 @@ function hostMsg(m, from) {
     // back to the room in the middle of the match: their fighter drops out of it
     x.out = true;
     retire(from);
+  } else if (m.t === 'pick') {
+    const f = A.game.fighters.find((o) => o.peer === from);
+    if (f) A.game.pickNext(f, typeof m.skill === 'string' ? m.skill : null);
   } else if (m.t === 'die') {
     if (A.state === 'fight') A.game.fighters.find((f) => f.peer === from && f.alive)?.die(null, 'RESET', 0, 0);
   } else if (m.t === 'watch' || m.t === 'join') {
@@ -2039,7 +2043,13 @@ function drawRoom(k, u, W, H) {
     y += 10 * u;
   }
   // the slots: two columns of four (BLUE and RED, in TEAMS)
-  const colW = Math.floor((pw - 16 * u - gap) / 2), slotH = 18 * u, playing = N.slots.filter((x) => x.k === 'p').length, watch = watchers();
+  const colW = Math.floor((pw - 16 * u - gap) / 2), playing = N.slots.filter((x) => x.k === 'p').length, watch = watchers();
+  // (the settings' rows squeezed a little when the screen's too short for it all - the buttons at the foot stay on it)
+  const opts = A.OPTIONS.map((o, i) => [o, i]).filter(([o]) => o[0] !== 'bots' && o[0] !== 'myskill'), rows = Math.ceil(opts.length / 2);
+  const need = (rh, sh) => y + 26 * u + 16 * u + 4 * sh + (watch.length ? 10 * u : 0) + gap + 26 * u + rows * rh + gap + 18 * u + 12 * u;
+  const slotH = 18 * u;
+  let rowH = 10 * u;
+  while (need(rowH, slotH) > H && rowH > 8 * u) rowH -= u;
   const sh = 26 * u + 16 * u + 4 * slotH + (watch.length ? 10 * u : 0);   // (the row over the slots is there in both modes: changing mode doesn't shift everything)
   let cy = k.panel(px, y, pw, sh, { title: teams ? 'TEAMS' : 'PLAYERS', note: `${playing} / ${roomSize()} PLAYERS${host ? '   -   CLICK A SLOT BUTTON TO OPEN, CLOSE OR ADD A BOT' : ''}` });
   if (teams) {
@@ -2113,7 +2123,6 @@ function drawRoom(k, u, W, H) {
   if (watch.length) k.text(`WATCHING (${watch.length}): ${watch.map((m) => m.name).join(', ')}  -  THEY GET A SLOT WHEN ONE IS OPEN`, px + 10 * u, cy + 4 * slotH + 2 * u, { small: true, color: K.muted });
   y += sh + gap;
   // the room's settings, in two columns (the host changes them)
-  const opts = A.OPTIONS.map((o, i) => [o, i]).filter(([o]) => o[0] !== 'bots' && o[0] !== 'myskill'), rows = Math.ceil(opts.length / 2), rowH = 10 * u;
   const oh = 26 * u + rows * rowH;
   cy = k.panel(px, y, pw, oh, { title: 'ROOM SETTINGS', note: host ? 'CLICK A SIDE TO CHANGE' : 'THE HOST SETS THESE' });
   opts.forEach(([[key, label, vals], oi], n) => {

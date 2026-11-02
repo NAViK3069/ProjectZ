@@ -81,6 +81,7 @@ const OPTIONS = [
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
+  ['skillmode', 'SKILL MODE', [['set', 'AS PICKED'], ['random', 'RANDOM EVERY LIFE'], ['pick', 'PICK WHEN YOU DIE']]],
   ['cd', 'SKILL COOLDOWN', [[0, 'NONE'], [0.25, '25%'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%'], [2, '200%'], [3, '300%']]],
   ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], [null, 'NO SKILL']]],
   ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], [null, 'NONE']]],
@@ -94,7 +95,7 @@ const OPTIONS = [
   ['banGuns', 'BANNED GUNS', []],   // (these two: lists, picked in a list of their own - see openBans)
   ['banSkills', 'BANNED SKILLS', []],
 ];
-const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all', cd: 1, banGuns: [], banSkills: [] };
+const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all', skillmode: 'set', cd: 1, banGuns: [], banSkills: [] };
 const settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('arena.settings') ?? '{}')); } catch {}
 const saveSettings = () => { try { localStorage.setItem('arena.settings', JSON.stringify(settings)); } catch {} };
@@ -271,6 +272,13 @@ const game = {
     return { gun, ammo: gun ? WEAPONS[gun].magSize * (gun === 'm9' ? 3 : 2) : 0, grenades: settings.nades, hp: settings.hp, melee: settings.start === 'knife' ? 'knife' : null };
   },
   nadeArt: (kind) => NADE_ART[kind] ?? NADE,
+  // PICK WHEN YOU DIE: f (dead) picks the skill for its next life; the first pick cuts the wait down to the usual
+  pickNext(f, key) {
+    if (!picking() || f.alive || (key !== null && (!SKILL_CD[key] || !skillOK(key)))) return;
+    f.nextSkill = key;
+    if (!f.picked && f.respawnT > 0) f.respawnT = Math.max(0.4, f.respawnT - (PICK_TIME - RESPAWN_TIME));
+    f.picked = true;
+  },
   foes(a, b) {
     if (a.vanish || b.vanish || (a.dummy && b.dummy)) return false;
     const ra = a.owner ?? a, rb = b.owner ?? b;   // (a shadow clone sides with whoever made it)
@@ -405,7 +413,8 @@ const game = {
     if (state === 'fight' || state === 'intro') {
       f.deaths = (f.deaths ?? 0) + 1;
       f.lives = Math.max(0, (f.lives ?? 1) - 1);
-      if (f.lives > 0 && !overtime) f.respawnT = RESPAWN_TIME;
+      if (f.lives > 0 && !overtime) f.respawnT = picking() && !f.bot ? PICK_TIME : RESPAWN_TIME;
+      if (picking() && f.bot && settings.botskill === 'random') f.nextSkill = pick(BOT_SKILLS.filter(skillOK)) ?? null;   // (bots on RANDOM: a new one too)
     }
     this.feed.push({ killer: killer && killer !== f ? killer : null, victim: f, how, t: 5 });
     if (this.feed.length > 5) this.feed.shift();
@@ -596,11 +605,29 @@ function spawnSpots(team) {
 
 // A fighter in at (x, y) with the room's loadout.
 function spawnAt(f, x, y) {
+  lifeSkill(f);
   f.reset(x, y);
   const L = game.loadout();
   if (L.melee) f.giveMelee(MELEE[L.melee]);
   while (f.hits(f.x - 5, f.y - 28, f.x + 5, f.y)) f.y -= 1;   // spawned in a crate: stand on it
   f.hitHow = null;
+}
+
+// The room's SKILL MODE, each time someone comes in: RANDOM EVERY LIFE - a new one (not the last, if there's another
+// to have); PICK WHEN YOU DIE - the one picked while dead (see drawNextSkill), if one was.
+function lifeSkill(f) {
+  f.picked = false;
+  if (!settings.skills || state === 'training' || state === 'title' || f.isDecoy || f.dummy) return;
+  let key = f.skill;
+  if (settings.skillmode === 'random') {
+    const ok = SKILL_INFO.map((k) => k.key).filter(skillOK), others = ok.filter((k) => k !== f.skill);
+    key = pick(others.length ? others : ok) ?? null;
+  } else if (settings.skillmode === 'pick' && f.nextSkill !== undefined) key = f.nextSkill;
+  f.nextSkill = undefined;
+  if (key === f.skill) return;
+  f.skill = key;
+  const info = SKILL_INFO.find((k) => k.key === key);
+  if (info) game.numbers.push({ text: info.name, x: f.x, y: f.y - 40, t: 0, color: info.color, big: false });   // (who's got what now, over their head as they come in)
 }
 
 // ---------- lives ----------
@@ -609,6 +636,8 @@ function spawnAt(f, x, y) {
 // with the round's starting kit and a shield for a moment (gone the moment
 // they attack). Out of lives, they're out of the round.
 const RESPAWN_TIME = 2, SPAWN_SHIELD = 2;
+const PICK_TIME = 6;   // (PICK WHEN YOU DIE: longer, to choose in - picking takes it back down to the usual)
+const picking = () => !!settings.skills && settings.skillmode === 'pick' && state !== 'training';
 function updateRespawns(dt) {
   for (const f of game.fighters) {
     if (f.alive || !(f.respawnT > 0) || (f.respawnT -= dt) > 0) continue;
@@ -1970,7 +1999,7 @@ let spectating = null, titlePan = 0;
 function spectateInput() {
   if (onMenu() || paused || player.alive || online.watching || online.menuOpen || locker) return;
   const dir = input.wasPressed('Mouse0') ? 1 : input.wasPressed('Mouse2') ? -1 : 0;
-  if (!dir) return;
+  if (!dir || kit.hover?.startsWith('nextsk:')) return;   // (a click on the skills to pick from isn't one to watch someone else)
   const list = game.fighters.filter((o) => o.alive && !o.isDecoy && !o.dummy && o !== player && (!o.hidden || o.seesThrough));
   if (!list.length) return;
   const at = list.indexOf(spectating);
@@ -1978,8 +2007,9 @@ function spectateInput() {
 }
 function drawSpectating(u, W, H) {
   if (onMenu() || player.alive || online.watching || state === 'match' || !spectating?.alive || spectating === player) return;
-  kit.text(`WATCHING ${spectating.name}`, W / 2, H - 42 * u, { color: tagColor(spectating), align: 'center' });
-  kit.text('LEFT / RIGHT CLICK: SOMEONE ELSE', W / 2, H - 31 * u, { small: true, color: KC.muted, align: 'center' });
+  const dy = player.respawnT > 0 ? 12 * u : 0;   // (under BACK IN, not over it)
+  kit.text(`WATCHING ${spectating.name}`, W / 2, H - 42 * u + dy, { color: tagColor(spectating), align: 'center' });
+  kit.text('LEFT / RIGHT CLICK: SOMEONE ELSE', W / 2, H - 31 * u + dy, { small: true, color: KC.muted, align: 'center' });
 }
 const LOOK_DEAD_X = 90, LOOK_DEAD_Y = 64, LOOK_EASE = 2.6;   // how far from the body the mouse can go before the camera looks that way, how slowly it eases over
 let lookX = 0, lookY = 0;
@@ -2350,6 +2380,7 @@ function drawHudUnder() {
 
   drawBanner(ctx, u, H);
   if (state === 'intro' && stateT > 0.5) kit.text(String(Math.max(1, 3 - Math.floor((stateT - 0.5) / 0.37))), W / 2, H * 0.34 + 36 * u, { size: 3, color: KC.gold, align: 'center' });
+  if (!player.alive && state === 'fight' && !online.watching && !paused && picking()) drawNextSkill(u, W, H);
   if (!player.alive && state === 'fight' && !online.watching) {
     if (player.respawnT > 0) kit.text(`BACK IN ${player.respawnT.toFixed(1)}`, W / 2, H - 48 * u, { size: 2, color: KC.teal, align: 'center' });
     else kit.text(`SPECTATING ${spectating?.name ?? ''}`, W / 2, H - 46 * u, { color: KC.muted, align: 'center' });
@@ -2360,6 +2391,36 @@ function drawHudUnder() {
   if (paused) drawPause(ctx, u, W, H);
   drawCrosshair(ctx, u);
   if (online.active) drawNetOverlay(ctx, u, W, H);
+}
+
+// PICK WHEN YOU DIE: a row of the skills over the countdown - the one for your next life picked out in gold, the one
+// under the mouse named over them. A click picks it (see nextSkillInput).
+function drawNextSkill(u, W, H) {
+  const items = SKILL_INFO.filter((k) => skillOK(k.key)), n = items.length;
+  if (!n) return;
+  const t = 20 * u, gap = 2 * u, cols = Math.max(1, Math.min(n, Math.floor((W - 20 * u + gap) / (t + gap)))), rows = Math.ceil(n / cols);
+  const chosen = player.nextSkill !== undefined ? player.nextSkill : player.skill, y0 = H - 64 * u - rows * (t + gap);
+  const hot = items.find((k) => kit.hover === `nextsk:${k.key}`), shown = hot ?? items.find((k) => k.key === chosen);
+  const bw = cols * (t + gap) - gap + 12 * u;
+  kit.rect(Math.round(W / 2 - bw / 2), y0 - 26 * u, bw, rows * (t + gap) + 30 * u, 'rgba(5, 8, 7, 0.6)');   // (dark behind it, to read over the fight)
+  kit.text(player.lives > 0 ? 'PICK YOUR SKILL FOR THE NEXT LIFE' : 'PICK YOUR SKILL FOR THE NEXT ROUND', W / 2, y0 - 22 * u, { small: true, color: KC.muted, align: 'center' });
+  if (shown) kit.text(shown.name, W / 2, y0 - 13 * u, { color: shown.color, align: 'center' });
+  items.forEach((k, i) => {
+    const r = Math.floor(i / cols), inRow = Math.min(cols, n - r * cols), x = Math.round(W / 2 - (inRow * (t + gap) - gap) / 2 + (i % cols) * (t + gap)), y = y0 + r * (t + gap);
+    const on = k.key === chosen, over = hot === k;
+    kit.rect(x - u, y - u, t + 2 * u, t + 2 * u, KC.ink);
+    kit.rect(x, y, t, t, on ? KC.gold : over ? KC.teal : k.color);
+    kit.rect(x + u, y + u, t - 2 * u, t - 2 * u, on ? '#3a3212' : over ? '#1f3a36' : 'rgba(11, 16, 14, 0.85)');
+    kit.icon(k.img, x + 2 * u, y + 2 * u, t - 4 * u);
+    kit.hit(`nextsk:${k.key}`, x, y, t, t);
+  });
+}
+function nextSkillInput() {
+  const c = kit.click;
+  if (!c?.startsWith('nextsk:') || player.alive || !picking()) return;
+  const key = c.slice(7);
+  if (online.isClient) { online.sendPick(key); player.nextSkill = key; }   // (the host has the say: see online.js)
+  else game.pickNext(player, key);
 }
 
 function drawBanner(ctx, u, H) {
@@ -3724,6 +3785,7 @@ function tick(realDt, draw = true) {
   if (touch?.blocked && !online.active && (state === 'fight' || state === 'training')) paused = true;   // (out of full screen, or turned upright: it waits for you)
   kit.pointer(input, renderer.dpr);   // (what the mouse is over on the menus, what's clicked)
   // menus (a pick list open over one takes the keys and clicks)
+  if (!soundPanel && !picker && !paused) nextSkillInput();
   if (!soundPanel && !picker) spectateInput();
   if (soundPanel) soundInput();
   else if (picker) pickerInput();
@@ -3820,7 +3882,7 @@ let testControl = null, frozen = false;
 window.arena = {
   game, renderer, startMatch, startTraining, settings, loadMap, online, touch,
   get level() { return level; },
-  get player() { return player; }, get state() { return state; }, get bots() { return bots; },
+  get player() { return player; }, get state() { return state; }, set state(v) { state = v; }, get bots() { return bots; },
   set control(c) { testControl = c; },
   set frozen(v) { frozen = v; },
   step(sec, dt = 1 / 60) { for (let t = 0; t < sec; t += dt) tick(dt, false); drawFrame(); },
