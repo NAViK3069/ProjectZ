@@ -24,7 +24,8 @@ import { drawBlast } from './flame.js';
 import { drawCircle, drawHole, drawBoom } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
 import { drawLockBeam, drawLockMark } from './visor.js';
-import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBlood, drawDeflectCut, drawChidoriHit, drawStealBurst, drawStealMark, DEFLECT_R, CARDS, CARD_LEAN, CARD_PICK, cardToward } from './skillfx.js';
+import { drawArrow, drawArrowRing } from './archery.js';
+import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBatTrail, drawBlood, drawDeflectCut, drawChidoriHit, drawStealBurst, drawStealMark, DEFLECT_R, CARDS, CARD_LEAN, CARD_PICK, cardToward } from './skillfx.js';
 import { sound } from './sound.js';
 import { TouchControls, isPhone } from './touch.js';
 import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
@@ -179,7 +180,7 @@ const game = {
     const info = SKILL_INFO.find((k) => k.key === f.stolen?.skill);
     if (f.stolen) Object.assign(f.stolen, { name: info?.name ?? f.stolen.skill.toUpperCase(), color: info?.color });
     v.hacked(STEAL_HACK);
-    this.bursts.push({ kind: 'steal', x: v.x, y: v.y - 14, x0: f.x, y0: f.y - 17, t: 0, seed: Math.random() * 6 });
+    this.bursts.push({ kind: 'steal', x: v.x, y: v.y - 14, x0: f.x, y0: f.y - 17, owner: f, t: 0, seed: Math.random() * 6 });   // (owner: the stream goes after the thief, wherever they go)
     this.fx.sparks(v.x, v.y - 14, 16, 0, -1, '#ff6ad8');
     this.lights.flash(v.x, v.y - 14, 130, '255, 90, 220', 0.3);
     if (f === player || v === player) renderer.kick(0, -3);
@@ -807,6 +808,7 @@ function updateDecoys(dt, live) {
 
 const ARROW_DMG = 55, ARROW_SPEED = 560, ARROW_TURN = 6;   // per arrow; px/s at full speed; how fast one can turn (rad/s)
 const ARROW_DRAIN = 2;   // hit by one: no stamina for this long
+const ARROW_RING = 0.45;   // how long the rings where they burst and hit last
 function loose(f, targets, point) {
   // straight up from the bow to the burst point (where the lasers came from)
   const h = f.bowHand;
@@ -819,7 +821,8 @@ function burstArrow(o) {
   while (level.solidAt(o.x, o.y) && o.trail.length) ({ x: o.x, y: o.y } = o.trail.shift());
   game.arrows.push({ kind: 'ring', x: o.x, y: o.y, t: 0 });
   game.fx.sparks(o.x, o.y, 16, 0, 0, '#b8ffc0');
-  game.lights.flash(o.x, o.y, 60, '120, 255, 140', 0.12);
+  feathers(o.x, o.y, 12);
+  game.lights.flash(o.x, o.y, 90, '120, 255, 140', 0.2);
   const targets = o.targets.length ? o.targets : null, n = targets ? targets.length : 4, f = o.owner;
   for (let i = 0; i < n; i++) {
     // each one sets off roughly at its own, fanned a little, then turns after it
@@ -830,13 +833,18 @@ function burstArrow(o) {
     game.arrows.push({ kind: 'seek', owner: f, target: targets?.[i] ?? null, point, x: o.x, y: o.y, vx: Math.cos(a) * 240, vy: Math.sin(a) * 240, t: 0, trail: [] });
   }
 }
+// Feathers of light drifting down where it bursts.
+function feathers(x, y, n) {
+  for (let i = 0; i < n; i++) game.fx.add({ x: x + rand(-6, 6), y: y + rand(-4, 4), vx: rand(-70, 70), vy: rand(-60, 0), life: rand(0.7, 1.3), color: pick(['#7aff8a', '#c8ffc8', '#2ad05a']), size: 2, grav: 50, drag: 2.2, glow: true, kind: 'spark' });
+}
 // One that had nobody to go for, come down: a little burst where it lands.
 const ARROW_BURST = 30;
 function arrowBurst(o) {
   o.dead = true;
   game.arrows.push({ kind: 'ring', x: o.x, y: o.y, t: 0, small: true });
   game.fx.sparks(o.x, o.y, 12, 0, -1, '#9cff9c');
-  game.lights.flash(o.x, o.y, 50, '120, 255, 140', 0.1);
+  feathers(o.x, o.y - 2, 6);
+  game.lights.flash(o.x, o.y, 60, '120, 255, 140', 0.12);
   for (const v of game.fighters) {
     if (!v.alive || v.vanish || !game.foes(o.owner, v)) continue;
     const dx = v.x - o.x, d = Math.hypot(dx, v.y - 12 - o.y);
@@ -858,14 +866,15 @@ function arrowHit(o, v) {
     v.staminaRest = Math.max(v.staminaRest, ARROW_DRAIN);
   }
   game.fx.sparks(o.x, o.y, 10, -o.vx / sp, -o.vy / sp, '#9cff9c');
+  feathers(o.x, o.y, 5);
   game.arrows.push({ kind: 'ring', x: o.x, y: o.y, t: 0, small: true });
 }
 function updateArrows(dt) {
   for (const o of game.arrows) {
     o.t += dt;
-    if (o.kind === 'ring') { if (o.t > 0.3) o.dead = true; continue; }
+    if (o.kind === 'ring') { if (o.t > ARROW_RING) o.dead = true; continue; }
     o.trail.unshift({ x: o.x, y: o.y });
-    o.trail.length = Math.min(o.trail.length, 9);
+    o.trail.length = Math.min(o.trail.length, 14);
     if (o.kind === 'sky') {
       o.y = Math.max(o.top, o.y + o.vy * dt);
       if (o.y <= o.top || o.t > 0.4 || level.solidAt(o.x, o.y)) burstArrow(o);
@@ -895,36 +904,11 @@ function updateArrows(dt) {
   }
   game.arrows = game.arrows.filter((o) => !o.dead);
 }
-// After the lighting: arrows of light (a white head, a green body, a fading
-// green trail and a soft glow), and the rings where they burst and hit.
+// After the lighting: the arrows of light, and the rings where they burst and hit (see archery.js).
 function drawArrows(ctx) {
   for (const o of game.arrows) {
-    if (o.kind === 'ring') {
-      const k = o.t / 0.3, R = (o.small ? 4 : 6) + k * (o.small ? 10 : 22);
-      ctx.globalAlpha = 1 - k;
-      ctx.fillStyle = k < 0.3 ? '#e8ffe8' : '#5aff7a';
-      for (let i = 0; i < 40; i++) { const a = (i / 40) * Math.PI * 2; ctx.fillRect(Math.round(o.x + Math.cos(a) * R), Math.round(o.y + Math.sin(a) * R), 1, 1); }
-      continue;
-    }
-    o.trail.forEach((p, i) => {
-      ctx.globalAlpha = 0.6 * (1 - i / o.trail.length);
-      ctx.fillStyle = i < 3 ? '#9cff9c' : '#2ad05a';
-      ctx.fillRect(Math.round(p.x), Math.round(p.y), 1, 1);
-    });
-    const sp = Math.hypot(o.vx, o.vy) || 1, ux = o.vx / sp, uy = o.vy / sp;
-    ctx.globalAlpha = 1;
-    for (let i = 0; i < 6; i++) { ctx.fillStyle = i < 2 ? '#ffffff' : '#7aff8a'; ctx.fillRect(Math.round(o.x - ux * i), Math.round(o.y - uy * i), 1, 1); }
-    ctx.fillStyle = '#d8ffd8';
-    ctx.fillRect(Math.round(o.x - ux * 2 - uy * 1.5), Math.round(o.y - uy * 2 + ux * 1.5), 1, 1);
-    ctx.fillRect(Math.round(o.x - ux * 2 + uy * 1.5), Math.round(o.y - uy * 2 - ux * 1.5), 1, 1);
-    const gr = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, 7);
-    gr.addColorStop(0, 'rgba(150, 255, 160, 0.5)');
-    gr.addColorStop(1, 'rgba(60, 255, 110, 0)');
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = gr;
-    ctx.fillRect(o.x - 7, o.y - 7, 14, 14);
-    ctx.restore();
+    if (o.kind === 'ring') drawArrowRing(ctx, o, Math.min(1, o.t / ARROW_RING));
+    else drawArrow(ctx, o, game.time);
   }
   ctx.globalAlpha = 1;
 }
@@ -1384,20 +1368,33 @@ function updateBats(dt) {
     if (d < 9 || o.t > 3) {
       o.done = true;
       f.hp = Math.min(f.maxHp, f.hp + o.heal);
-      game.numbers.push({ text: `+${Math.round(o.heal)}`, x: f.x + rand(-6, 6), y: f.y - 34, t: 0, color: '#ff7a8a', big: false });
+      game.numbers.push({ text: `+${Math.round(o.heal)}`, x: f.x + rand(-6, 6), y: f.y - 34, t: 0, color: '#5aff7a', big: false });   // (health back: green)
       game.fx.sparks(f.x, f.y - 14, 3, 0, -1, '#ff5a6a');
     }
   }
   game.bloods = game.bloods.filter((o) => !o.done);
 }
+// (each bat's streak is kept here, on whoever's screen it is, by its seed: online the bats come in fresh every time)
+const batTrails = new Map();
 function drawBats(ctx) {
   for (const o of game.bloods) drawBlood(ctx, o.x, o.y, o.vx ?? 0, o.vy ?? 0, game.time);
+  const live = new Set();
+  for (const b of game.bats) {
+    if (b.t < 0) continue;
+    live.add(b.seed);
+    const tr = batTrails.get(b.seed) ?? [];
+    if (!tr.length || Math.hypot(tr[0].x - b.x, tr[0].y - b.y) > 1) tr.unshift({ x: b.x, y: b.y });
+    tr.length = Math.min(tr.length, 14);
+    batTrails.set(b.seed, tr);
+    drawBatTrail(ctx, tr);
+  }
+  for (const k of batTrails.keys()) if (!live.has(k)) batTrails.delete(k);
   for (const b of game.bats) if (b.t >= 0) drawBat(ctx, b.x, b.y, b.a, performance.now() / 1000, b.seed);
 }
 
 // ---------- the blue shield's burst, the hack's wave ----------
-const CHIDORI_DMG = 120;
-const STEAL_HACK = 1.5;   // how long the skill thief's hack cuts them off for   // what chidori does, driven through someone
+const CHIDORI_DMG = 120;   // what chidori does, driven through someone
+const STEAL_HACK = 1.5;   // how long the skill thief's hack cuts them off for
 const CARD_SHARE = 110;   // how near a teammate has to be to get a share of a buff card
 const SHIELD_BLAST = 26, SHIELD_REACH = 68, BURST_LIFE = 0.7, HACK_REACH = 170;
 function barrierBurst(f, broken) {
@@ -1444,7 +1441,7 @@ function drawBursts(ctx) {
     if (b.kind === 'shield') drawShieldBurst(ctx, b.x, b.y, k, game.time, b.seed, b.r);
     else if (b.kind === 'cut') drawDeflectCut(ctx, b.x0, b.y0, b.x, b.y, k, b.seed);
     else if (b.kind === 'chidori') drawChidoriHit(ctx, b.x, b.y, b.a, k, b.seed);
-    else if (b.kind === 'steal') drawStealBurst(ctx, b.x, b.y, b.x0, b.y0, k, b.seed);
+    else if (b.kind === 'steal') drawStealBurst(ctx, b.x, b.y, b.owner?.alive ? b.owner.x : b.x0, b.owner?.alive ? b.owner.y - 17 : b.y0, k, b.seed);
     else drawHackWave(ctx, b.x, b.y, k, game.time, b.seed, b.r, b.links);
   }
 }

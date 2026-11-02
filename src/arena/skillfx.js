@@ -585,6 +585,19 @@ export function drawSandeScreen(ctx, canvas, k, age, t, ox = 0, oy = 0) {
 }
 
 // ---------- the vampire's bats ----------
+// The streak a bat leaves, along where it's flown (newest first): a red line, bright and doubled at the bat, thinning
+// and darkening back along it.
+export function drawBatTrail(ctx, pts) {
+  lit(ctx, () => {
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i], q = i / pts.length;
+      ctx.globalAlpha = (1 - q) * 0.9;
+      ctx.fillStyle = q < 0.2 ? '#ff6a7a' : q < 0.5 ? '#e01a34' : '#8a0a1c';
+      pixLine(ctx, a.x, a.y, b.x, b.y);
+      if (q < 0.4) pixLine(ctx, a.x, a.y + 1, b.x, b.y + 1);
+    }
+  });
+}
 // One bat: dark, red-eyed, red along its wings, beating; a little red going off behind. (x, y): its middle; flying along a.
 export function drawBat(ctx, x, y, a, t, seed) {
   const X = Math.round(x), Y = Math.round(y), up = Math.sin(t * 34 + seed * 9) > 0, dir = Math.cos(a) >= 0 ? 1 : -1;
@@ -982,31 +995,66 @@ export function drawChidoriHit(ctx, x, y, a, k, seed) {
 }
 
 // ---------- wraith form ----------
-// One bat's wing off the shoulder (sx, sy), going out along d (1 / -1): ribs of bone, the skin between them hanging in scallops.
-function wingAt(ctx, sx, sy, d, open, flap, alpha) {
-  const ribs = [[33, -1.2], [41, -0.72], [37, -0.24], [26, 0.26]].map(([len, a]) => {
-    const l = len * open, b = a + flap;
-    return { x: sx + d * Math.cos(b) * l, y: sy + Math.sin(b) * l };
-  });
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = '#14040a';
-  for (let i = 0; i < ribs.length - 1; i++) {
-    const A = ribs[i], B = ribs[i + 1];
-    for (let q = 0; q <= 1; q += 0.1) {
-      const sag = 1 - 0.34 * Math.sin(q * Math.PI);
-      pixLine(ctx, sx, sy, sx + (A.x + (B.x - A.x) * q - sx) * sag, sy + (A.y + (B.y - A.y) * q - sy) * sag);
+// A blood sigil, standing behind the one in wraith form, round (x, y): two rings with runes running between them,
+// turning, a pentagram turning the other way inside, a bat at each quarter, blood dripping off the bottom of it.
+// r: how big; k: how much of it there is (opening, going).
+function bloodSigil(ctx, x, y, r, k, t) {
+  if (r < 3) return;
+  const X = Math.round(x), Y = Math.round(y), flick = 0.85 + 0.15 * Math.sin(t * 23) * Math.sin(t * 7);
+  glowAt(ctx, X, Y, r * 1.7, [[0, `rgba(255, 30, 60, ${0.3 * k * flick})`], [0.6, `rgba(140, 0, 30, ${0.16 * k})`], [1, 'rgba(60, 0, 20, 0)']]);
+  lit(ctx, () => {
+    ctx.globalAlpha = k * flick;
+    // the rings
+    ctx.fillStyle = '#ff3a4a';
+    pixArc(ctx, X, Y, r, r, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#b01628';
+    pixArc(ctx, X, Y, r - 3, r - 3, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#8a1024';
+    pixArc(ctx, X, Y, r * 0.38, r * 0.38, 0, 0, Math.PI * 2);
+    // runes between them, going round
+    for (let i = 0; i < 16; i++) {
+      const a = t * 0.6 + (i * Math.PI) / 8, rx = X + Math.cos(a) * (r - 1.5), ry = Y + Math.sin(a) * (r - 1.5), n = i % 4;
+      ctx.fillStyle = i % 2 ? '#ff6a7a' : '#e01a34';
+      if (n === 0) ctx.fillRect(Math.round(rx), Math.round(ry) - 1, 1, 2);
+      else if (n === 1) ctx.fillRect(Math.round(rx) - 1, Math.round(ry), 2, 1);
+      else ctx.fillRect(Math.round(rx), Math.round(ry), 1, 1);
     }
-  }
-  ctx.fillStyle = '#4e0a16';
-  for (const r of ribs) pixLine(ctx, sx, sy, r.x, r.y);
-  ctx.fillStyle = '#ff2a40';
-  for (const r of ribs) {
-    ctx.fillRect(Math.round(r.x), Math.round(r.y), 1, 1);
-    pixLine(ctx, r.x, r.y, r.x + (sx - r.x) * 0.14, r.y + (sy - r.y) * 0.14);
-  }
+    // the pentagram, the other way
+    const pts = Array.from({ length: 5 }, (_, i) => { const a = -t * 0.8 - Math.PI / 2 + (i * Math.PI * 2) / 5; return [X + Math.cos(a) * (r - 4), Y + Math.sin(a) * (r - 4)]; });
+    ctx.fillStyle = '#ff2a40';
+    for (let i = 0; i < 5; i++) { const [ax, ay] = pts[i], [bx, by] = pts[(i + 2) % 5]; pixLine(ctx, ax, ay, bx, by); }
+    ctx.fillStyle = '#ffd0d6';
+    for (const [px, py] of pts) ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
+    // a bat at each quarter, on the outer ring
+    for (let q = 0; q < 4; q++) {
+      const a = t * 0.6 + (q * Math.PI) / 2 + Math.PI / 4, bx = Math.round(X + Math.cos(a) * r), by = Math.round(Y + Math.sin(a) * r), up = Math.sin(t * 12 + q) > 0 ? 1 : 0;
+      ctx.fillStyle = '#1a0610';
+      ctx.fillRect(bx - 1, by - 1, 3, 3);
+      ctx.fillStyle = '#ff3a4a';
+      ctx.fillRect(bx - 4, by - up, 3, 1);
+      ctx.fillRect(bx + 2, by - up, 3, 1);
+      ctx.fillRect(bx - 3, by + 1 - up, 1, 1);
+      ctx.fillRect(bx + 3, by + 1 - up, 1, 1);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(bx, by, 1, 1);
+    }
+    // the heart of it: a slow pulse
+    ctx.globalAlpha = k * (0.5 + 0.5 * Math.sin(t * 5));
+    ctx.fillStyle = '#ff6a7a';
+    ctx.fillRect(X - 1, Y, 3, 1);
+    ctx.fillRect(X, Y - 1, 1, 3);
+    // blood running off the bottom of it
+    for (let i = 0; i < 7; i++) {
+      const ph = (t * (0.6 + hash(i, 1, 6) * 0.5) + hash(i, 2, 6)) % 1, a = Math.PI / 2 + (hash(i, 3, 6) - 0.5) * 1.6;
+      const dx = X + Math.cos(a) * r, dy = Y + Math.sin(a) * r + ph * 16;
+      ctx.globalAlpha = k * (1 - ph);
+      ctx.fillStyle = ph < 0.3 ? '#ff3a4a' : '#a01226';
+      ctx.fillRect(Math.round(dx), Math.round(dy), 1, 2 + Math.round((1 - ph) * 2));
+    }
+  });
 }
 // Wraith form: the body gone to black smoke with a red edge to it, coming apart towards the feet, smoke pouring off it
-// and streaming behind, a bat's wings beating off the shoulders, and the eyes. (x, y): the feet; eyeY: the eyes'
+// and streaming behind, a blood sigil turning behind it, and the eyes. (x, y): the feet; eyeY: the eyes'
 // height; paint(tint, rgb): the fighter on its own canvas (feet at 32, 50) washed in that colour.
 export function drawWraith(ctx, x, y, eyeY, f, age, left, t, vx, paint) {
   const open = ease(age / 0.22), k = open * Math.min(1, left / 0.2), run = Math.max(-1, Math.min(1, vx / 160)), X = Math.round(x), Y = Math.round(y);
@@ -1022,10 +1070,8 @@ export function drawWraith(ctx, x, y, eyeY, f, age, left, t, vx, paint) {
     ctx.fillStyle = shade[i % 5];
     ctx.fillRect(Math.round(px), Math.round(py), size, size);
   }
-  // the wings
-  const flap = Math.sin(t * 11) * 0.3 * (1 + Math.abs(run) * 0.4), sx = X - f * 1, sy = Y - 21;
-  wingAt(ctx, sx, sy, -f, open, flap + run * f * 0.2, k * 0.97);
-  wingAt(ctx, sx, sy, f, open * 0.8, flap - 0.25, k * 0.9);
+  // the sigil, behind it all, a little behind the back
+  bloodSigil(ctx, X - f * 3, Y - 19, 22 * open, k, t);
   // the body, row by row: rippling, more and more towards the feet, where it comes apart. First in red, for the edge.
   const rows = (c, ox, alpha) => {
     for (let r = 12; r < 52; r++) {

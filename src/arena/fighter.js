@@ -20,6 +20,7 @@ import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
 import { drawFlame } from './flame.js';
 import { drawVisor } from './visor.js';
 import { drawOctoArms, drawOctoGuns, drawOctoGlow, octoRoot } from './octo.js';
+import { drawArcheryCast, drawArcheryMark } from './archery.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
@@ -115,7 +116,7 @@ const BAT_CAST = 0.35, BAT_CD = 20, WRAITH_TIME = 2.5, WRAITH_SPEED = 1.5;   // 
 // skill thief (skill, Q): how far it reaches for someone, how far they can get before it snaps; how long the hack takes;
 // the wait after (and after a hack broken off); how long what's taken can be held unused; how long they lose their own
 // skill; slower on your feet hacking; skills that can't be taken
-const STEAL_RANGE = 280, STEAL_BREAK = 340, STEAL_LOCK = 0.9, STEAL_CD = 14, STEAL_AFTER = 1.15, STEAL_BROKE_CD = 3, STEAL_HOLD = 15, STEAL_HACK = 1.5, STEAL_SLOW = 0.55;
+const STEAL_RANGE = 150, STEAL_BREAK = 190, STEAL_LOCK = 0.9, STEAL_CD = 14, STEAL_AFTER = 1.15, STEAL_BROKE_CD = 3, STEAL_HOLD = 15, STEAL_HACK = 1.5, STEAL_SLOW = 0.55;
 // (STEAL_AFTER: a skill taken and done with, the wait's that skill's own, and this much longer)
 const UNSTEALABLE = ['grapple', 'steal'];   // (they can be hacked - cut off a moment - but there's nothing to take)
 // octo arms (skill, Q): reaching out for the guns, how long they're out at most, the wait after; how hard their shots
@@ -573,7 +574,7 @@ export class Fighter {
     // ladders: grab one by pushing up / down in front of it
     const ladderHere = this.overLadder();
     this.ladderCool -= dt;
-    if (!this.onLadder && !this.octo && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
+    if (!this.onLadder && !this.octo && !this.steal && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
       this.onLadder = true;
       this.x += (ladderHere.x - this.x) * 0.6;
       this.vx = 0;
@@ -595,7 +596,7 @@ export class Fighter {
       }
     }
     // dive roll (costs stamina)
-    if (c.roll && !this.roll && !this.octo && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
+    if (c.roll && !this.roll && !this.octo && !this.steal && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
       const dir = c.move ? Math.sign(c.move) : this.facing;
       // a roll gives a cloak away - unless there's a foe close by: then it stays
       // hidden through the roll and comes up out of it stabbing them (roll past
@@ -709,7 +710,7 @@ export class Fighter {
         this.coyote = 0;
         this.bounce(-95);   // springs up: stretched
         this.game.fx.dust(this.x, this.y, 4);
-      } else if (this.jumpBuf > 0 && this.airJumps > 0 && !this.onGround && !this.octo) {
+      } else if (this.jumpBuf > 0 && this.airJumps > 0 && !this.onGround && !this.octo && !this.steal) {
         this.vy = -JUMP2;
         this.jumpBuf = 0;
         this.airJumps--;
@@ -776,7 +777,7 @@ export class Fighter {
       if (fall > 250) this.game.fx.dust(this.x, this.y, 5);
     }
     if (this.onGround) { this.airJumps = 1; this.airRoll = true; this.wallGrabs = 1; }
-    if (this.onLadder || this.roll || this.wraith || this.octo) this.flipT = -1;
+    if (this.onLadder || this.roll || this.wraith || this.octo || this.steal) this.flipT = -1;
     else if (this.onGround && this.flipT >= 0 && (this.flipT += dt / FLIP_LAND) >= 1) this.flipT = -1;   // (down part way round: it finishes turning, quickly, rather than snap upright)
     // on a jump pad: up you go
     this.padT -= dt;
@@ -1339,79 +1340,15 @@ export class Fighter {
       this.game.loose?.(this, b.locks.map((l) => l.v), b.point);
     }
   }
-  // After the lighting, for everyone to see: the rune ring at the feet, a star
-  // where the shot will burst, green lasers from it to everything locked on, a
-  // lock-on mark on each, and the crystal bow.
+  // After the lighting, for everyone to see: the circle of runes at the feet, the sigil where the shot will burst,
+  // the lasers to everything locked on and a mark on each (see archery.js).
   drawArchery(ctx) {
     const b = this.bow;
     if (!b || !this.alive) return;
     const k = Math.min(1, b.t / ARCH_CHARGE), t = this.game.time, fade = b.fired ? Math.max(0, 1 - b.out / 0.25) : 1;
-    const x = Math.round(this.x), y = Math.round(this.y), h = this.bowHand, P = b.point ?? this.burstPoint();
-    const put = (px, py, col, al = 1) => { ctx.globalAlpha = al * fade; ctx.fillStyle = col; ctx.fillRect(Math.round(px), Math.round(py), 1, 1); };
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    // a green bloom round the bow, swelling as it draws
-    const gr = ctx.createRadialGradient(h.x, h.y + 2, 0, h.x, h.y + 2, 24);
-    gr.addColorStop(0, `rgba(150, 255, 170, ${(0.2 + 0.3 * k) * fade})`);
-    gr.addColorStop(1, 'rgba(60, 255, 110, 0)');
-    ctx.fillStyle = gr;
-    ctx.fillRect(h.x - 24, h.y - 22, 48, 48);
-    // the rune ring at the feet
-    const R = 19 - 7 * k;
-    for (let i = 0; i < 44; i++) {
-      if ((i + Math.floor(t * 18)) % 5 > 2) continue;
-      const a = (i / 44) * Math.PI * 2;
-      put(x + Math.cos(a) * R, y - 1 + Math.sin(a) * R * 0.28, i % 5 ? '#5aff7a' : '#d8ffd8', 0.9);
-    }
-    if (!b.fired) {
-      // the burst point: a turning four-point star, and a faint line up to it from the bow
-      for (let yy = Math.round(h.y - 24); yy > P.y + 4; yy -= 3) put(h.x, yy, '#5aff7a', 0.35);
-      const sa = t * 4, sr = 3 + k * 2;
-      for (let q = 0; q < 4; q++) {
-        const a = sa + (q * Math.PI) / 2;
-        for (let j = 0; j <= sr; j++) put(P.x + Math.cos(a) * j, P.y + Math.sin(a) * j, j < 2 ? '#ffffff' : '#7aff8a');
-      }
-      const pg = ctx.createRadialGradient(P.x, P.y, 0, P.x, P.y, 10);
-      pg.addColorStop(0, `rgba(160, 255, 170, ${0.5 * fade})`);
-      pg.addColorStop(1, 'rgba(60, 255, 110, 0)');
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = pg;
-      ctx.fillRect(P.x - 10, P.y - 10, 20, 20);
-      // the lasers: from the burst point to each one locked, a brighter pulse running down
-      for (const l of b.locks) {
-        const tx = l.v.x, ty = l.v.y - 14, dx = tx - P.x, dy = ty - P.y, n = Math.max(1, Math.ceil(Math.hypot(dx, dy)));
-        const lk = Math.min(1, l.t / 0.35);
-        for (let i = 0; i <= n; i++) {
-          const pulse = ((i - t * 160) % 16 + 16) % 16 < 3;
-          if (!pulse && lk < 1 && (i + Math.floor(t * 40)) % 3 === 0) continue;   // flickering till it's locked
-          put(P.x + (dx * i) / n, P.y + (dy * i) / n, pulse ? '#d8ffd8' : '#3aff6a', pulse ? 0.9 : 0.45);
-        }
-      }
-    }
-    ctx.globalCompositeOperation = 'source-over';
-    for (const l of b.locks) this.drawReticle(ctx, l, fade);
-    ctx.restore();
-  }
-  // A lock-on mark: a ring round them with a cross on it at top, bottom and
-  // either side, turning and closing in as the lock takes; locked, it holds
-  // still and pulses, a dot at the heart.
-  drawReticle(ctx, l, fade) {
-    const v = l.v, lk = Math.min(1, l.t / 0.35), t = this.game.time, cx = Math.round(v.x), cy = Math.round(v.y - 14);
-    const R = 9 + 7 * (1 - lk) + (lk >= 1 ? Math.sin(t * 12) * 0.6 : 0), rot = (1 - lk) * (Math.PI / 4);
-    const pts = new Set();
-    const add = (px, py) => pts.add(`${Math.round(px)},${Math.round(py)}`);
-    for (let i = 0; i < 64; i++) { const a = (i / 64) * Math.PI * 2; add(cx + Math.cos(a) * R, cy + Math.sin(a) * R); }
-    for (let q = 0; q < 4; q++) {
-      const a = rot + (q * Math.PI) / 2, mx = cx + Math.cos(a) * R, my = cy + Math.sin(a) * R;
-      for (let j = -2; j <= 2; j++) { add(mx + j, my); add(mx, my + j); }
-    }
-    if (lk >= 1) for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) add(cx + dx - 0.5, cy + dy - 0.5);
-    ctx.globalAlpha = fade;
-    ctx.fillStyle = '#0b100f';
-    for (const p of pts) { const [px, py] = p.split(',').map(Number); ctx.fillRect(px + 1, py + 1, 1, 1); }
-    ctx.fillStyle = lk >= 1 ? '#7aff8a' : '#3ae06a';
-    for (const p of pts) { const [px, py] = p.split(',').map(Number); ctx.fillRect(px, py, 1, 1); }
-    ctx.globalAlpha = 1;
+    const h = this.bowHand, ny = h.y + CRYSTAL_BOW.tipY + 2 + (b.fired ? 0 : 8 * k);
+    drawArcheryCast(ctx, this.x, this.y, h, { x: h.x, y: ny - 26 }, b.point ?? this.burstPoint(), b.fired ? [] : b.locks, k, fade, t, b.fired);
+    for (const l of b.locks) drawArcheryMark(ctx, Math.round(l.v.x), Math.round(l.v.y - 14), Math.min(1, l.t / 0.35), t, fade);
   }
   // Drawing the bow (with the body, in place of the arms): the crystal bow held
   // up over the head by its grip, the string pulled down to the chin as it
@@ -2087,7 +2024,7 @@ export class Fighter {
 
   // ---------- skill thief (skill, Q) ----------
   // Q: a hack reaches out for the foe nearest the mouse (in reach, in sight, with a skill worth having) and takes hold:
-  // a moment holding it on them - slower on your feet, no shooting - and it's done: they're cut off (whatever they had
+  // a moment holding it on them - slower on your feet, no shooting, rolling, second jump or ladders - and it's done: they're cut off (whatever they had
   // going stops, no skill of their own for a moment) and you've a copy of their skill for the next Q. Out of sight, or
   // too far, or Q again: it's broken off. Used (or held too long), it's back to taking them.
   updateSteal(dt, c) {
@@ -2095,7 +2032,7 @@ export class Fighter {
     if (!m) {
       if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
         const v = this.stealTarget(c);
-        if (v) this.steal = { t: 0, target: v, seed: Math.random() * 10 };
+        if (v) { this.steal = { t: 0, target: v, seed: Math.random() * 10 }; this.onLadder = false; }
         else {
           this.skillCD = 0.5;   // (nobody to take from: a fizzle)
           this.game.fx.sparks(this.x + this.facing * 6, this.y - 17, 5, this.facing, -0.5, '#ff6ad8');

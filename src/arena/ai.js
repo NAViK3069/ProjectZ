@@ -721,7 +721,7 @@ export class Bot {
         go = near.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 170).length >= (hpK < 0.6 ? 1 : 2) || (vis && dist < 110);
         break;
       case 'steal':      // someone in reach with a skill worth having
-        go = vis && dist < 250 && !!t.usingSkill && t.usingSkill !== 'grapple' && t.usingSkill !== 'steal';
+        go = vis && dist < 140 && !!t.usingSkill && t.usingSkill !== 'grapple' && t.usingSkill !== 'steal';
         if (go) c.target = { x: t.x, y: t.y - 14 };
         break;
       case 'octo':       // a fight on: four more guns in it
