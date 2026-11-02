@@ -24,7 +24,7 @@ import { drawArcheryCast, drawArcheryMark } from './archery.js';
 import { drawPhased } from './rift.js';
 import { drawSparkle } from './cloakfx.js';
 import { drawAurumCast, drawAurumHum } from './goldfx.js';
-import { drawReapIn, drawShades, drawReapMarks, drawReapFinish } from './shadefx.js';
+import { drawReapDraw, drawReapIn, drawShades, drawReapMarks, drawReapFinish } from './shadefx.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
@@ -158,9 +158,10 @@ const AURUM_TIME = 12, AURUM_CD = 20;
 // shadows to maybe go on to them (and how likely, each cut); going to shadow; the cuts - how many, how often, how
 // hard the first on someone, how much less each one after on the same one (to no less than REAP_FLOOR of it) - and the
 // last one; the wait after
-const REAP_RANGE = 140, REAP_CHAIN = 100, REAP_HOP = 0.35, REAP_IN = 0.2, REAP_CUTS = 12, REAP_EVERY = 0.11, REAP_HIT = 22, REAP_FADE = 0.78, REAP_FLOOR = 0.25, REAP_FINISH = 55, REAP_OUT = 0.4, REAP_CD = 22;
+const REAP_RANGE = 140, REAP_CHAIN = 100, REAP_HOP = 0.35, REAP_IN = 0.32, REAP_CUTS = 12, REAP_EVERY = 0.11, REAP_HIT = 22, REAP_FADE = 0.78, REAP_FLOOR = 0.25, REAP_FINISH = 55, REAP_OUT = 0.4, REAP_CD = 22;
+const REAP_DRAW = 0.5;   // first, the sword drawn: stood still, there to be seen and hit, the eyes lit red
 export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -675,7 +676,7 @@ export class Fighter {
     else if (sk === 'fang') this.updateFang(dt, c);
     else if (sk === 'aurum') this.updateAurum(dt, c);
     else if (sk === 'reap') this.updateReap(dt, c);
-    if (this.shade) c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (a shadow: held where it is - see updateReap)
+    if (this.reap && this.reap.phase !== 'out') c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (drawing the sword, or a shadow: held where it is - see updateReap)
     // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
     const st = this.stolen;
     if (st) {
@@ -1205,7 +1206,7 @@ export class Fighter {
   }
   // in the shadow kill, all but its last cut: a shadow - nowhere to be seen, nothing to hit
   get shade() {
-    return !!this.reap && this.reap.phase !== 'out';
+    return !!this.reap && this.reap.phase !== 'out' && this.reap.phase !== 'draw';
   }
   // the cloak glitching: seen (as a flickering hologram) by everyone, just for a moment
   get glimpsed() {
@@ -2147,7 +2148,8 @@ export class Fighter {
   }
 
   // ---------- shadow kill (skill, Q) ----------
-  // Q, with a foe near and in sight: you're gone into shadow - nothing to see, nothing to hit - and shadows of you
+  // Q, with a foe near and in sight: first the sword's drawn (REAP_DRAW) - rooted to the spot, the eyes lit red, there
+  // for anyone to hit - and then you're gone into shadow - nothing to see, nothing to hit - and shadows of you
   // come out of nowhere, one after another, cutting through the nearest of them, wherever they go - each cut on the
   // same one a little weaker. Only when someone else comes up close to them (REAP_CHAIN) might the shadows go on to that
   // one instead, at full strength again - and on from them, the same way; and if the one being cut falls, on to
@@ -2161,13 +2163,13 @@ export class Fighter {
         && Math.hypot(v.x - this.x, v.y - this.y) < REAP_RANGE && G.los(this.x, this.y - 14, v.x, v.y - 14));
       if (!near.length) { if (G.viewer === this) G.fx.motes(this.x, this.y - 16, 6, ['#3a0a5a', '#9a3aff']); return; }
       near.sort((a, b) => Math.hypot(a.x - this.x, a.y - this.y) - Math.hypot(b.x - this.x, b.y - this.y));
-      m = this.reap = { t: 0, phase: 'in', cur: near[0], run: 0, n: 0, next: 0, cuts: [], px: this.x, py: this.y, seed: Math.random() * 100 };
+      m = this.reap = { t: 0, phase: 'draw', cur: near[0], run: 0, n: 0, next: 0, cuts: [], px: this.x, py: this.y, seed: Math.random() * 100 };
       this.hook = null;
       this.onLadder = false;
       this.wall = null;
       if (this.weapon?.reloading) this.weapon.cancelReload();
-      G.fx.motes(this.x, this.y - 14, 16, ['#0a0412', '#3a0a5a', '#9a3aff', '#ff3a5a']);
-      G.lights.flash(this.x, this.y - 14, 90, '120, 40, 200', 0.15);
+      this.facing = Math.sign(near[0].x - this.x) || this.facing;
+      G.lights.flash(this.x, this.y - 20, 60, '255, 40, 70', 0.12);
       return;
     }
     m.t += dt;
@@ -2181,6 +2183,14 @@ export class Fighter {
       for (const o of G.fighters) { if (o === not || !foe(o)) continue; const d = Math.hypot(o.x - x, o.y - y); if (d < bd) { bd = d; best = o; } }
       return best;
     };
+    if (m.phase === 'draw' && m.t >= REAP_DRAW) {
+      // drawn: gone into shadow
+      m.phase = 'in';
+      m.t = 0;
+      G.fx.motes(this.x, this.y - 14, 16, ['#0a0412', '#3a0a5a', '#9a3aff', '#ff3a5a']);
+      G.lights.flash(this.x, this.y - 14, 110, '160, 50, 255', 0.2);
+      if (G.viewer === this || (m.cur && G.viewer === m.cur)) G.kick?.(this.facing * 3, -2);
+    }
     if (m.phase === 'in' && m.t >= REAP_IN) m.phase = 'cut';
     if (m.phase === 'cut') {
       // who the next cut's for: the same one - fallen, whoever's close by where they were; someone else up close to
@@ -2223,6 +2233,11 @@ export class Fighter {
     this.vy = 0;
     if (m.phase === 'out' && m.t >= REAP_OUT) { this.reap = null; this.skillCD = REAP_CD; }
   }
+  // how far the shadow kill's sword is out of its scabbard: a click of it, then held
+  reapPull() {
+    const m = this.reap;
+    return m?.phase === 'draw' ? 5 * Math.min(1, Math.max(0, (m.t / REAP_DRAW - 0.45) / 0.1)) : 0;
+  }
   // The shadow kill's looks (after the lighting): going into shadow, the marks on whoever's caught, the shadows
   // cutting through them, the last cut
   drawReap(ctx, t) {
@@ -2235,8 +2250,13 @@ export class Fighter {
       this.slot = 1;
       try { return this.paintSelf(0.94, '12, 4, 24')[0]; } finally { this.melee = ms; this.slot = sl; }
     };
-    if (m.phase === 'in') drawReapIn(ctx, paint(), m.px, m.py, m.t / REAP_IN, t, m.seed);
-    if (m.phase !== 'out' && m.cur?.alive) drawReapMarks(ctx, [m.cur], t, m.phase === 'in' ? m.t / REAP_IN : 1);
+    if (m.phase === 'draw') {
+      // (where the blade comes out: the scabbard's mouth, and the bit of steel out of it)
+      const a = this.facing > 0 ? Math.PI - 0.3 : 0.3, hx = this.x + this.facing * 5, hy = this.y + this.pose.body - 11;
+      drawReapDraw(ctx, this.x, this.y, this.y + this.pose.head - 17, this.facing, m.t / REAP_DRAW, t, m.seed, hx + Math.cos(a) * 5, hy + Math.sin(a) * 5, a, this.reapPull());
+    }
+    if (m.phase === 'in') drawReapIn(ctx, paint(), m.px, m.py, m.t / REAP_IN, t, m.seed, m.cur?.x, m.cur ? m.cur.y - 14 : undefined, this.facing);
+    if (m.phase !== 'out' && m.cur?.alive) drawReapMarks(ctx, [m.cur], t, m.phase === 'draw' ? m.t / REAP_DRAW : 1);
     if (m.cuts.length) drawShades(ctx, paint(), m.cuts, t, this.facing);
     if (m.phase === 'out' && m.fin) drawReapFinish(ctx, m.fin.x, m.fin.y, this.facing, m.t / REAP_OUT, t, m.seed);
   }
@@ -2524,14 +2544,15 @@ export class Fighter {
   }
   // The katana itself - the real one, as it's carried in hand - at (x, y) along ang as seen facing right.
   // In its scabbard: the hilt showing, black lacquer over the blade with a bright line along it and a cap at the end.
-  drawKatanaAt(ctx, x, y, ang, sheathed) {
+  // (pull: the katana drawn that far out of the scabbard - the hilt forward of where it was, the scabbard where it was)
+  drawKatanaAt(ctx, x, y, ang, sheathed, pull = 0) {
     const k = (this._kata ??= new MeleeWeapon(MELEE.katana));
     const a = this.facing > 0 ? ang : Math.PI - ang, flip = Math.cos(a) >= 0 ? 1 : -1;
     ctx.save();
     ctx.translate(Math.round(x), Math.round(y));
     ctx.rotate(a);
     ctx.scale(1, flip);
-    k.draw(ctx);
+    if (pull) { ctx.save(); ctx.translate(-Math.round(pull), 0); k.draw(ctx); ctx.restore(); } else k.draw(ctx);
     if (sheathed) {
       ctx.fillStyle = '#0b0e12';
       ctx.fillRect(5, -3.5, 25, 6);
@@ -3473,7 +3494,7 @@ export class Fighter {
       ctx.restore();
     };
     const g = this.gun;
-    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && !this.chidori)) return;   // (put away too while the archery bow's out)
+    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && !this.chidori && !this.reap)) return;   // (put away too while the archery bow's out)
     if (g.def.cls === 'pistol') put(g, Math.PI * 0.62, 2, 10);   // holstered
     else put(g, -Math.PI * 0.75, 3, 13);                         // across the back at 45 degrees
   }
@@ -3607,6 +3628,14 @@ export class Fighter {
       const h = this.chidoriHand(), m = this.chidori;
       drawHand(ctx, 'open', Math.round(h.x), Math.round(h.y));
       if (m.phase === 'charge' || (m.phase === 'hold' && Math.abs(this.vx) <= 40) || m.phase === 'stab') drawHand(ctx, 'grab', Math.round(h.x - this.facing * 3), Math.round(h.y + 2));
+      return;
+    }
+    if (this.reap?.phase === 'draw') {
+      // the shadow kill's sword: as deflect's, at the hip in its scabbard - and drawn out of it, just a little
+      const hx = this.x + this.facing * 5, hy = this.y + this.pose.body - 11, p = this.reapPull();
+      drawHand(ctx, 'open', Math.round(this.x - this.facing * 1), hy + 2);
+      this.drawKatanaAt(ctx, hx, hy, Math.PI - 0.3, true, p);
+      drawHand(ctx, 'grab', Math.round(hx + this.facing * Math.cos(0.3) * p), Math.round(hy - Math.sin(0.3) * p));
       return;
     }
     if (this.deflect) {

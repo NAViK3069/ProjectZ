@@ -1,4 +1,4 @@
-// The shadow kill's looks, all in pixels. Going in: the body torn into dark slices flung apart, violet at their edges.
+// The shadow kill's looks, all in pixels. First the sword drawn, the eyes lit red. Going in: the body torn into dark slices flung apart, violet at their edges.
 // On whoever's caught: a violet ring at their feet, a red mark over the head. The shadows: black copies of the
 // fighter, blade in hand, red-eyed, rimmed in violet, that come out of nowhere on one side of a foe and are through
 // them to the other in a blink - a streak of afterimages behind, and the cut left hanging in the air across them,
@@ -54,22 +54,155 @@ function shade(ctx, img, rim, x, y, dir, face, a, ghost = false) {
   });
 }
 
-// Going into shadow: k 0 .. 1. img: the dark picture of the fighter, feet at (x, y).
-export function drawReapIn(ctx, img, x, y, k, t, seed) {
-  const X = Math.round(x), Y = Math.round(y), rim = rimOf(img), e = k * k;
+// Before it all, the sword drawn - just a little, a click of it out of the scabbard (the sword and the hands: the
+// fighter's own, as deflect's). Feet at (x, y), eyes at height ey, facing face; k 0 .. 1 of it; (mx, my) the
+// scabbard's mouth, a the way the scabbard points, pull how far the blade's out. The eye lights red, a streak of it
+// flaring back; red light seeps from the mouth, sparks rising; at the click, a flash there and a thin red slit of
+// steel showing, a glint running along it.
+const ease3 = (k) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
+export function drawReapDraw(ctx, x, y, ey, face, k, t, seed, mx, my, a, pull) {
+  const X = Math.round(x), f = face, ux = Math.cos(a), uy = Math.sin(a);
+  lit(ctx, () => {
+    // red light seeping from the mouth, sparks going up off it and off the body
+    const leak = Math.min(1, k / 0.45);
+    for (let i = 0; i < 10; i++) {
+      const ph = (t * 2.4 + hash(i, 1, seed)) % 1, near = i < 5;
+      const sx = near ? mx + (hash(i, 2, seed) - 0.5) * 6 : x + (hash(i, 2, seed) - 0.5) * 16, sy = near ? my : y - 4 - hash(i, 4, seed) * 20;
+      ctx.globalAlpha = leak * Math.sin(ph * Math.PI);
+      ctx.fillStyle = i % 3 ? '#ff2a4a' : '#ffd0d8';
+      ctx.fillRect(Math.round(sx), Math.round(sy - ph * 16), 1, i % 2 ? 2 : 1);
+    }
+    // the steel out of the scabbard: from the mouth back along the blade toward the hilt, white-hot at the edge
+    if (pull > 0) {
+      for (let i = 0; i <= pull + 1; i++) {
+        const px = mx - ux * i, py = my - uy * i;
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
+        ctx.fillStyle = '#ff2a4a';
+        ctx.fillRect(Math.round(px - uy), Math.round(py + ux), 1, 1);
+      }
+      // a glint running along it, now and then
+      const g = ((t * 2.5) % 1) * (pull + 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(mx - ux * g) - 1, Math.round(my - uy * g), 3, 1);
+      ctx.fillRect(Math.round(mx - ux * g), Math.round(my - uy * g) - 1, 1, 3);
+    }
+    // the click: a star of light at the mouth, a ring out from it
+    const cl = (k - 0.5) / 0.22;
+    if (cl > 0 && cl < 1) {
+      const s = Math.round(9 * Math.sin(Math.PI * Math.min(1, cl * 1.6)));
+      ctx.globalAlpha = 1 - cl * 0.5;
+      ctx.fillStyle = '#ff8a9a';
+      ctx.fillRect(Math.round(mx) - s, Math.round(my), s * 2 + 1, 1);
+      ctx.fillRect(Math.round(mx), Math.round(my) - Math.round(s * 0.6), 1, Math.round(s * 1.2) + 1);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.round(mx) - 1, Math.round(my) - 1, 3, 3);
+      ctx.globalAlpha = 1 - cl;
+      ctx.fillStyle = '#ff2a4a';
+      pixArc(ctx, Math.round(mx), Math.round(my), 3 + cl * 16, 2 + cl * 8, 0, 0, Math.PI * 2);
+    }
+    // the eye: lit red, a streak of it flaring back, two rows thick near it, flickering
+    const eyeOn = Math.min(1, k / 0.12), ex = X + f * 3, EY = Math.round(ey);
+    if (eyeOn > 0) {
+      const flick = Math.floor(t * 40) % 5 ? 1 : 0.7, len = Math.round(4 + 14 * ease3(k / 0.3));
+      for (let i = 0; i <= len; i++) {
+        const al = eyeOn * flick * (1 - i / (len + 1)), lift = i > len * 0.6 ? 1 : 0;
+        ctx.globalAlpha = al;
+        ctx.fillStyle = i < 2 ? '#ffffff' : i < 5 ? '#ff8a9a' : '#ff2a4a';
+        ctx.fillRect(Math.round(ex - f * i), EY - lift, 1, 1);
+        if (i < len * 0.55) { ctx.globalAlpha = al * 0.8; ctx.fillStyle = '#ff2a4a'; ctx.fillRect(Math.round(ex - f * i), EY + 1, 1, 1); }
+      }
+      ctx.globalAlpha = eyeOn;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(f > 0 ? ex : ex - 1, EY, 2, 1);
+      ctx.fillStyle = '#ff2a4a';
+      ctx.fillRect(f > 0 ? ex : ex - 1, EY + 1, 2, 1);
+      const fl = k / 0.18;
+      if (fl > 0.2 && fl < 1) { const s = Math.round(5 * Math.sin(Math.PI * fl)); ctx.globalAlpha = 1; ctx.fillStyle = '#ff6a7a'; ctx.fillRect(ex - s, EY, s * 2 + 1, 1); ctx.fillRect(ex, EY - s, 1, s * 2 + 1); ctx.fillStyle = '#ffffff'; ctx.fillRect(ex, EY, 1, 1); }
+    }
+  });
+  glowAt(ctx, mx, my, 10 + 10 * Math.max(0, Math.min(1, (k - 0.5) / 0.2)), [[0, `rgba(255, 60, 90, ${0.1 + 0.25 * Math.min(1, k / 0.5)})`], [1, 'rgba(160, 0, 40, 0)']]);
+  glowAt(ctx, X + f * 3, ey, 7, [[0, `rgba(255, 50, 80, ${Math.min(1, k / 0.12) * 0.5})`], [1, 'rgba(160, 0, 40, 0)']]);
+}
+
+// Going into shadow: k 0 .. 1. img: the dark picture of the fighter, feet at (x, y); (tx, ty) whoever it's going for.
+// A white flash, and the body torn into slices flung apart; a pillar of violet light shooting up through where it
+// stood, a ring of it going out along the floor; four shadows of it bursting off every way; shards; and streaks of
+// light zipping off to whoever it's going for, one after another.
+export function drawReapIn(ctx, img, x, y, k, t, seed, tx, ty, face = 1) {
+  const X = Math.round(x), Y = Math.round(y), rim = rimOf(img), e = ease3(k), fade = 1 - k;
+  glowAt(ctx, X, Y - 14, 60 * fade + 10, [[0, `rgba(220, 160, 255, ${0.6 * fade})`], [0.4, `rgba(140, 50, 255, ${0.3 * fade})`], [1, 'rgba(60, 0, 140, 0)']]);
+  // the shadows bursting off every way
+  for (const [dx, dy] of [[-1, 0], [1, 0], [-0.7, -0.5], [0.7, -0.5]]) {
+    const d = 10 + e * 46;
+    shade(ctx, img, rim, X + dx * d, Y + dy * d, dx > 0 ? 1 : -1, face, 0.55 * fade, true);
+  }
+  // the body itself, coming apart in slices flung sideways
   for (let r = 0; r < 64; r += 2) {
-    const off = Math.round((hash(r, 1, seed) - 0.5) * 60 * e), up = Math.round(hash(r, 2, seed) * 10 * e);
-    if (hash(r, 3, seed) < k * 0.8) continue;   // (slices gone already)
-    ctx.globalAlpha = 1 - k * 0.6;
+    const off = Math.round((hash(r, 1, seed) - 0.5) * 80 * e), up = Math.round(hash(r, 2, seed) * 14 * e);
+    if (hash(r, 3, seed) < k) continue;
+    ctx.globalAlpha = 1 - k * 0.5;
     ctx.drawImage(img, 0, r, 64, 2, X - 32 + off, Y - 50 + r - up, 64, 2);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 0.6 * (1 - k);
+    ctx.globalAlpha = 0.8 * fade;
     ctx.drawImage(rim, 0, r, 64, 1, X - 32 + off, Y - 50 + r - up, 64, 1);
     ctx.restore();
   }
   ctx.globalAlpha = 1;
-  glowAt(ctx, X, Y - 14, 34 * (1 - k) + 10, [[0, `rgba(150, 60, 255, ${0.45 * (1 - k)})`], [1, 'rgba(60, 0, 120, 0)']]);
+  lit(ctx, () => {
+    // the flash: a star of white at the heart of it
+    if (k < 0.3) {
+      const f = 1 - k / 0.3, s = Math.round(22 * f + 4);
+      ctx.globalAlpha = f;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(X - s, Y - 15, s * 2 + 1, 2);
+      ctx.fillRect(X - 1, Y - 14 - s, 2, s * 2);
+      ctx.fillStyle = P.pale;
+      ctx.fillRect(X - 3, Y - 17, 7, 6);
+    }
+    // the pillar: up through where it stood, narrowing to a thread, motes running up it
+    const w = Math.round(3 * fade), top = Y - 20 - e * 70;
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = P.mid;
+    ctx.fillRect(X - w - 1, Math.round(top), w * 2 + 3, Y - Math.round(top));
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(X - Math.max(0, w - 1), Math.round(top), Math.max(1, w * 2 - 1), Y - Math.round(top));
+    for (let i = 0; i < 10; i++) {
+      const ph = (k * 1.5 + hash(i, 4, seed)) % 1;
+      ctx.globalAlpha = fade * Math.sin(ph * Math.PI);
+      ctx.fillStyle = i % 2 ? P.core : P.mid;
+      ctx.fillRect(X + Math.round((hash(i, 5, seed) - 0.5) * 12), Math.round(Y - ph * 80), 1, 3);
+    }
+    // the ring along the floor, two of them
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = P.pale;
+    pixArc(ctx, X, Y, 4 + e * 48, 2 + e * 9, 0, 0, Math.PI * 2);
+    ctx.fillStyle = P.mid;
+    pixArc(ctx, X, Y, 2 + e * 30, 1 + e * 6, 0, 0, Math.PI * 2);
+    // shards out every way
+    for (let i = 0; i < 20; i++) {
+      const b = hash(i, 6, seed) * Math.PI * 2, d = 4 + e * (16 + hash(i, 7, seed) * 40);
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = i % 4 === 0 ? '#ffffff' : i % 3 === 0 ? P.red : P.mid;
+      const sx = X + Math.cos(b) * d, sy = Y - 14 + Math.sin(b) * d * 0.7;
+      ctx.fillRect(Math.round(sx), Math.round(sy), 1, 1);
+      ctx.fillRect(Math.round(sx - Math.cos(b) * 2), Math.round(sy - Math.sin(b) * 1.4), 1, 1);
+    }
+    // the streaks of light zipping off to them
+    if (tx !== undefined) {
+      const dx = tx - X, dy = ty - (Y - 14), L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      for (let i = 0; i < 6; i++) {
+        const st = hash(i, 8, seed) * 0.4, ph = (k - st) / 0.5;
+        if (ph <= 0 || ph >= 1.3) continue;
+        const head = Math.min(1, ph), tail = Math.max(0, ph - 0.35), o = (hash(i, 9, seed) - 0.5) * 18 * (1 - head * 0.6);
+        ctx.globalAlpha = Math.min(1, 1.3 - ph);
+        ctx.fillStyle = i % 3 === 0 ? '#ffffff' : i % 3 === 1 ? P.pale : P.mid;
+        pixLine(ctx, X + dx * tail + nx * o, Y - 14 + dy * tail + ny * o, X + dx * head + nx * o * 0.3, Y - 14 + dy * head + ny * o * 0.3);
+      }
+    }
+  });
 }
 
 // A star of light winking: four arms (size long) round a white heart. a: how bright.
