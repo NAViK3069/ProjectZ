@@ -19,7 +19,7 @@ import { T, SOLID, PLAT, LADDER, ACID, LOW, LOW_H } from './level.js';
 import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
 import { drawFlame } from './flame.js';
 import { drawVisor } from './visor.js';
-import { drawShieldBubble, drawCard, drawCardAura, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
+import { drawShieldBubble, drawCard, drawCardAura, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
 export const GRAVITY = 720, WALK = 86, AIR_ACCEL = 650, JUMP = 290, JUMP2 = 250, PAD_JUMP = 430;   // (the bots work out their routes by these)
@@ -107,7 +107,7 @@ const FAR_HIT = { sniper: 0.85, rifle: 0.65, lmg: 0.65, smg: 0.5, pistol: 0.55, 
 const SANDE_TIME = 2, SANDE_CD = 24;
 export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
-const BAT_CAST = 0.35, BAT_CD = 20;
+const BAT_CAST = 0.35, BAT_CD = 20, WRAITH_TIME = 2.5, WRAITH_SPEED = 1.5;   // (wraith form: how long at most, how much faster)
 // deflect (skill, Q): how long the blade's up turning shots back, then the dash - how fast, how far, how hard - the wait after
 const DEFLECT_TIME = 1.5, DEFLECT_SPEED = 720, DEFLECT_REACH = 165, DEFLECT_CUT = 70, DEFLECT_CD = 14, DEFLECT_SLOW = 0.75, DEFLECT_FINISH = 0.24;
 const HACK_HURT = 1.2;   // someone hacked takes this much more from everything
@@ -289,7 +289,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, dropT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, dropT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -376,7 +376,7 @@ export class Fighter {
   // 27 over the feet), the body, or nothing (rolling: just the ball).
   hitPart(x, y) {
     const dx = (x - this.x) * this.facing;
-    if (this.vanish || this.phantom) return null;
+    if (this.vanish || this.phantom || this.wraith) return null;   // (shots go right through smoke)
     if (this.roll) return Math.abs(dx) <= 7 && y > this.y - ROLL_H && y <= this.y ? 'body' : null;
     const d = this.crouch ? CROUCH_DROP : 0;   // ducked down: the head's lower, the body shorter
     if (dx >= -8 && dx <= 7 && y >= this.y - 27 + d && y < this.y - 12 + d) return 'head';
@@ -563,6 +563,17 @@ export class Fighter {
       if (this.jumpBuf > 0) { this.vy = -JUMP * 0.8; this.jumpBuf = 0; this.ladderCool = 0.3; }
     }
 
+    // wraith form: shooting, hitting, throwing or rolling isn't to be done in it - to try is to fall out of it, then and there
+    if (this.wraith) {
+      const w = this.wraith;
+      if (!c.fire) w.held = false;   // (the trigger still down from before doesn't count)
+      w.age += dt;
+      if ((w.t -= dt) <= 0) this.wraith = null;
+      else if ((c.fire && !w.held) || c.melee || c.grenade || c.throwWeapon || c.roll) {
+        this.wraith = null;
+        c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, roll: false };
+      }
+    }
     // dive roll (costs stamina)
     if (c.roll && !this.roll && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
       const dir = c.move ? Math.sign(c.move) : this.facing;
@@ -657,7 +668,7 @@ export class Fighter {
         this.wall = null;
       }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.batCast ? 0.5 : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -726,7 +737,7 @@ export class Fighter {
       if (fall > 250) this.game.fx.dust(this.x, this.y, 5);
     }
     if (this.onGround) { this.airJumps = 1; this.airRoll = true; this.wallGrabs = 1; }
-    if (this.onLadder || this.roll) this.flipT = -1;
+    if (this.onLadder || this.roll || this.wraith) this.flipT = -1;
     else if (this.onGround && this.flipT >= 0 && (this.flipT += dt / FLIP_LAND) >= 1) this.flipT = -1;   // (down part way round: it finishes turning, quickly, rather than snap upright)
     // on a jump pad: up you go
     this.padT -= dt;
@@ -751,7 +762,7 @@ export class Fighter {
 
   updateCombat(dt, c) {
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -1898,6 +1909,7 @@ export class Fighter {
     this.hackCast = null;
     this.powered = null;
     this.batCast = null;
+    this.wraith = null;
     if (this.deflect) { this.deflect = null; this.skillCD = DEFLECT_CD; }
     if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
     this.breakBarrier(false, true);
@@ -1950,17 +1962,19 @@ export class Fighter {
 
   // ---------- vampire (skill, Q) ----------
   // Q: a moment calling, then a swarm of bats bursts out every way at once, each to bite whoever it finds and take the
-  // blood back to you, health for what it drew (see main.js).
+  // blood back to you, health for what it drew (see main.js) - and you go with them: wraith form, a little while as
+  // black smoke, seen by all but not to be touched, and faster on your feet. It ends early the moment you attack or roll.
   updateBats(dt, c) {
     const m = this.batCast;
     if (!m) {
-      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) this.batCast = { t: 0 };
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll && !this.wraith) this.batCast = { t: 0 };
       return;
     }
     if ((m.t += dt) >= BAT_CAST) {
       this.batCast = null;
       this.skillCD = BAT_CD;
       this.game.summonBats?.(this);
+      this.wraith = { t: WRAITH_TIME, total: WRAITH_TIME, age: 0, held: !!c.fire };
     }
   }
 
@@ -2318,7 +2332,7 @@ export class Fighter {
   hurt(dmg, from, kx, ky, head = false) {
     if (!this.alive || this.vanish) return false;
     if (this.roll && this.roll.t < ROLL_SAFE && !this.blast) return false;   // diving under it
-    if (this.shield > 0 || this.phantom || this.guardT > 0) return false;   // just beamed back in; the purple card; the shield just gone
+    if (this.shield > 0 || this.phantom || this.wraith || this.guardT > 0) return false;   // just beamed back in; the purple card; the shield just gone
     let d = dmg * (head ? HEAD_MUL : 1) * (this.hackedT > 0 ? HACK_HURT : 1);
     // whoever hit them with a clone's charge on: it counts for more, the once (a shotgun's pellets all count as the one)
     const hitter = from?.powered;
@@ -2377,6 +2391,7 @@ export class Fighter {
     this.hackedT = 0;
     this.sande = null;
     this.batCast = null;
+    this.wraith = null;
     this.deflect = null;
     this.alive = false;
     this.hp = 0;
@@ -2601,6 +2616,7 @@ export class Fighter {
   drawBody(ctx) {
     if (!this.alive) return this.drawCorpse(ctx);
     if (this.fade && !this.painting && !(this.fade.secret && this.game.viewer !== this)) return this.drawFade(ctx);
+    if (this.wraith && !this.painting) return;   // (nothing but smoke: drawn after the lighting - see drawSkillLooks)
     if (this.hidden && !this.painting) {
       if (this.glimpsed && !this.seesThrough) return;   // (drawn after the lighting, glowing: see drawGlimpse)
       if (!this.seesThrough) return;
@@ -2619,7 +2635,7 @@ export class Fighter {
     if (this.flipT >= 0) return this.drawFlip(ctx, x, y);
     if (this.onLadder && P.backBody) return this.drawClimbing(ctx, x, y, part);
     if (this.trail.length > 2 && !this.painting) this.drawTrail(ctx);
-    this.drawSlung(ctx, x, y);
+    if (!this.wraith) this.drawSlung(ctx, x, y);
     ctx.save();
     ctx.translate(this.facing < 0 ? x + 1 : x, y);
     if (this.facing < 0) ctx.scale(-1, 1);
@@ -2628,6 +2644,7 @@ export class Fighter {
     ctx.drawImage(part('body'), ox, oy + pose.body);
     ctx.drawImage(part(this.blinkLeft > 0 ? 'headBlink' : 'head'), ox + pose.headX, oy + pose.head);
     ctx.restore();
+    if (this.wraith) return;
     this.drawArms(ctx);
     for (const sl of this.slashes) this.drawSlash(ctx, sl);
   }
@@ -2827,6 +2844,22 @@ export class Fighter {
   drawSkillLooks(ctx) {
     if (!this.alive) return;
     const t = this.game.time, mine = this.seesThrough;
+    // wraith form going on and off: a burst of smoke, on whoever's screen this is. And all the while, more pouring off it.
+    const wr = this.wraith, now = performance.now();
+    if (!!wr !== !!this._wraithWas) {
+      this.game.fx.wraith(this.x, this.y, 26, 10, 70);
+      this.game.fx.sparks(this.x, this.y - 16, 12, 0, -1, '#ff2a40');
+      this.game.lights.flash(this.x, this.y - 16, 100, '255, 40, 60', 0.2);
+    }
+    this._wraithWas = wr;
+    if (wr) {
+      this._wraithSmoke = (this._wraithSmoke ?? 0) + (now - (this._wraithAt ?? now)) / 1000 * 42;
+      this._wraithAt = now;
+      const n = Math.min(6, Math.floor(this._wraithSmoke));
+      this._wraithSmoke -= Math.floor(this._wraithSmoke);
+      if (n) this.game.fx.wraith(this.x, this.y, n);
+      drawWraith(ctx, this.x, this.y, this.y + this.pose.head - 17, this.facing, wr.age, wr.t, t, this.vx, (tint, rgb) => this.paintSelf(tint, rgb));
+    } else this._wraithAt = null;
     if (this.hidden && !mine) return;
     const b = this.barrier;
     if (b) drawShieldBubble(ctx, this.x, this.y - 14, Math.max(0, b.hp / b.max), b.hit, b.age, b.t, t);

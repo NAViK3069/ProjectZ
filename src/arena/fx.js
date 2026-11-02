@@ -41,6 +41,14 @@ export class Fx {
       this.add({ x: x + rand(-5, 5), y: y - rand(2, 26), vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.5 - 12, life: rand(0.7, 1.4), color: pick(['#262a36', '#363c4e', '#4a5470', '#6a7896']), size: pick([3, 4, 5, 6]), drag: 2.6, kind: 'smoke', alpha: 0.75, only });
     }
   }
+  // Black and red smoke rolling off a vampire's wraith form, with an ember or two in it (x, y: its feet).
+  wraith(x, y, n, wide = 7, thrown = 20) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2), s = rand(0, thrown);
+      this.add({ x: x + rand(-wide, wide), y: y - rand(0, 28), vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.6 - rand(8, 26), life: rand(0.45, 1.05), color: pick(['#0a0306', '#14050a', '#240610', '#44081a', '#761022']), size: pick([2, 2, 3, 4]), drag: 2.4, kind: 'smoke', alpha: 0.85 });
+      if (Math.random() < 0.2) this.add({ x: x + rand(-wide, wide), y: y - rand(2, 26), vx: rand(-20, 20), vy: rand(-55, -20), life: rand(0.25, 0.6), color: pick(['#ff2a40', '#ff6a7a']), size: 1, drag: 1.5, glow: true, kind: 'spark' });
+    }
+  }
   // A wisp of shadow curling up off a shadow clone.
   wisp(x, y, only = null) {
     this.add({ x, y, vx: rand(-6, 6), vy: rand(-22, -10), life: rand(0.5, 0.8), color: pick(['#2a3044', '#3c4660']), size: pick([2, 3]), drag: 1.5, kind: 'smoke', alpha: 0.45, only });

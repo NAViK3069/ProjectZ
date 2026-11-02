@@ -508,6 +508,9 @@ export class Bot {
     this.useSkill(c, t, vis, dist, hpK, enemies);
     // the purple card: it's safe only until it attacks - it holds its fire and gets out of there, or round to a better place
     if (f.phantom) { c.fire = false; c.melee = false; c.grenade = false; }
+    // in wraith form itself: nothing that would end it. And no wasting shots on someone else's: they go through.
+    if (f.wraith || t?.wraith) { c.fire = false; c.melee = false; c.grenade = false; c.throwWeapon = false; }
+    if (f.wraith) c.roll = false;
     if (f.deflect && t) { c.aim = Math.atan2(t.y - 14 - (f.y - 14), t.x - f.x); c.target = { x: t.x, y: t.y - 14 }; }
     // a shield up close is about to go off: not stood right next to it, if it can shoot from further off
     this.backOff = !!(t && t.barrier && armed && vis && dist < 80 && t.barrier.t < 2.5);
@@ -680,7 +683,7 @@ export class Bot {
     const f = this.f, G = this.game, k = f.skill;
     if (f.hackedT > 0) return;   // (Q does nothing, and it knows it)
     if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
+    if (f.wraith || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;
     const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);

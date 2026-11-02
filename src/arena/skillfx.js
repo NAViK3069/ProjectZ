@@ -542,6 +542,121 @@ export function drawBatCast(ctx, x, y, k, t) {
   });
 }
 
+// ---------- wraith form ----------
+// One bat's wing off the shoulder (sx, sy), going out along d (1 / -1): ribs of bone, the skin between them hanging in scallops.
+function wingAt(ctx, sx, sy, d, open, flap, alpha) {
+  const ribs = [[33, -1.2], [41, -0.72], [37, -0.24], [26, 0.26]].map(([len, a]) => {
+    const l = len * open, b = a + flap;
+    return { x: sx + d * Math.cos(b) * l, y: sy + Math.sin(b) * l };
+  });
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#14040a';
+  for (let i = 0; i < ribs.length - 1; i++) {
+    const A = ribs[i], B = ribs[i + 1];
+    for (let q = 0; q <= 1; q += 0.1) {
+      const sag = 1 - 0.34 * Math.sin(q * Math.PI);
+      pixLine(ctx, sx, sy, sx + (A.x + (B.x - A.x) * q - sx) * sag, sy + (A.y + (B.y - A.y) * q - sy) * sag);
+    }
+  }
+  ctx.fillStyle = '#4e0a16';
+  for (const r of ribs) pixLine(ctx, sx, sy, r.x, r.y);
+  ctx.fillStyle = '#ff2a40';
+  for (const r of ribs) {
+    ctx.fillRect(Math.round(r.x), Math.round(r.y), 1, 1);
+    pixLine(ctx, r.x, r.y, r.x + (sx - r.x) * 0.14, r.y + (sy - r.y) * 0.14);
+  }
+}
+// Wraith form: the body gone to black smoke with a red edge to it, coming apart towards the feet, smoke pouring off it
+// and streaming behind, a bat's wings beating off the shoulders, and the eyes. (x, y): the feet; eyeY: the eyes'
+// height; paint(tint, rgb): the fighter on its own canvas (feet at 32, 50) washed in that colour.
+export function drawWraith(ctx, x, y, eyeY, f, age, left, t, vx, paint) {
+  const open = ease(age / 0.22), k = open * Math.min(1, left / 0.2), run = Math.max(-1, Math.min(1, vx / 160)), X = Math.round(x), Y = Math.round(y);
+  const tick = Math.floor(t * 24);
+  glowAt(ctx, X, Y - 16, 46, [[0, `rgba(230, 20, 50, ${0.34 * k})`], [0.5, `rgba(120, 6, 30, ${0.2 * k})`], [1, 'rgba(60, 0, 20, 0)']]);
+  const shade = ['#050204', '#12040a', '#240610', '#3e0914', '#6a0c1c'];
+  ctx.save();
+  // the smoke behind: billowing up, thrown back the way it's come
+  for (let i = 0; i < 54; i++) {
+    const ph = (t * (0.7 + hash(i, 1, 4) * 0.8) + hash(i, 2, 4)) % 1, a = hash(i, 3, 4) * 6.28, size = Math.ceil((1 - ph) * 3) + 1;
+    const px = X + Math.cos(a) * (4 + hash(i, 4, 4) * 9) - run * ph * 26 + Math.sin(t * 3 + i) * 2, py = Y - 1 - hash(i, 5, 4) * 26 - ph * 16;
+    ctx.globalAlpha = k * (1 - ph) * 0.95;
+    ctx.fillStyle = shade[i % 5];
+    ctx.fillRect(Math.round(px), Math.round(py), size, size);
+  }
+  // the wings
+  const flap = Math.sin(t * 11) * 0.3 * (1 + Math.abs(run) * 0.4), sx = X - f * 1, sy = Y - 21;
+  wingAt(ctx, sx, sy, -f, open, flap + run * f * 0.2, k * 0.97);
+  wingAt(ctx, sx, sy, f, open * 0.8, flap - 0.25, k * 0.9);
+  // the body, row by row: rippling, more and more towards the feet, where it comes apart. First in red, for the edge.
+  const rows = (c, ox, alpha) => {
+    for (let r = 12; r < 52; r++) {
+      const low = Math.max(0, (r - 22) / 28), off = Math.round(Math.sin(r * 0.55 + t * 11) * (0.5 + low * 3)) - Math.round(run * low * 3);
+      if (low > 0.55 && hash(r, tick, 6) < (low - 0.55) * 1.9) continue;
+      ctx.globalAlpha = k * alpha * (1 - Math.max(0, low - 0.6));
+      ctx.drawImage(c, 0, r, 64, 1, X - 32 + off + ox, Y - 50 + r, 64, 1);
+    }
+  };
+  const [red] = paint(0.97, '215, 18, 44');
+  rows(red, -1, 0.9);
+  rows(red, 1, 0.9);
+  const [dark] = paint(0.95, '10, 3, 6');
+  rows(dark, 0, 1);
+  // smoke over it, drifting across the front
+  for (let i = 0; i < 16; i++) {
+    const ph = (t * 0.9 + hash(i, 7, 4)) % 1;
+    ctx.globalAlpha = k * Math.sin(ph * Math.PI) * 0.8;
+    ctx.fillStyle = shade[i % 3];
+    ctx.fillRect(Math.round(X + (hash(i, 8, 4) - 0.5) * 18 - run * ph * 8), Math.round(Y - 2 - ph * 18 - hash(i, 9, 4) * 6), 2 + (i % 3), 2);
+  }
+  ctx.restore();
+  lit(ctx, () => {
+    // the eyes: burning, with a thread of light off them
+    const ey = Math.round(eyeY) + 1;
+    ctx.globalAlpha = k;
+    for (const e of [2, 7]) {
+      const ex = X + f * e;
+      ctx.fillStyle = '#ff1a34';
+      ctx.fillRect(ex, ey - 1, 2, 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex, ey - 1, 1, 1);
+    }
+    for (let i = 1; i < 9; i++) {
+      ctx.globalAlpha = k * (1 - i / 9);
+      ctx.fillStyle = '#ff2a40';
+      ctx.fillRect(X + f * 8 - f * i * 2 - Math.round(run * i), ey + Math.round(Math.sin(t * 9 + i) * (i * 0.2)) - Math.round(i * 0.25), 2, 1);
+    }
+    // embers going up
+    for (let i = 0; i < 18; i++) {
+      const ph = (t * (0.8 + hash(i, 10, 4)) + hash(i, 11, 4)) % 1;
+      ctx.globalAlpha = k * (1 - ph);
+      ctx.fillStyle = i % 4 ? '#ff2a40' : '#ffc0c0';
+      ctx.fillRect(Math.round(X + (hash(i, 12, 4) - 0.5) * 30 + Math.sin(ph * 9 + i) * 2 - run * ph * 18), Math.round(Y - hash(i, 13, 4) * 8 - ph * 44), 1, 1 + (i % 2));
+    }
+    // now and then a thread of red lightning through it
+    if (hash(tick >> 1, 14, 4) < 0.14) {
+      const a = hash(tick >> 1, 15, 4) * 6.28;
+      let px = X, py = Y - 16;
+      ctx.globalAlpha = k * 0.85;
+      ctx.fillStyle = '#ff6a7a';
+      for (let i = 1; i <= 4; i++) {
+        const b = a + (hash(tick >> 1, i, 16) - 0.5) * 1.1, nx = X + Math.cos(b) * i * 6, ny = Y - 16 + Math.sin(b) * i * 6;
+        pixLine(ctx, px, py, nx, ny);
+        px = nx;
+        py = ny;
+      }
+    }
+    // going in: a ring and a flare
+    if (age < 0.3) {
+      const e = ease(age / 0.3);
+      ctx.globalAlpha = 1 - e;
+      ctx.fillStyle = '#ff4a5a';
+      pixArc(ctx, X, Y - 16, 8 + e * 40, 8 + e * 40, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      pixArc(ctx, X, Y - 16, 4 + e * 30, 4 + e * 30, 0, 0, Math.PI * 2);
+    }
+  });
+}
+
 // ---------- deflect ----------
 export const DEFLECT_R = 26;   // how far out the field stands from the chest: a shot reaching it turns back
 // The field: the katana's still at the hip and it's all in the air round the body - light going up off the ground, rings

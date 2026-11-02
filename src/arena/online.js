@@ -505,7 +505,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'deflect', 'hook', 'skillCD'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'wraith', 'deflect', 'hook', 'skillCD'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
