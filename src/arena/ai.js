@@ -257,6 +257,8 @@ export const gunTier = (def) => (def ? TIER[def.cls] ?? 1 : 0) + (def && def.dam
 
 const AIM_WANDER = 0.06;   // how far a bot's hand wanders off (rad, on NORMAL)
 
+// Skills that only work up close, and how close: a bot with one of these ready goes in to that, not hanging back.
+const SKILL_REACH = { blaze: 150, chidori: 200, steal: 125, galaxy: 210, decoy: 230, cloak: 300 };
 export class Bot {
   constructor(game, f, skill = 1) {
     this.game = game;
@@ -380,6 +382,14 @@ export class Bot {
         goal = n; key = t; this.mode = 'hunt';
         sprint = Math.hypot(k.x - f.x, k.y - f.y) > 200 && f.stamina > 40;
       } else { this.known.delete(t); this.target = null; }
+    }
+    // a skill ready that only works up close (a dash, a stab, a hack, a black hole where they stand...): in at them, to
+    // its reach, rather than hanging back where its gun's happy
+    const skillReach = SKILL_REACH[f.usingSkill];
+    if (skillReach && t && f.skillCD <= 0 && !(f.hackedT > 0) && !f.skillBusy && !losing && this.mode !== 'heal' && this.mode !== 'loot' && this.mode !== 'retreat'
+      && dist > skillReach * 0.85 && (vis || this.known.has(t))) {
+      const n = nav.nodeAt(t.x, t.y, t.onLadder) ?? nav.nodeBelow(t.x, t.y);
+      if (n) { goal = n; key = t; fight = false; sprint = true; this.mode = 'close'; }
     }
     if (!goal && !fight) {
       // nothing to go on: roam - round where someone vanished, if someone did, otherwise
@@ -509,7 +519,9 @@ export class Bot {
     // the purple card: it's safe only until it attacks - it holds its fire and gets out of there, or round to a better place
     if (f.phantom) { c.fire = false; c.melee = false; c.grenade = false; }
     // in wraith form itself: nothing that would end it. And no wasting shots on someone else's: they go through.
-    if (f.wraith || t?.wraith) { c.fire = false; c.melee = false; c.grenade = false; c.throwWeapon = false; }
+    if (f.wraith || t?.wraith || t?.phase || t?.jump) { c.fire = false; c.melee = false; c.grenade = false; c.throwWeapon = false; }   // (nor at someone in the other place, or gone to light)
+    // into a deflect field: every shot comes back - it holds its fire till the blade's drawn
+    if (t?.deflect?.phase === 'guard' && Math.hypot(t.x - f.x, t.y - f.y) < 360) c.fire = false;
     if (f.wraith) c.roll = false;
     // in the other place: away from them a while, then the way back opened behind
     if (f.phase) {
@@ -754,7 +766,7 @@ export class Bot {
         break;
       case 'hack': {     // worth it when it cuts something off: someone in reach with a skill going - or two at once, or close and it's in trouble
         const inReach = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 150);
-        const busy = (o) => o.cloak || o.decoy || o.veil || o.bow || o.mura || o.blaze || o.gal || o.summon || o.hook || o.swordsOut || o.lockOn || o.barrier || o.card || o.sande || o.deflect || o.batCast;
+        const busy = (o) => o.cloak || o.decoy || o.veil || o.bow || o.mura || o.blaze || o.gal || o.summon || o.hook || o.swordsOut || o.lockOn || o.barrier || o.card || o.sande || o.deflect || o.batCast || o.chidori || o.octo || o.steal || o.phase || o.stolen;
         go = inReach.some(busy) || inReach.length >= 2 || (inReach.length === 1 && hpK < 0.5);
         break;
       }

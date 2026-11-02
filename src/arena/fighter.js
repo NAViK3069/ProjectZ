@@ -115,7 +115,7 @@ export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
 const BAT_CAST = 0.35, BAT_CD = 20, WRAITH_TIME = 2.5, WRAITH_SPEED = 1.5;   // (wraith form: how long at most, how much faster)
 // jumper (skill, Q): how long you can be in the other place laying the path, how much quicker there, the wait after
-const PHASE_TIME = 3, PHASE_SPEED = 1.35, JUMPER_CD = 24;
+const PHASE_TIME = 4.5, PHASE_SPEED = 1.35, JUMPER_CD = 24;
 // skill thief (skill, Q): how far it reaches for someone, how far they can get before it snaps; how long the hack takes;
 // the wait after (and after a hack broken off); how long what's taken can be held unused; how long they lose their own
 // skill; slower on your feet hacking; skills that can't be taken

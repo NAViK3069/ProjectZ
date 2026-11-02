@@ -1405,7 +1405,7 @@ function drawBats(ctx) {
 // While the jumper's in the other place, the path's laid after them; once they're out, the second rift opens there and
 // the two are joined. Anyone at all who steps into one goes as light along the path, as it was walked, and out of the
 // other - a moment before they'll go back in. The rifts last RIFT_LIFE; a path too short is no rift at all.
-const RIFT_LIFE = 14, RIFT_SPEED = 480, RIFT_MIN = 40, RIFT_MAX = 340, RIFT_POINTS = 240, RIFT_IN = 11, RIFT_AGAIN = 1.2, RIFT_HURT = 12;   // (RIFT_HURT: what it takes out of the jumper's foes, going through)   // (RIFT_MAX: as long as a path gets - that far, and the way back opens)
+const RIFT_LIFE = 14, RIFT_SPEED = 480, RIFT_MIN = 40, RIFT_MAX = 640, RIFT_POINTS = 320, RIFT_IN = 11, RIFT_AGAIN = 1.2, RIFT_HURT = 25;   // (RIFT_HURT: what it takes out of the jumper's foes, going through)   // (RIFT_MAX: as long as a path gets - that far, and the way back opens)
 const riftLen = (r) => { let d = 0; r.lens = [0]; for (let i = 1; i < r.path.length; i++) r.lens.push((d += Math.hypot(r.path[i].x - r.path[i - 1].x, r.path[i].y - r.path[i - 1].y))); return d; };
 function riftAt(r, d) {
   const L = r.lens, P = r.path;
