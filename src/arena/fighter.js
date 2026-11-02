@@ -543,10 +543,11 @@ export class Fighter {
     if (this.shield > 0) this.shield = c.fire || c.melee || c.grenade || c.skill ? 0 : this.shield - dt;
     if (this.hurtT > REGEN_DELAY && this.hp < this.maxHp && !this.isDecoy && this.game.regen !== false) this.hp = Math.min(this.maxHp, this.hp + REGEN * dt);
 
-    // caught in someone's Sandevistan: no rolling out of it, no shooting, hitting, throwing or skills till it's over,
-    // and it comes round as slowly as everything else
+    // caught in someone's Sandevistan: no rolling out of it, no shooting, hitting, throwing or skills till it's over -
+    // but a Sandevistan of your own can be set off in it, and then you're out of it too - and it comes round as
+    // slowly as everything else
     const frozen = this.frozen;
-    if (frozen) c = { ...c, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: false };
+    if (frozen) c = { ...c, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: !!c.skill && this.usingSkill === 'sande' };
     if (c.aim !== null && c.aim !== undefined) {
       if (frozen) { const d = Math.atan2(Math.sin(c.aim - this.aim), Math.cos(c.aim - this.aim)); this.aim += Math.max(-FROZEN_TURN * dt, Math.min(FROZEN_TURN * dt, d)); }
       else this.aim = c.aim;
@@ -1948,7 +1949,8 @@ export class Fighter {
   // Q: for a moment of your own time - as long as the stamina you've got: SANDE_MIN_T on next to none, SANDE_MAX_T on a
   // full bar, all of it used - the whole world all but stops (see main.js: everyone else, and
   // everything flying, runs at SANDE_WORLD) and you go on as you were. Everyone caught in it can't shoot, hit, throw,
-  // roll or use a skill (their own Sandevistan included) till it's over. Your shots hang in the air with the rest.
+  // roll or use a skill till it's over - but anyone with a Sandevistan of their own can set it off, and move with you.
+  // Your shots hang in the air with the rest.
   updateSande(dt, c) {
     const m = this.sande;
     if (!m) {
