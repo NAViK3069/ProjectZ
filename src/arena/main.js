@@ -1273,8 +1273,8 @@ function drawSwordsHanging(g, gl) {
 }
 // ---------- the vampire's bats ----------
 // A swarm bursting out every way from the caster. Each flies on with a flutter, going for the nearest foe it can smell;
-// it bites once and it's done, and the blood it drew goes back to the caster, health for what it took. Walls turn them.
-const BAT_COUNT = 16, BAT_SPEED = 215, BAT_LIFE = 1.15, BAT_BITE = 8, BAT_SMELL = 95, BAT_TURN = 5;
+// it bites once and it's done, and the blood it drew goes back to the caster, twice over as health. Walls turn them.
+const BAT_COUNT = 16, BAT_SPEED = 215, BAT_LIFE = 1.15, BAT_BITE = 10, BAT_SMELL = 130, BAT_TURN = 5, BAT_DRAIN = 2;   // (BAT_DRAIN: health back for each point of blood drawn)
 function summonBats(f) {
   for (let i = 0; i < BAT_COUNT; i++) {
     const a = (i / BAT_COUNT) * Math.PI * 2 + rand(-0.12, 0.12), sp = BAT_SPEED * rand(0.85, 1.15);
@@ -1309,7 +1309,7 @@ function updateBats(dt) {
       v.hitHow = 'BATS';
       if (v.hurt(BAT_BITE, b.owner, b.vx * 0.15, -30)) {
         const drawn = Math.max(0, before - v.hp);
-        if (drawn > 0 && !v.isDecoy) game.bloods.push({ owner: b.owner, x: b.x, y: b.y, vx: -b.vx * 0.5 + rand(-60, 60), vy: -140 + rand(-50, 20), t: 0, heal: drawn, seed: b.seed });
+        if (drawn > 0 && !v.isDecoy) game.bloods.push({ owner: b.owner, x: b.x, y: b.y, vx: -b.vx * 0.5 + rand(-60, 60), vy: -140 + rand(-50, 20), t: 0, heal: drawn * BAT_DRAIN, seed: b.seed });
         game.fx.blood(v.x, v.y - 14, 4, Math.cos(b.a), Math.sin(b.a));
       }
       b.done = true;
