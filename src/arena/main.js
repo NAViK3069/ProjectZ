@@ -81,6 +81,7 @@ const OPTIONS = [
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
+  ['cd', 'SKILL COOLDOWN', [[0, 'NONE'], [0.25, '25%'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%'], [2, '200%'], [3, '300%']]],
   ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], [null, 'NO SKILL']]],
   ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
@@ -90,12 +91,18 @@ const OPTIONS = [
   ['nades', 'START GRENADES', [[0, '0'], [1, '1'], [2, '2'], [3, '3']]],
   ['drops', 'ITEM DROPS', [[0, 'OFF'], [0.5, 'FEW'], [1, 'NORMAL'], [2, 'MANY']]],
   ['pool', 'WEAPONS THAT DROP', [['all', 'GUNS + MELEE'], ['guns', 'GUNS ONLY'], ['melee', 'MELEE ONLY']]],
+  ['banGuns', 'BANNED GUNS', []],   // (these two: lists, picked in a list of their own - see openBans)
+  ['banSkills', 'BANNED SKILLS', []],
 ];
-const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all' };
+const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all', cd: 1, banGuns: [], banSkills: [] };
 const settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('arena.settings') ?? '{}')); } catch {}
 const saveSettings = () => { try { localStorage.setItem('arena.settings', JSON.stringify(settings)); } catch {} };
-for (const [k, , vals] of OPTIONS) if (!vals.some(([v]) => v === settings[k])) settings[k] = DEFAULTS[k];
+for (const [k, , vals] of OPTIONS) if (vals.length ? !vals.some(([v]) => v === settings[k]) : !Array.isArray(settings[k])) settings[k] = DEFAULTS[k];
+// what the room has banned: those guns never turn up, those skills nobody gets (training goes by none of it)
+const gunOK = (key) => !settings.banGuns.includes(key);
+const skillOK = (key) => !key || !settings.banSkills.includes(key);
+const banShown = (list) => (list?.length ? `${list.length} BANNED` : 'NONE');
 
 // guns that get beamed in, roughly by how often
 const GUN_POOL = [
@@ -107,6 +114,8 @@ const GUN_POOL = [
   ...['m249', 'm60', 'mg42'],
 ].filter((k) => WEAPONS[k]);
 // melee weapons that get beamed in (not the chainsaw: no spare batteries in the lab)
+// the guns that can be banned: all that turn up, and the pistol everyone starts with
+const BAN_GUNS = [...new Set(['m9', ...GUN_POOL])].filter((k) => WEAPONS[k]);
 const MELEE_POOL = ['knife', 'tacknife', 'bat', 'crowbar', 'machete', 'axe', 'katana', 'hammer', 'spear', 'shovel', 'fireaxe', 'bat', 'katana'].filter((k) => MELEE[k]);
 const ICONS = {};
 const iconOf = (key) => (ICONS[key] ??= gunIcon(WEAPONS[key].art, WEAPONS[key].defaultAttach ?? {}));
@@ -150,7 +159,9 @@ const game = {
   get regen() { return !overtime; },   // out of a fight for a while, you heal (not once the lab's venting)
   get viewer() { return player; },
   // training: your skill has no wait between uses, unless the skill bay turns cooldowns on
-  noCooldown: (f) => state === 'training' && f === player && !skillCooldowns,
+  noCooldown: (f) => (state === 'training' ? f === player && !skillCooldowns : settings.cd === 0),
+  // how fast the skills' waits run down: the room's SKILL COOLDOWN (50%: twice as fast)
+  cdRate: () => (state === 'training' || !settings.cd ? 1 : 1 / settings.cd),
   kick: (dx, dy) => renderer.kick(dx, dy),
   loose: (f, targets, point) => loose(f, targets, point),
   flameFist: (f, x, y, a, v) => flameFist(f, x, y, a, v),
@@ -255,7 +266,8 @@ const game = {
   hollowPurple: (f, x, y, a) => game.voids.push({ owner: f, x, y, x0: x, y0: y, a, sp: 120, dist: 0, t: 0, hit: new Set(), done: -1 }),   // whose eyes the screen is (a cloaked fighter shows only to itself)
   // what everyone starts a round with
   loadout() {
-    const gun = settings.start === 'fists' ? null : settings.start === 'random' ? pick(GUN_POOL) : 'm9';
+    const want = settings.start === 'fists' ? null : settings.start === 'random' ? pick(GUN_POOL.filter(gunOK)) ?? null : 'm9';
+    const gun = want && gunOK(want) ? want : null;   // (the pistol banned: fists)
     return { gun, ammo: gun ? WEAPONS[gun].magSize * (gun === 'm9' ? 3 : 2) : 0, grenades: settings.nades, hp: settings.hp, melee: settings.start === 'knife' ? 'knife' : null };
   },
   nadeArt: (kind) => NADE_ART[kind] ?? NADE,
@@ -464,12 +476,12 @@ const game = {
       x = (n.cx + 0.5) * T;
       y = (n.cy + 1) * T;
     }
-    const roll = Math.random(), pool = settings.pool;
-    const weapon = () => (pool === 'guns' ? 'gun' : pool === 'melee' ? 'melee' : Math.random() < 0.68 ? 'gun' : 'melee');
+    const roll = Math.random(), pool = settings.pool, guns = GUN_POOL.filter(gunOK);
+    const weapon = () => (!guns.length ? (pool === 'guns' ? 'nades' : 'melee') : pool === 'guns' ? 'gun' : pool === 'melee' ? 'melee' : Math.random() < 0.68 ? 'gun' : 'melee');   // (every gun banned: none)
     let kind = roll < 0.7 ? weapon() : roll < 0.87 ? 'health' : 'nades';
     if (kind === 'health' && overtime) kind = weapon();   // (the lab's venting: no more healing turns up)
     const p = { kind, x, y: y - (dropped ? 4 : 18), vy: dropped ? -120 : 0, vx: dropped ? rand(-40, 40) : 0, beam: dropped ? 0 : 0.8, life: 30, bob: Math.random() * 6 };
-    if (kind === 'gun') p.key = pick(GUN_POOL);
+    if (kind === 'gun') p.key = pick(guns);
     if (kind === 'melee') p.key = pick(MELEE_POOL);
     if (kind === 'nades') p.nade = Math.random() < 0.6 ? 'frag' : 'impact';
     if (!dropped) this.fx.sparks(x, y - 20, 10, 0, 0.5, '#8ff0ff');
@@ -500,7 +512,7 @@ function makeFighters() {
   game.fighters = ROSTER.slice(0, n + 1).map((r, i) => {
     // teams: the first half (you among them) against the rest; otherwise everyone for themselves
     const team = teams ? (i < (n + 1) / 2 ? 0 : 1) : i;
-    const look = { ...r, skill: r.bot ? botSkill() : settings.myskill };
+    const look = { ...r, skill: r.bot ? botSkill() : skillOK(settings.myskill) ? settings.myskill : null };
     const f = new Fighter(game, images, teams ? { ...look, ...TEAMS[team].look } : look);
     f.team = team;
     return f;
@@ -511,7 +523,7 @@ function makeFighters() {
 }
 // a bot's skill, by the setting: the one picked, or one at random
 const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon', 'lock', 'shield', 'cards', 'hack', 'sande', 'vampire', 'deflect', 'chidori', 'octo', 'steal', 'jumper'];
-const botSkill = () => (settings.botskill === 'random' ? pick(BOT_SKILLS) : settings.botskill ?? null);
+const botSkill = () => (settings.botskill === 'random' ? pick(BOT_SKILLS.filter(skillOK)) ?? null : skillOK(settings.botskill) ? settings.botskill ?? null : null);
 const teamMode = () => settings.mode === 'teams' && state !== 'training';   // (training's just you and the dummies, whatever the room says)
 const tagColor = (f) => (teamMode() ? TEAMS[f.team]?.color ?? f.color : f.color);
 
@@ -2550,7 +2562,7 @@ function drawSkillBox(u, W, H, f) {
     const bw = w - 31 * u - 30 * u, k = Math.max(0, Math.min(1, 1 - cd / total));
     kit.rect(x + 31 * u, y + 18 * u, bw, 5 * u, KC.ink);
     kit.rect(x + 32 * u, y + 19 * u, (bw - 2 * u) * k, 3 * u, info.color);
-    kit.text(`${cd.toFixed(1)} S`, x + w - 5 * u, y + 17 * u, { small: true, color: KC.text, align: 'right' });
+    kit.text(`${(cd / game.cdRate()).toFixed(1)} S`, x + w - 5 * u, y + 17 * u, { small: true, color: KC.text, align: 'right' });
   }
   if (flash > 0) {
     ctx.globalAlpha = flash * 0.5;
@@ -2721,6 +2733,9 @@ function drawTitle(ctx, u, W, H) {
     } else if (k === 'map') {
       if (menuSel === i) kit.rect(ox, oy, colW, rowH - u, KC.row);
       kit.select('pick:map', ox, oy, colW, rowH - u, label, shown);
+    } else if (k === 'banGuns' || k === 'banSkills') {
+      if (menuSel === i) kit.rect(ox, oy, colW, rowH - u, KC.row);
+      kit.select(`ban:${k}`, ox, oy, colW, rowH - u, label, banShown(settings[k]));
     } else kit.stepper(`opt:${i}`, ox, oy, colW, rowH - u, label, shown, { selected: menuSel === i });
   });
   y += ph + 8 * u;
@@ -2781,6 +2796,7 @@ function setMap(key) {
 // Step a setting one way or the other.
 function changeSetting(i, dir) {
   const [k, , vals] = OPTIONS[i];
+  if (!vals.length) return openBans(k);   // (a list: A / D opens it)
   const at = vals.findIndex(([v]) => v === settings[k]);
   settings[k] = vals[(at + dir + vals.length) % vals.length][0];
   saveSettings();
@@ -2807,6 +2823,7 @@ function titleInput() {
     return changeSetting(+i, +dir);
   }
   if (c === 'pick:map') return pickMap(setMap);
+  if (c?.startsWith('ban:')) return openBans(c.slice(4));
   if (c?.startsWith('pick:')) return pickSkillSetting(c.slice(5));
   if (c === 'start' || input.wasPressed('Enter') || (menuSel === OPTIONS.length && input.wasPressed('Space'))) return startMatch();
   if (c === 'back' || input.wasPressed('Escape')) state = 'menu';   // back to the main menu
@@ -3198,8 +3215,9 @@ const SKILL_INFO = [
   { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT, 4 S' },
 ];
 // the choices for a pick list: each skill (with its wait), then none - and for the bots, RANDOM first
-function skillItems(forBots = false) {
-  const list = SKILL_INFO.map((k) => ({ key: k.key, label: k.name, desc: k.desc, img: k.img, color: k.color, note: `${SKILL_CD[k.key]} S` }));
+function skillItems(forBots = false, room = settings) {
+  const mul = room.cd ?? 1, bans = room.banSkills ?? [];
+  const list = SKILL_INFO.filter((k) => !bans.includes(k.key)).map((k) => ({ key: k.key, label: k.name, desc: k.desc, img: k.img, color: k.color, note: `${+(SKILL_CD[k.key] * mul).toFixed(1)} S` }));
   if (forBots) list.unshift({ key: 'random', label: 'RANDOM', desc: 'EACH BOT GETS ONE OF THEM AT RANDOM, NEW EVERY MATCH', color: KC.gold });
   list.push({ key: null, label: forBots ? 'NONE' : 'NO SKILL', desc: forBots ? 'THE BOTS GO WITHOUT' : 'GO WITHOUT ONE', img: NO_SKILL, color: '#c83a2a' });
   return list;
@@ -3211,8 +3229,33 @@ let picker = null;
 function openPicker(id, title, items, current, apply) {
   picker = { id, title, items, current, apply, sel: Math.max(0, items.findIndex((it) => it.key === current)) };
 }
+// The list of guns or of skills to ban (k: banGuns / banSkills): each click bans one or lets it back; changed() after each.
+function openBans(k, changed = () => {}) {
+  const guns = k === 'banGuns';
+  const items = guns ? BAN_GUNS.map((key) => ({ key, label: WEAPONS[key].name, img: iconOf(key) })) : SKILL_INFO.map((s) => ({ key: s.key, label: s.name, img: s.img, color: s.color }));
+  picker = { id: `pk-${k}`, title: guns ? 'BANNED GUNS' : 'BANNED SKILLS', items, multi: k, sel: 0, changed };
+}
 function pickerInput() {
   const c = kit.click, P = picker, n = P.items.length, cols = P.cols ?? (renderer.width >= 440 * hudScale() ? 3 : 2);
+  if (P.multi) {
+    if (input.wasPressed('KeyA', 'ArrowLeft')) P.sel = (P.sel + n - 1) % n;
+    if (input.wasPressed('KeyD', 'ArrowRight')) P.sel = (P.sel + 1) % n;
+    if (input.wasPressed('KeyW', 'ArrowUp')) P.sel = (P.sel - cols + n) % n;
+    if (input.wasPressed('KeyS', 'ArrowDown')) P.sel = (P.sel + cols) % n;
+    const i = c?.startsWith(`${P.id}:`) ? c.slice(P.id.length + 1) : null, k = P.multi;
+    if (i === 'done' || input.wasPressed('Escape', 'Enter')) { picker = null; return; }
+    if (i === 'clear') settings[k] = [];
+    else if (i === 'all') settings[k] = P.items.map((it) => it.key);
+    else if ((i !== null && i !== '') || input.wasPressed('Space')) {
+      const key = P.items[i !== null ? +i : P.sel]?.key;
+      if (!key) return;
+      if (i !== null) P.sel = +i;
+      settings[k] = settings[k].includes(key) ? settings[k].filter((x) => x !== key) : [...settings[k], key];
+    } else return;
+    saveSettings();
+    P.changed();
+    return;
+  }
   if (input.wasPressed('KeyA', 'ArrowLeft')) P.sel = (P.sel + n - 1) % n;
   if (input.wasPressed('KeyD', 'ArrowRight')) P.sel = (P.sel + 1) % n;
   if (input.wasPressed('KeyW', 'ArrowUp')) P.sel = (P.sel - cols + n) % n;
@@ -3227,6 +3270,7 @@ function pickerInput() {
 }
 const drawPicker = () => {
   if (!picker) return;
+  if (picker.multi) { picker.cols = kit.toggles(picker.id, picker.title, picker.items.map((it) => ({ ...it, off: settings[picker.multi].includes(it.key) })), picker.sel); return; }
   if (!picker.maps) return kit.choices(picker.id, picker.title, picker.items, picker.current, picker.sel);
   // (the maps' pictures: one a frame, the one wanted first if it's still to come)
   const next = picker.items[picker.sel]?.maps && !picker.items[picker.sel].thumb ? picker.items[picker.sel] : picker.items.find((it) => it.maps && !it.thumb);
@@ -3545,7 +3589,7 @@ function startNetMatch(roster, mapKey, me, host) {
     return f;
   });
   player = game.fighters.find((f) => f.peer === me) ?? game.fighters[0];
-  for (const f of game.fighters) f.deaths = 0;
+  for (const f of game.fighters) { f.deaths = 0; if (!skillOK(f.skill)) f.skill = null; }
   if (!settings.skills) for (const f of game.fighters) f.skill = null;
   bots = host ? game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.9 + i * 0.04) * settings.skill)) : [];
   round = 0;
@@ -3563,7 +3607,7 @@ function addNetFighter(r, nid) {
   f.team = r.team;
   f.peer = r.peer;
   f.deaths = 0;
-  if (!settings.skills) f.skill = null;
+  if (!settings.skills || !skillOK(f.skill)) f.skill = null;
   game.fighters.push(f);
 }
 // a room setting changed in an online room (no backdrop to redo, as on the setup screen)
@@ -3576,7 +3620,7 @@ function changeNetSetting(i, dir) {
 initOnline({
   game, settings, OPTIONS, input, renderer, images, IDLE, MAP_KEYS, pick, weapons: WEAPONS, iconOf,
   drawText, textWidth, centerText, panel, playerControl, startNetMatch, addNetFighter, changeNetSetting, kit, tagColor,
-  skillItems, skillName, openPicker, pickMap, openSound() { soundPanel = true; }, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
+  skillItems, skillName, openPicker, pickMap, openBans, banShown, openSound() { soundPanel = true; }, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
   get state() { return state; }, set state(v) { state = v; },
   get player() { return player; }, set player(v) { player = v; },
   get stateT() { return stateT; }, set stateT(v) { stateT = v; },
@@ -3661,7 +3705,7 @@ const touch = isPhone ? new TouchControls(input, {
     return { x: (s.x - renderer.left) * k, y: (s.y - renderer.top) * k, k };
   },
 }) : null;
-const skillShown = () => (player.skillCD > 0 && !(player.game.noCooldown?.(player)) ? player.skillCD : 0);
+const skillShown = () => (player.skillCD > 0 && !(player.game.noCooldown?.(player)) ? player.skillCD / game.cdRate() : 0);
 function drawFrame() {
   drawWorld();
   drawHud();

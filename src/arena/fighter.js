@@ -536,7 +536,7 @@ export class Fighter {
       this.onLadder = false;
       this.roll = null;
       this.wall = null;
-      this.skillCD -= dt;
+      this.skillCD -= dt * (this.game.cdRate?.() ?? 1);
       return;
     }
     if (this.beamT !== undefined) this.beamT += dt;
@@ -631,7 +631,7 @@ export class Fighter {
       if (this.onGround) this.game.fx.dust(this.x - this.roll.dir * 4, this.y, 6);
       else this.game.fx.puff(this.x, this.y - 8);
     }
-    this.skillCD -= dt;
+    this.skillCD -= dt * (this.game.cdRate?.() ?? 1);   // (the room's SKILL COOLDOWN: see main.js)
     if (this.game.noCooldown?.(this)) this.skillCD = Math.min(this.skillCD, 0);   // (training: skills can go without their wait)
     this.updateBuffs(dt, c);
     if (this.hackedT > 0) { this.hackedT -= dt; c = { ...c, skill: false }; }   // (hacked: Q does nothing)

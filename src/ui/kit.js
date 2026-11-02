@@ -201,6 +201,52 @@ export class Kit {
     for (const c of cards) this.hit(...c);
     this.hit(`${id}:close`, 0, 0, W, H);   // (after the cards: the first hit under the mouse is the one that counts)
   }
+  // A list to ban things in: a small card for each (its picture, its name), the banned ones in red, crossed out. A click
+  // bans one or lets it back - the list stays open - with ALLOW ALL, BAN ALL and DONE under it. items: { label, img,
+  // color, off }. Gives back how many across, for the arrow keys.
+  toggles(id, title, items, sel = -1) {
+    const { u, W, H, ctx } = this;
+    this.shade(0.6);
+    this.hits = [];
+    const gap = 3 * u, ch = 20 * u, cols = Math.max(2, Math.min(6, Math.floor((W - 28 * u + gap) / (90 * u + gap))));
+    const cw = Math.min(104 * u, Math.floor((W - 28 * u - gap * (cols - 1)) / cols)), rows = Math.ceil(items.length / cols);
+    const pw = cols * cw + (cols - 1) * gap + 16 * u, ph = 26 * u + rows * (ch + gap) + 26 * u;
+    const px = Math.round(W / 2 - pw / 2), py = Math.max(6 * u, Math.round(H / 2 - ph / 2)), n = items.filter((it) => it.off).length;
+    const y0 = this.panel(px, py, pw, ph, { title, note: `${n ? `${n} BANNED` : 'NONE BANNED'}  -  CLICK ONE TO BAN IT, AGAIN TO LET IT BACK`, noteColor: n ? K.red : K.muted });
+    const cards = [];
+    items.forEach((it, i) => {
+      const x = px + 8 * u + (i % cols) * (cw + gap), y = y0 + Math.floor(i / cols) * (ch + gap), hid = `${id}:${i}`;
+      const off = !!it.off, hot = this.hover === hid || sel === i;
+      this.rect(x - u, y - u, cw + 2 * u, ch + 2 * u, K.ink);
+      this.rect(x, y, cw, ch, off ? K.red : hot ? K.teal : K.edge);
+      this.rect(x + u, y + u, cw - 2 * u, ch - 2 * u, off ? '#2a1210' : hot ? '#1f3a36' : '#141c19');
+      // the picture, fitted into a box at the left (a gun's long: whole pixels if it'll go up, shrunk if not)
+      const bx = x + 2 * u, by = y + 2 * u, bw = 38 * u, bh = ch - 4 * u;
+      this.rect(bx, by, bw, bh, '#0b100e');
+      if (it.color) this.rect(bx, by + bh - u, bw, u, it.color);
+      if (it.img) {
+        const res = it.img.res ?? 1, iw = it.img.width / res, ih = it.img.height / res, f = Math.min((bw - 2 * u) / iw, (bh - 2 * u) / ih), sc = f >= 1 ? Math.floor(f) : f;
+        ctx.globalAlpha = off ? 0.35 : 1;
+        ctx.drawImage(it.img, Math.round(bx + (bw - iw * sc) / 2), Math.round(by + (bh - ih * sc) / 2), Math.round(iw * sc), Math.round(ih * sc));
+        ctx.globalAlpha = 1;
+      }
+      // banned: a red cross over the picture, in steps
+      if (off) for (let j = 0; j < bh; j += u) { const dx = Math.round((j / bh) * (bw - 2 * u) / u) * u; this.rect(bx + u + dx, by + j, 2 * u, u, K.red); this.rect(bx + bw - 3 * u - dx, by + j, 2 * u, u, K.red); }
+      let name = it.label;
+      while (name.length > 3 && this.width(name, { small: true }) > cw - 46 * u) name = name.slice(0, -1);
+      this.text(name, x + 43 * u, y + 4 * u, { small: true, color: off ? K.red : hot ? '#ffffff' : K.text });
+      this.text(off ? 'BANNED' : 'ALLOWED', x + 43 * u, y + 11 * u, { small: true, color: off ? K.red : K.faint });
+      cards.push([hid, x, y, cw, ch]);
+    });
+    const by = y0 + rows * (ch + gap) + 4 * u, bw = 70 * u;
+    this.button(`${id}:clear`, px + 8 * u, by, bw, 14 * u, 'ALLOW ALL', { disabled: !n });
+    this.button(`${id}:all`, px + 14 * u + bw, by, bw, 14 * u, 'BAN ALL', { kind: 'danger', disabled: n === items.length });
+    this.button(`${id}:done`, px + pw - 8 * u - bw, by, bw, 14 * u, 'DONE', { kind: 'primary' });
+    for (const c of cards) this.hit(...c);
+    this.hit(`${id}:none`, px, py, pw, ph);   // (the panel itself: nothing)
+    this.hit(`${id}:done`, 0, 0, W, H);       // (outside it: done)
+    return cols;
+  }
   // The same, for the maps: a card for each with a picture of it (it.thumb, a canvas, when it's ready), its name and a
   // line about it, as many across as fit the screen. Gives back how many across, for the arrow keys.
   mapChoices(id, title, items, current, sel = -1) {

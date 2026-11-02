@@ -1694,6 +1694,8 @@ function finishEdit(keep, enter = false) {
   else if (what === 'crpass' && N.creating) { N.creating.pass = v; if (enter) createRoom(N.creating.name, v); }
   else if (what === 'jpass' && N.joinAsk) { N.joinPass = v; if (enter) joinRoom(N.joinAsk, v); }
 }
+// the room's settings as they stand: yours if it's your room, the host's if not
+const roomSettings = () => (N.mode === 'host' ? A.settings : N.hostSettings ?? A.settings);
 function setMySkill(key) {
   const me = N.members.find((m) => m.id === myId());
   N.skill = key;
@@ -1769,11 +1771,12 @@ export function netScreenInput() {
       A.changeNetSetting(+i, +dir);
       shareRoom();
     } else if (click === 'pick-map' && host) A.pickMap((key) => { A.setSetting('map', key); shareRoom(); });
-    else if (click === 'pick-skill') A.openPicker('pk-skill', 'YOUR SKILL', A.skillItems(false), N.skill, setMySkill);
+    else if (click?.startsWith('pick-ban:') && host) A.openBans(click.slice(9), shareRoom);
+    else if (click === 'pick-skill') A.openPicker('pk-skill', 'YOUR SKILL', A.skillItems(false, roomSettings()), N.skill, setMySkill);
     else if (click === 'pick-botskill' && host) A.openPicker('pk-botskill', 'BOT SKILLS', A.skillItems(true), A.settings.botskill, (key) => { A.setSetting('botskill', key); shareRoom(); });
     else if (I.wasPressed('KeyQ')) {
-      const at = SKILLS.findIndex(([k]) => k === N.skill);
-      setMySkill(SKILLS[(at + 1) % SKILLS.length][0]);
+      const bans = roomSettings().banSkills ?? [], ok = SKILLS.filter(([k]) => !k || !bans.includes(k)), at = ok.findIndex(([k]) => k === N.skill);   // (past the banned ones)
+      setMySkill(ok[(at + 1) % ok.length][0]);
     } else if ((click === 'roomname' || click === 'rename') && host) startEdit('room');
     else if (click === 'roompass' && host) startEdit('pass');
     else if (click === 'ready' || (I.wasPressed('Enter') && !host)) {
@@ -2118,11 +2121,12 @@ function drawRoom(k, u, W, H) {
     const shown = vals.find(([v]) => v === settings[key])?.[1] ?? '?', ox = px + 8 * u + c * (colW + gap), oy = cy + r * rowH;
     if (key === 'botskill') k.select('pick-botskill', ox, oy, colW, rowH - u, label, settings.skills ? shown : 'OFF', { enabled: host && !!settings.skills });
     else if (key === 'map') k.select('pick-map', ox, oy, colW, rowH - u, label, shown, { enabled: host });
+    else if (key === 'banGuns' || key === 'banSkills') k.select(`pick-ban:${key}`, ox, oy, colW, rowH - u, label, A.banShown(settings[key]), { enabled: host });
     else k.stepper(`opt:${oi}`, ox, oy, colW, rowH - u, label, shown, { enabled: host });
   });
   y += oh + gap;
   // your skill; ready / start; leave
-  const sk = A.skillName(N.skill), info = A.SKILL_INFO.find((x) => x.key === N.skill);
+  const sk = (settings.banSkills ?? []).includes(N.skill) ? 'BANNED - PICK ANOTHER' : A.skillName(N.skill), info = A.SKILL_INFO.find((x) => x.key === N.skill);
   k.rect(px, y, colW + 8 * u, 18 * u, 'rgba(14, 20, 18, 0.95)');
   k.select('pick-skill', px, y, colW + 8 * u, 18 * u, 'YOUR SKILL', settings.skills ? sk : 'SKILLS OFF', { img: settings.skills ? info?.img : null });
   const rx = px + colW + 8 * u + gap, rw = pw - (colW + 8 * u + gap), allReady = seated().every((m) => m.ready), bw = Math.round(rw * 0.64);
