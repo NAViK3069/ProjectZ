@@ -13,7 +13,7 @@ const hash = (a, b, c) => {
 };
 const P = { ink: '#0a0412', deep: '#3a0a5a', mid: '#9a3aff', pale: '#d8b0ff', core: '#ffe8ff', red: '#ff2a4a' };
 const lit = (ctx, fn) => { ctx.save(); ctx.globalCompositeOperation = 'lighter'; fn(); ctx.restore(); };
-const DASH = 0.09, CUT_LIFE = 0.34;   // a shadow going through, how long its cut hangs there
+const DASH = 0.07, CUT_LIFE = 0.34;   // a shadow going through, how long its cut hangs there
 
 // the shadow's violet rim: the same picture, violet (one canvas, done over for each)
 let rimC = null;
@@ -72,16 +72,35 @@ export function drawReapIn(ctx, img, x, y, k, t, seed) {
   glowAt(ctx, X, Y - 14, 34 * (1 - k) + 10, [[0, `rgba(150, 60, 255, ${0.45 * (1 - k)})`], [1, 'rgba(60, 0, 120, 0)']]);
 }
 
-// Over everyone caught in it: a ring of violet at the feet, turning, broken; a red mark over the head, blinking.
-export function drawReapMarks(ctx, targets, t) {
+// A star of light winking: four arms (size long) round a white heart. a: how bright.
+function twinkle(ctx, x, y, size, a, col) {
+  const X = Math.round(x), Y = Math.round(y);
+  ctx.globalAlpha = a;
+  ctx.fillStyle = col;
+  ctx.fillRect(X - size, Y, size * 2 + 1, 1);
+  ctx.fillRect(X, Y - size, 1, size * 2 + 1);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(X, Y, 1, 1);
+  if (size > 1) { ctx.globalAlpha = a * 0.6; ctx.fillRect(X - 1, Y, 3, 1); ctx.fillRect(X, Y - 1, 1, 3); }
+}
+
+// Over whoever's being cut: a ring of violet at the feet, turning, broken; stars of light winking round them; a red
+// mark over the head, blinking. k: how far it's come in (0 .. 1).
+export function drawReapMarks(ctx, targets, t, k = 1) {
+  lit(ctx, () => {
+    for (const v of targets) for (let i = 0; i < 7; i++) {
+      const ph = (t * 1.7 + hash(i, 1, 3)) % 1, on = Math.sin(ph * Math.PI), a = t * 1.3 + (i / 7) * Math.PI * 2;
+      twinkle(ctx, v.x + Math.cos(a) * (14 + hash(i, 2, 3) * 8), v.y - 14 + Math.sin(a) * 14 - ph * 6, hash(i, 3, 3) > 0.6 ? 2 : 1, on * 0.9 * k, i % 3 ? P.pale : P.mid);
+    }
+  });
   lit(ctx, () => {
     for (const v of targets) {
       const X = Math.round(v.x), Y = Math.round(v.y);
-      ctx.globalAlpha = 0.85;
+      ctx.globalAlpha = 0.9 * k;
       ctx.fillStyle = P.mid;
-      for (let i = 0; i < 3; i++) { const a = t * 4 + (i * Math.PI * 2) / 3; pixArc(ctx, X, Y, 13, 3, 0, a, a + 1.4); }
+      for (let i = 0; i < 3; i++) { const a = t * 5 + (i * Math.PI * 2) / 3; pixArc(ctx, X, Y, 15, 3.5, 0, a, a + 1.3); }
       ctx.fillStyle = P.pale;
-      pixArc(ctx, X, Y, 9, 2, 0, -t * 6, -t * 6 + 0.8);
+      pixArc(ctx, X, Y, 10, 2.5, 0, -t * 7, -t * 7 + 0.9);
       if (Math.sin(t * 18) > -0.4) {
         const my = Math.round(v.y - 40);
         ctx.fillStyle = P.red;
@@ -94,53 +113,116 @@ export function drawReapMarks(ctx, targets, t) {
   });
 }
 
-// The shadows going through, and their cuts. cuts: [{ x0, y0, x1, y1 (the cut, across the chest), t, s }]
-export function drawShades(ctx, img, cuts, t, face = 1) {
-  const rim = rimOf(img);
-  for (const q of cuts) {
-    const k = Math.min(1, q.t / DASH), dir = Math.sign(q.x1 - q.x0) || 1, at = (j) => [q.x0 + (q.x1 - q.x0) * j, q.y0 + (q.y1 - q.y0) * j];
-    const fade = q.t < DASH ? 1 : Math.max(0, 1 - (q.t - DASH) / (CUT_LIFE - DASH));
-    // the cut left in the air: ink outside, violet, a white heart - drawn as far as the shadow's got
-    const [ex, ey] = at(Math.min(1, k * 1.15));
-    const ux = q.x1 - q.x0, uy = q.y1 - q.y0, d = Math.hypot(ux, uy) || 1, nx = -uy / d, ny = ux / d;
-    const w = fade;   // (thinning as it goes)
-    ctx.save();
-    ctx.globalAlpha = 0.7 * fade;
-    ctx.fillStyle = P.ink;
-    if (w > 0.5) for (const o of [-2, 2]) pixLine(ctx, q.x0 + nx * o, q.y0 + ny * o, ex + nx * o, ey + ny * o);
-    ctx.restore();
-    lit(ctx, () => {
-      ctx.globalAlpha = fade;
-      ctx.fillStyle = P.mid;
-      if (w > 0.25) for (const o of [-1, 1]) pixLine(ctx, q.x0 + nx * o, q.y0 + ny * o, ex + nx * o, ey + ny * o);
-      ctx.fillStyle = w > 0.6 ? P.core : P.pale;
-      pixLine(ctx, q.x0, q.y0, ex, ey);
-      // where it went in: a flash, and shards thrown out either side of the cut
-      if (k >= 0.5) {
-        const mx = (q.x0 + q.x1) / 2, my = (q.y0 + q.y1) / 2, since = q.t - DASH * 0.5;
-        if (since < 0.06) { ctx.globalAlpha = 1 - since / 0.06; ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(mx) - 2, Math.round(my) - 2, 5, 5); }
-        for (let i = 0; i < 8; i++) {
-          const side = i % 2 ? 1 : -1, sp = 6 + hash(i, 1, q.s) * 22, along = (hash(i, 2, q.s) - 0.5) * 0.9;
-          const r = since * sp * 6, px = mx + (nx * side + (ux / d) * along) * r, py = my + (ny * side + (uy / d) * along) * r + since * since * 60;
-          ctx.globalAlpha = Math.max(0, 1 - since / 0.3);
-          ctx.fillStyle = i % 3 ? P.mid : i % 2 ? P.red : P.core;
-          ctx.fillRect(Math.round(px), Math.round(py), i % 4 ? 1 : 2, 1);
-        }
-      }
-    });
-    // the shadow: afterimages strung back along the way it came, then itself (feet 14 under the chest)
-    if (q.t < DASH + 0.12) {
-      const gone = q.t < DASH ? 1 : Math.max(0, 1 - (q.t - DASH) / 0.12);
-      for (let i = 3; i >= 1; i--) {
-        const j = k - i * 0.16;
-        if (j < 0) continue;
-        const [sx, sy] = at(j);
-        shade(ctx, img, rim, sx, sy + 14, dir, face, gone * (0.4 - i * 0.11), true);
-      }
-      const [sx, sy] = at(k);
-      shade(ctx, img, rim, sx, sy + 14, dir, face, gone * (q.t < 0.02 ? q.t / 0.02 : 1));
+// One cut as a blade of light: from tail to head along it (0 .. 1), bowed by q.b, widest (w) in the middle and down to
+// a fine point at both ends - white at the heart, pale violet, violet at its edges, a red one down one side.
+// Each pixel the once, the brightest that falls on it.
+const RANK = { '#ff2a4a': 1, [P.mid]: 2, [P.pale]: 3, '#ffffff': 4 };
+function blade(ctx, q, tail, head, w, a) {
+  const dx = q.x1 - q.x0, dy = q.y1 - q.y0, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+  const px = new Map();
+  const put = (x, y, col) => { const k = (x + 2048) * 4096 + (y + 2048), was = px.get(k); if (!was || RANK[was[2]] < RANK[col]) px.set(k, [x, y, col]); };
+  for (let i = tail * L; i <= head * L; i += 0.5) {
+    const s = i / L, hw = w * Math.pow(Math.sin(Math.PI * s), 1.1), off = (q.b ?? 0) * Math.sin(Math.PI * s);
+    const cx = q.x0 + ux * i + nx * off, cy = q.y0 + uy * i + ny * off, red = s > 0.25 && s < 0.75;
+    for (let j = -hw; j <= hw + (red ? 1 : 0); j += 0.5) {
+      const r = Math.abs(j) / Math.max(0.01, hw);
+      const col = j > hw ? '#ff2a4a' : r < 0.4 ? '#ffffff' : r < 0.75 ? P.pale : P.mid;
+      put(Math.round(cx + nx * j), Math.round(cy + ny * j), col);
     }
   }
+  ctx.save();
+  ctx.globalAlpha = a;
+  for (const [x, y, col] of px.values()) { ctx.fillStyle = col; ctx.fillRect(x, y, 1, 1); }
+  ctx.restore();
+}
+
+// The shadows going through, and their cuts. cuts: [{ x0, y0, x1, y1 (the cut, across the chest), b (its bow), t, s }]
+// Each: a tear in the air where the shadow comes out; the shadow across in a blink, speed lines streaming off it; the
+// cut drawn after it as a blade of light, a burst of light where it goes through them - long rays, a ring, shards
+// flung on - then the cut thinning to a hair and drawing in from its tail till it's gone.
+export function drawShades(ctx, img, cuts, t, face = 1) {
+  const rim = rimOf(img);
+  // the cuts, then the shadows, then the bursts of light over it all
+  for (const q of cuts) {
+    const head = 1 - Math.pow(1 - Math.min(1, q.t / DASH), 2), tail = Math.max(0, Math.min(1, (q.t - DASH - 0.05) / 0.2));
+    if (tail >= head) continue;
+    const thin = Math.max(0, 1 - Math.max(0, q.t - DASH) / (CUT_LIFE - DASH));
+    const mx = (q.x0 + q.x1) / 2, my = (q.y0 + q.y1) / 2;
+    glowAt(ctx, mx, my, 28 * thin + 6, [[0, `rgba(200, 140, 255, ${0.4 * thin})`], [1, 'rgba(120, 40, 255, 0)']]);
+    blade(ctx, q, tail, head, 0.3 + 1.5 * Math.pow(thin, 0.6), Math.min(1, 0.35 + thin));
+  }
+  for (const q of cuts) {
+    if (q.t >= DASH + 0.08) continue;
+    const k = Math.min(1, q.t / DASH), dir = Math.sign(q.x1 - q.x0) || 1, at = (j) => [q.x0 + (q.x1 - q.x0) * j, q.y0 + (q.y1 - q.y0) * j];
+    const dx = q.x1 - q.x0, dy = q.y1 - q.y0, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+    const gone = q.t < DASH ? 1 : Math.max(0, 1 - (q.t - DASH) / 0.08);
+    // the tear it comes out of: a slit of violet stood up in the air, closing
+    if (q.t < 0.07) lit(ctx, () => {
+      const f = 1 - q.t / 0.07, X = Math.round(q.x0), Y = Math.round(q.y0), hh = Math.round(16 * f + 3);
+      ctx.globalAlpha = f;
+      ctx.fillStyle = P.mid;
+      ctx.fillRect(X - 1, Y - hh, 3, hh * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(X, Y - hh + 2, 1, hh * 2 - 4);
+    });
+    // speed lines streaming back off it
+    lit(ctx, () => {
+      const [hx, hy] = at(k);
+      for (let i = 0; i < 7; i++) {
+        const o = (hash(i, 5, q.s) - 0.5) * 26, len = (0.35 + hash(i, 6, q.s) * 0.65) * L * k;
+        ctx.globalAlpha = gone * (0.35 + 0.45 * hash(i, 7, q.s));
+        ctx.fillStyle = Math.abs(o) < 5 ? '#ffffff' : P.mid;
+        pixLine(ctx, hx + nx * o - ux * len, hy + ny * o - uy * len, hx + nx * o - ux * 4, hy + ny * o - uy * 4);
+      }
+    });
+    // two dark afterimages, then the shadow itself (its feet 14 under the chest)
+    for (const j of [0.45, 0.22]) if (k - j > 0) { const [sx, sy] = at(k - j); shade(ctx, img, rim, sx, sy + 14, dir, face, gone * 0.3, true); }
+    const [sx, sy] = at(k);
+    shade(ctx, img, rim, sx, sy + 14, dir, face, gone);
+  }
+  lit(ctx, () => {
+    for (const q of cuts) {
+      const since = q.t - DASH * 0.45;   // (the moment it's through the middle of them)
+      if (since < 0) continue;
+      const dx = q.x1 - q.x0, dy = q.y1 - q.y0, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+      const mx = Math.round((q.x0 + q.x1) / 2), my = Math.round((q.y0 + q.y1) / 2);
+      // the flash, and the rays: two long along the cut, two across, four short on the slant
+      if (since < 0.14) {
+        const k = since / 0.14, f = 1 - k;
+        ctx.globalAlpha = f;
+        if (since < 0.05) { ctx.fillStyle = '#ffffff'; ctx.fillRect(mx - 4, my - 1, 9, 3); ctx.fillRect(mx - 1, my - 4, 3, 9); }
+        for (const [ax, ay, len] of [[ux, uy, 34], [-ux, -uy, 34], [nx, ny, 16], [-nx, -ny, 16], [(ux + nx) * 0.7, (uy + ny) * 0.7, 9], [(ux - nx) * 0.7, (uy - ny) * 0.7, 9], [(-ux + nx) * 0.7, (-uy + ny) * 0.7, 9], [(-ux - nx) * 0.7, (-uy - ny) * 0.7, 9]]) {
+          const n = Math.round(len * (0.4 + 0.6 * f));
+          for (let i = 1; i <= n; i++) {
+            ctx.fillStyle = i < n * 0.4 ? '#ffffff' : i < n * 0.75 ? P.pale : P.mid;
+            ctx.fillRect(Math.round(mx + ax * i), Math.round(my + ay * i), 1, 1);
+          }
+        }
+        // a ring going out
+        ctx.globalAlpha = f * 0.9;
+        ctx.fillStyle = P.pale;
+        pixArc(ctx, mx, my, 4 + k * 18, 3 + k * 12, Math.atan2(uy, ux), 0, Math.PI * 2);
+      }
+      // stars of light winking along the cut, one after another, rising a little - still there as it goes
+      for (let i = 0; i < 10; i++) {
+        const ph = (since - hash(i, 8, q.s) * 0.14) / 0.2;
+        if (ph <= 0 || ph >= 1) continue;
+        const sa = hash(i, 9, q.s), off = (hash(i, 10, q.s) - 0.5) * 12 + (q.b ?? 0) * Math.sin(Math.PI * sa);
+        twinkle(ctx, q.x0 + dx * sa + nx * off, q.y0 + dy * sa + ny * off - ph * 5, hash(i, 11, q.s) > 0.55 ? 2 : 1, Math.sin(ph * Math.PI), i % 4 === 0 ? '#ffb0c0' : i % 2 ? P.pale : P.mid);
+      }
+      // shards flung on, the way the cut went: short streaks, white, violet, red
+      if (since < 0.32) {
+        for (let i = 0; i < 12; i++) {
+          const side = (hash(i, 3, q.s) - 0.5) * 1.6, sp = 70 + hash(i, 1, q.s) * 170, dirx = ux + nx * side, diry = uy + ny * side;
+          const r = since * sp, x = mx + dirx * r, y = my + diry * r + since * since * 90;
+          ctx.globalAlpha = Math.max(0, 1 - since / 0.32);
+          ctx.fillStyle = i % 4 === 0 ? '#ffffff' : i % 3 === 0 ? P.red : P.pale;
+          const tl = i % 2 ? 3 : 2;
+          for (let j = 0; j < tl; j++) ctx.fillRect(Math.round(x - dirx * j), Math.round(y - diry * j), 1, 1);
+        }
+      }
+    }
+  });
 }
 
 // The last cut, across (x, y): the fighter's back out of the shadows. k: 0 .. 1 of it.

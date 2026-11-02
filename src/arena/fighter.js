@@ -156,8 +156,9 @@ export const AURUM_CAST = 0.55;
 const AURUM_TIME = 12, AURUM_CD = 20;
 // shadow kill (skill, Q): how far it reaches for a foe; how close another has to be to whoever's being cut for the
 // shadows to maybe go on to them (and how likely, each cut); going to shadow; the cuts - how many, how often, how
-// hard - and the last one; the wait after
-const REAP_RANGE = 230, REAP_CHAIN = 60, REAP_HOP = 0.35, REAP_IN = 0.2, REAP_CUTS = 12, REAP_EVERY = 0.11, REAP_HIT = 18, REAP_FINISH = 50, REAP_OUT = 0.4, REAP_CD = 22;
+// hard the first on someone, how much less each one after on the same one (to no less than REAP_FLOOR of it) - and the
+// last one; the wait after
+const REAP_RANGE = 140, REAP_CHAIN = 100, REAP_HOP = 0.35, REAP_IN = 0.2, REAP_CUTS = 12, REAP_EVERY = 0.11, REAP_HIT = 22, REAP_FADE = 0.78, REAP_FLOOR = 0.25, REAP_FINISH = 55, REAP_OUT = 0.4, REAP_CD = 22;
 export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD };
 export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT };
 // health / damage
@@ -2147,9 +2148,10 @@ export class Fighter {
 
   // ---------- shadow kill (skill, Q) ----------
   // Q, with a foe near and in sight: you're gone into shadow - nothing to see, nothing to hit - and shadows of you
-  // come out of nowhere, one after another, cutting through the nearest of them, wherever they go. Only when someone
-  // else comes up close to them (REAP_CHAIN) might the shadows go on to that one instead - and on from them, the same
-  // way; and if the one being cut falls, on to whoever's close to where they were. Then you're back, behind the last
+  // come out of nowhere, one after another, cutting through the nearest of them, wherever they go - each cut on the
+  // same one a little weaker. Only when someone else comes up close to them (REAP_CHAIN) might the shadows go on to that
+  // one instead, at full strength again - and on from them, the same way; and if the one being cut falls, on to
+  // whoever's close to where they were. Then you're back, behind the last
   // of them, with one last cut. Nobody near: nothing happens (it isn't spent).
   updateReap(dt, c) {
     let m = this.reap;
@@ -2159,7 +2161,7 @@ export class Fighter {
         && Math.hypot(v.x - this.x, v.y - this.y) < REAP_RANGE && G.los(this.x, this.y - 14, v.x, v.y - 14));
       if (!near.length) { if (G.viewer === this) G.fx.motes(this.x, this.y - 16, 6, ['#3a0a5a', '#9a3aff']); return; }
       near.sort((a, b) => Math.hypot(a.x - this.x, a.y - this.y) - Math.hypot(b.x - this.x, b.y - this.y));
-      m = this.reap = { t: 0, phase: 'in', cur: near[0], n: 0, next: 0, cuts: [], px: this.x, py: this.y, seed: Math.random() * 100 };
+      m = this.reap = { t: 0, phase: 'in', cur: near[0], run: 0, n: 0, next: 0, cuts: [], px: this.x, py: this.y, seed: Math.random() * 100 };
       this.hook = null;
       this.onLadder = false;
       this.wall = null;
@@ -2184,18 +2186,21 @@ export class Fighter {
       // who the next cut's for: the same one - fallen, whoever's close by where they were; someone else up close to
       // them, maybe that one
       if (m.next - dt <= 0 && m.n < REAP_CUTS) {
+        const was = m.cur;
         if (!foe(m.cur)) m.cur = nearTo(m.cur?.x ?? m.px, m.cur?.y ?? m.py, REAP_CHAIN * 1.5, m.cur);
         else if (m.n > 0 && h(m.n + 3) < REAP_HOP) { const o = nearTo(m.cur.x, m.cur.y, REAP_CHAIN, m.cur); if (o) m.cur = o; }
+        if (m.cur !== was) m.run = 0;   // (someone new: the cuts are at full strength again)
       }
       const v = m.cur;
       if ((m.next -= dt) <= 0 && m.n < REAP_CUTS && v) {
-        const a = h(m.n + 1) * Math.PI * 2, r = 30, cy = v.y - 14, ux = Math.cos(a), uy = Math.sin(a) * 0.55;
-        m.cuts.push({ x0: v.x - ux * r, y0: cy - uy * r, x1: v.x + ux * r, y1: cy + uy * r, t: 0, s: h(m.n + 7) * 100 });
+        const a = h(m.n + 1) * Math.PI * 2, r = 40, cy = v.y - 14 + (h(m.n + 5) - 0.5) * 8, ux = Math.cos(a), uy = Math.sin(a) * 0.6;
+        m.cuts.push({ x0: v.x - ux * r, y0: cy - uy * r, x1: v.x + ux * r, y1: cy + uy * r, b: (h(m.n + 11) - 0.5) * 14, t: 0, s: h(m.n + 7) * 100 });
         m.n++;
         m.next = REAP_EVERY;
         m.px = v.x;   // (where you are, unseen: with them - the camera goes along)
         m.py = v.y;
-        this.game.reapCut?.(this, v, REAP_HIT, ux, uy);
+        this.game.reapCut?.(this, v, REAP_HIT * Math.max(REAP_FLOOR, Math.pow(REAP_FADE, m.run)), ux, uy);
+        m.run++;
       }
       if (m.n >= REAP_CUTS || !v) {
         // out of the shadows behind the one being cut - with the last cut
@@ -2231,7 +2236,7 @@ export class Fighter {
       try { return this.paintSelf(0.94, '12, 4, 24')[0]; } finally { this.melee = ms; this.slot = sl; }
     };
     if (m.phase === 'in') drawReapIn(ctx, paint(), m.px, m.py, m.t / REAP_IN, t, m.seed);
-    if (m.phase !== 'out' && m.cur?.alive) drawReapMarks(ctx, [m.cur], t);
+    if (m.phase !== 'out' && m.cur?.alive) drawReapMarks(ctx, [m.cur], t, m.phase === 'in' ? m.t / REAP_IN : 1);
     if (m.cuts.length) drawShades(ctx, paint(), m.cuts, t, this.facing);
     if (m.phase === 'out' && m.fin) drawReapFinish(ctx, m.fin.x, m.fin.y, this.facing, m.t / REAP_OUT, t, m.seed);
   }
