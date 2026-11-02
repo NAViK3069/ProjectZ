@@ -35,8 +35,7 @@ export const MELEE = {
   crowbar: {
     name: 'CROWBAR', style: 'swing', damage: 55, time: 0.48, reach: 24, arc: 1.9, knock: 110, hands: 1,
   },
-  // a long-hafted battle axe: capped haft with a wrapped grip, a steel head with
-  // a spike on top and a wide crescent blade hanging below
+  // a felling axe: a long ash haft, a steel head with a short poll and a bearded bit
   axe: {
     name: 'AXE', style: 'swing', damage: 85, time: 0.62, reach: 28, arc: 1.8, knock: 120, hands: 2,
   },
@@ -144,39 +143,83 @@ const ART = {
     for (let x = 14; x < 21; x += 2) s.set(x, 0, 'e');        // saw-back
   },
   bat(s) {
-    // a tapered bat: knob, taped handle, the barrel thickening to a rounded end
-    const cy = 5;
-    for (let x = 0; x < 40; x++) {
-      let r = x < 2 ? 2.6 : 1.3 + Math.max(0, x - 10) / 29 * 3.4;
-      if (x >= 38) r -= (x - 37) * 1.1;
-      const ri = Math.round(r);
-      for (let y = cy - ri; y <= cy + ri; y++) {
-        let c = y === cy - ri ? 'x' : y === cy + ri ? 'v' : y < cy ? 'W' : 'w';
-        if (c === 'w' && hash(x >> 2, y) < 0.2) c = 'v';
-        s.set(x, y, c);
+    // a wooden baseball bat: the knob flaring out at the butt, a thin handle wound in black grip tape, then a smooth
+    // long taper out to the barrel and its rounded end. The grain runs along it, a light catching the top of the
+    // round, the underside in shadow; a brand burnt into the barrel.
+    const cy = 5.5, L = 46;
+    const radius = (x) => {
+      if (x <= 1) return 2.7;                                   // the knob
+      if (x <= 3) return 2.7 - (x - 1) * 0.65;                   // flaring into the handle
+      if (x <= 13) return 1.4;                                   // the handle
+      const k = Math.min(1, (x - 13) / 24);                      // the taper, easing in and out
+      let r = 1.4 + (3.9 - 1.4) * k * k * (3 - 2 * k);
+      if (x === L - 2) r -= 0.6;                                 // the end: blunt, its corners rounded off
+      if (x === L - 1) r -= 1.6;
+      return r;
+    };
+    for (let x = 0; x < L; x++) {
+      const r = radius(x), top = Math.round(cy - r), bot = Math.round(cy + r + 0.5) - 1,   // (top and bottom step out at different points: a row at a time)
+        mid = (top + bot) / 2, half = Math.max(0.5, (bot - top) / 2);
+      for (let y = top; y <= bot; y++) {
+        const u = (y - mid) / half;                              // -1 top .. 1 bottom
+        let col = y === top ? 'x' : u < -0.3 ? 'W' : u < 0.45 ? 'w' : y === bot ? 'V' : 'v';
+        if (col === 'w' && hash(x >> 3, y) < 0.18) col = 'v';  // the grain, in long streaks
+        if (col === 'W' && hash(x >> 3, y + 7) < 0.12) col = 'w';
+        s.set(x, y, col);
       }
     }
-    wrap(s, 2, 11, cy, 1);
+    // the tape: black, wound on the slant, a lighter edge where each turn overlaps
+    for (let x = 3; x <= 13; x++) for (let y = 4; y <= 6; y++) s.set(x, y, (x + y) % 3 === 0 ? 'g' : y === 4 ? 'e' : 'h');
+    s.set(14, 4, 'g').set(14, 6, 'h');                          // the end of it, lifting
+    // the brand on the barrel
+    for (const [x, y] of [[32, 4], [33, 4], [34, 5], [35, 4], [36, 4]]) s.set(x, y, 'V');
   },
   crowbar(s) {
-    // a red steel bar: flat chisel at the back, the curved claw at the front
-    s.rect(0, 4, 3, 2, 'c');
-    s.rect(2, 3, 30, 3, 'R').rect(2, 3, 30, 1, 'r').rect(2, 5, 30, 1, 'v');
-    for (const [x, y] of [[32, 3], [33, 2], [34, 1], [35, 0], [36, 0], [37, 1], [37, 2], [36, 3]]) s.rect(x, y, 2, 3, 'R');
-    s.set(35, 0, 'r').set(36, 0, 'r').rect(37, 4, 2, 1, 'v').set(38, 5, 'c');   // the split claw
+    // a red steel bar, hexagonal, worn bare at both ends: the chisel at the back with a slight bend to it, and at the
+    // front the gooseneck - bent right round on itself into a hook - with a split claw at its tip
+    const cy = 11;
+    // the bar
+    for (let x = 4; x <= 34; x++) s.set(x, cy - 1, 'r').set(x, cy, 'R').set(x, cy + 1, 'V');
+    for (let x = 8; x <= 32; x += 6) s.set(x, cy, 's');           // (the facets of it, catching the light)
+    // the chisel: bent up a little, flattened, bare steel
+    for (const [x, y] of [[3, cy], [2, cy - 1], [1, cy - 1], [0, cy - 2]]) s.set(x, y - 1, 'l').set(x, y, 'c').set(x, y + 1, 'e');
+    s.set(0, cy - 3, 'S');
+    // the gooseneck: round from the bar's end, up and back over itself
+    for (let i = 0; i <= 30; i++) {
+      const a = Math.PI / 2 - (i / 30) * (Math.PI * 1.15), x = 35 + Math.cos(a) * 5, y = cy - 5 + Math.sin(a) * 5;
+      const bare = i > 24;
+      for (const [dx, dy, col] of [[0, -1, bare ? 'l' : 'r'], [0, 0, bare ? 'c' : 'R'], [0, 1, bare ? 'e' : 'V'], [1, 0, bare ? 'c' : 'R']]) s.set(Math.round(x + dx), Math.round(y + dy), col);
+    }
+    // the claw: the tip split in two, a notch between
+    s.set(32, cy - 10, 'S').set(31, cy - 10, 'c').set(31, cy - 8, 'S').set(30, cy - 8, 'c').set(31, cy - 9, 'h');
   },
   axe(s) {
-    haft(s, 4, 38, 11, 1);
-    wrap(s, 0, 13, 11, 2, 'g', 'f');
-    s.rect(0, 9, 2, 5, 'h');
-    // the head: spike on top, crescent blade hanging below
-    s.rect(34, 6, 7, 10, 'e').rect(34, 6, 7, 1, 'd');
-    s.rect(36, 0, 3, 7, 'd').set(37, 0, 'l');                 // spike
-    for (let y = 9; y <= 21; y++) {                           // the bearded blade
-      const w = Math.round(3 + Math.sin(((y - 9) / 12) * Math.PI) * 6);
-      s.rect(40, y, w, 1, 'd').set(40 + w - 1, y, 'S').set(40 + w - 2, y, 'l');
+    // a felling axe: a long ash haft swelling to a knob at the butt, a dark band to grip; the head - a short poll above
+    // the eye, the cheek narrowing below it, then flaring out to a bearded bit, its curved edge bright where it's honed
+    const cy = 7;
+    haft(s, 2, 44, cy, 1);
+    s.rect(0, cy - 2, 3, 5, 'v').rect(0, cy - 2, 3, 1, 'w');      // the knob
+    wrap(s, 3, 12, cy, 1, 'V', 'v');
+    const rows = [];
+    for (let y = cy - 6; y <= cy + 13; y++) {
+      const d = y - cy;
+      let l, r;
+      if (d < -2) { l = 38; r = 43; }                             // the poll
+      else if (d <= 2) { l = 36; r = 45; }                        // the eye, round the haft
+      else if (d <= 5) { l = 37; r = 44; }                        // the cheek
+      else { const k = d - 5; l = 37 - Math.round(k * 0.9); r = 44 + Math.round(k * 0.55); }   // the bit, flaring (more toward the haft: the beard)
+      rows.push([y, l, r]);
     }
-    s.rect(37, 9, 3, 2, 'c');                                 // a rivet
+    const bottom = cy + 13;
+    for (const [y, l, r] of rows) for (let x = l; x <= r; x++) {
+      // the edge, curved: its middle lowest
+      const mid = (l + r) / 2, half = (r - l) / 2, edgeY = bottom - Math.round(((x - mid) / Math.max(1, half)) ** 2 * 2);
+      if (y > edgeY) continue;
+      const fromEdge = edgeY - y;
+      s.set(x, y, fromEdge === 0 ? 'Z' : fromEdge === 1 ? 'S' : fromEdge === 2 ? 'l' : y < cy - 4 ? 'd' : x === l ? 'f' : x === r ? 'c' : 'e');
+    }
+    s.rect(38, cy - 6, 6, 1, 'c');                                // the poll's struck top
+    s.rect(46, cy - 1, 1, 3, 'x');                                // the haft's end through the eye
   },
   hammer(s) {
     haft(s, 0, 26, 6, 1);
@@ -199,13 +242,16 @@ const ART = {
     }
   },
   machete(s) {
-    s.rect(0, 2, 10, 4, 'w').rect(0, 2, 10, 1, 'W').rect(0, 5, 10, 1, 'v');
-    s.set(3, 3, 'y').set(7, 3, 'y');                          // rivets
-    s.rect(10, 1, 2, 6, 'f');
-    // a wide blade, widening toward the clipped tip
-    for (let i = 0; i < 22; i++) {
-      const x = 12 + i, bot = 5 + Math.round(Math.min(i, 16) / 16 * 3) - (i > 18 ? i - 18 : 0), top = i > 17 ? 1 + (i - 17) : 1;
-      for (let y = top; y <= bot; y++) s.set(x, y, y === top ? 'c' : y === bot ? 'S' : 'l');
+    // a black grip with brass rivets, a hook of a pommel; a long blade, a little wider toward the tip, the belly of the
+    // edge curving round to a rounded point, a darker band of steel along the straight spine
+    s.rect(0, 2, 12, 5, 'g').rect(0, 2, 12, 1, 'e').rect(0, 6, 12, 1, 'h').rect(0, 6, 3, 2, 'g').set(0, 7, 'h');
+    for (let x = 3; x <= 9; x += 3) s.set(x, 4, 'y');
+    s.rect(12, 1, 2, 7, 'f').rect(12, 1, 2, 1, 'd');               // the bolster
+    const L = 38;
+    for (let i = 0; i < L; i++) {
+      const x = 14 + i, q = i / L, tip = Math.max(0, i - (L - 7)) / 7;
+      const bot = Math.round(6 + q * 2.5 - tip * tip * 6), top = 1 + Math.round(tip * tip * 2);
+      for (let y = top; y <= bot; y++) s.set(x, y, y === top ? 'd' : y === top + 1 && i > 2 ? 'c' : y === bot ? 'Z' : y === bot - 1 ? 'S' : 'l');
     }
   },
   spear(s) {
@@ -229,22 +275,37 @@ const ART = {
     s.rect(40, 3, 8, 1, 'c');                                // the pressed rib down the middle
   },
   fireaxe(s) {
-    haft(s, 0, 34, 6, 1);
-    s.rect(0, 4, 3, 5, 'R');
-    // a red head: the pick behind, the wide blade in front
-    s.rect(30, 0, 7, 12, 'R').rect(30, 0, 7, 1, 'r');
-    for (let i = 0; i < 6; i++) s.rect(24 + i, 3 + Math.floor(i / 2), 1, 3 - Math.floor(i / 2), 'R');   // pick
-    for (let y = 0; y < 16; y++) {
-      const w = Math.round(2 + Math.sin((y / 15) * Math.PI) * 4);
-      s.rect(37, y, w, 1, 'R').set(37 + w - 1, y, 'S').set(37 + w - 2, y, 'l');
+    // a fire axe: a yellow fibreglass haft with a black rubber grip; a red head - the pick standing up off it, tapering
+    // to a point, and the blade below flaring out, its edge ground back to bare steel
+    const cy = 12;
+    haft(s, 3, 42, cy, 1, ['n', 'y', 'Y', 'Y'], false);
+    wrap(s, 0, 12, cy, 1, 'h', 'g');
+    s.rect(0, cy - 2, 2, 5, 'h');
+    // the eye, round the haft
+    for (let y = cy - 3; y <= cy + 3; y++) for (let x = 36; x <= 44; x++) s.set(x, y, y === cy - 3 ? 'r' : x === 36 ? 'V' : 'R');
+    // the pick: up and a little back, to a point
+    for (let i = 0; i < 11; i++) {
+      const y = cy - 4 - i, w = Math.max(0, 3 - Math.floor(i / 3)), x0 = 39 - Math.round(i * 0.25);
+      for (let x = x0; x <= x0 + w; x++) s.set(x, y, x === x0 ? 'V' : x === x0 + w ? 'r' : 'R');
     }
-    s.rect(31, 5, 4, 2, 'c');
+    s.set(37, cy - 14, 'c');
+    // the blade: flaring down from the eye, the bottom of it bare steel, its edge curved
+    for (let y = cy + 4; y <= cy + 12; y++) {
+      const k = y - cy - 3, l = 37 - Math.round(k * 0.6), r = 44 + Math.round(k * 0.6);
+      for (let x = l; x <= r; x++) {
+        const mid = (l + r) / 2, edgeY = cy + 12 - Math.round(((x - mid) / ((r - l) / 2)) ** 2 * 2);
+        if (y > edgeY) continue;
+        const f = edgeY - y;
+        s.set(x, y, f === 0 ? 'Z' : f === 1 ? 'S' : f <= 3 ? 'l' : x === l ? 'V' : 'R');
+      }
+    }
+    s.rect(45, cy - 1, 1, 3, 'n');                                // the haft's end through the eye
   },
 };
 const HOLD = {
   fists: [0, 0],
-  knife: [3, 3], tacknife: [3, 3], shade: [7, 4], bat: [5, 5, 15], crowbar: [6, 4], axe: [4, 11, 22], hammer: [4, 6, 15],
-  katana: [15, 5, 6], machete: [3, 4], spear: [10, 3, 22], shovel: [9, 4, 20], chainsaw: [7, 15, 14], fireaxe: [4, 6, 16],
+  knife: [3, 3], tacknife: [3, 3], shade: [7, 4], bat: [5, 5, 15], crowbar: [7, 11], axe: [6, 7, 24], hammer: [4, 6, 15],
+  katana: [15, 5, 6], machete: [5, 4], spear: [10, 3, 22], shovel: [9, 4, 20], chainsaw: [7, 15, 14], fireaxe: [6, 12, 24],
 };
 
 // The cordless chainsaw, drawn from code so the chain can run: a motor body with
