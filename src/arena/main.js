@@ -3169,7 +3169,7 @@ const SKILL_INFO = [
   { key: 'octo', name: 'OCTO ARMS', img: OCTO_ICON, color: '#ff7a5a', desc: '4 S: FOUR STEEL ARMS GRAB GUNS FROM NOWHERE AND FIRE WHERE YOU AIM, NEVER EMPTY. Q: PUT AWAY. NO ROLLING' },
   { key: 'steal', name: 'SKILL THIEF', img: STEAL_ICON, color: '#ff6ad8', desc: 'HACK THE FOE NEAREST THE MOUSE: THEIR SKILL IS CUT OFF, AND YOURS TO USE ONCE' },
   { key: 'jumper', name: 'JUMPER', img: JUMPER_ICON, color: '#c08aff', desc: 'INTO THE OTHER PLACE: UNTOUCHABLE, FAST. Q AGAIN OPENS A RIFT BACK - ANYONE CAN GO THROUGH THE PAIR' },
-  { key: 'sande', name: 'SANDEVISTAN', img: SANDE_ICON, color: '#7affc8', desc: 'THE WORLD ALL BUT STOPS AND YOU MOVE ON, QUICKER: AS LONG AS YOUR STAMINA, UP TO 2.6 S. IT ALL GOES' },
+  { key: 'sande', name: 'SANDEVISTAN', img: SANDE_ICON, color: '#7affc8', desc: 'THE WORLD ALL BUT STOPS AND YOU MOVE ON, QUICKER: AS LONG AS YOUR STAMINA, UP TO 2.6 S. COSTS 15% HEALTH' },
   { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT, 4 S' },
 ];
 // the choices for a pick list: each skill (with its wait), then none - and for the bots, RANDOM first

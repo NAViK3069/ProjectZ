@@ -112,7 +112,7 @@ const FAR_HIT = { sniper: 0.85, rifle: 0.65, lmg: 0.65, smg: 0.5, pistol: 0.55, 
 // Sandevistan (skill, Q): how long it's yours (in your own time), how slow the world goes meanwhile, the wait after
 // Sandevistan: as long as the stamina it's set off with - the least, a full bar - and what it needs at all; it all goes
 // into it, the bar running down with the time, and starts again from empty after
-const SANDE_MIN_T = 0.5, SANDE_MAX_T = 2.6, SANDE_CD = 24, SANDE_SPEED = 1.45;
+const SANDE_MIN_T = 0.5, SANDE_MAX_T = 2.6, SANDE_CD = 24, SANDE_SPEED = 1.45, SANDE_COST = 0.15;   // (SANDE_COST: of full health, paid when it ends - low enough, it kills you)
 export const SANDE_NEED = 15;   // (SANDE_SPEED: how much quicker in it - on your feet, and the gun and blade in your hands)
 export const SANDE_WORLD = 0.06;
 // the vampire (skill, Q): the calling, the wait after (the bats: see main.js)
@@ -1966,7 +1966,20 @@ export class Fighter {
     this.stamina = m.from * Math.max(0, m.t / m.total);
     this.winded = false;
     this.staminaRest = 0.4;
-    if (m.t <= 0) { this.sande = null; this.skillCD = SANDE_CD; this.stamina = 0; }
+    if (m.t <= 0) {
+      this.sande = null;
+      this.skillCD = SANDE_CD;
+      this.stamina = 0;
+      // what it takes out of you, the body pushed past what it can do: paid as it ends, and it can be the end of you
+      const d = this.maxHp * SANDE_COST;
+      this.hp -= d;
+      this.hurtT = 0;
+      this.flash = 0.08;
+      this.game.onHurt?.(this, d, 'body', this);
+      this.game.fx.sparks(this.x, this.y - 16, 10, 0, -1, '#7affc8');
+      if (this.immortal) this.hp = Math.max(1, this.hp);
+      if (this.hp <= 0) this.die(this, 'BURNED OUT', 0, -40);
+    }
   }
   // After-images: every so often a hard-edged copy of the body in the next colour, left where it was, fading.
   drawSandeTrail(ctx) {
