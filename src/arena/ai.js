@@ -258,7 +258,7 @@ export const gunTier = (def) => (def ? TIER[def.cls] ?? 1 : 0) + (def && def.dam
 const AIM_WANDER = 0.06;   // how far a bot's hand wanders off (rad, on NORMAL)
 
 // Skills that only work up close, and how close: a bot with one of these ready goes in to that, not hanging back.
-const SKILL_REACH = { reap: 190, fang: 200, blaze: 150, chidori: 200, steal: 125, galaxy: 210, decoy: 230, cloak: 300 };
+const SKILL_REACH = { reap: 120, fang: 200, blaze: 150, chidori: 200, steal: 125, galaxy: 210, decoy: 230, cloak: 300 };
 export class Bot {
   constructor(game, f, skill = 1) {
     this.game = game;
@@ -745,8 +745,8 @@ export class Bot {
       case 'aurum':      // someone in sight, far enough off that a sniper's the thing
         go = aimed && dist > 110 && dist < 640;
         break;
-      case 'reap':       // someone in its reach: it does the rest
-        go = vis && dist < 210;
+      case 'reap':       // someone in its reach, feet on the floor: it does the rest
+        go = vis && dist < 130 && f.onGround;
         break;
       case 'jumper':     // to get out of it, hurt: into the other place, away from them, and the way back left open behind
         go = hpK < 0.5 && f.hurtT < 1;

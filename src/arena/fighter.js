@@ -2154,11 +2154,11 @@ export class Fighter {
   // same one a little weaker. Only when someone else comes up close to them (REAP_CHAIN) might the shadows go on to that
   // one instead, at full strength again - and on from them, the same way; and if the one being cut falls, on to
   // whoever's close to where they were. Then you're back, behind the last
-  // of them, with one last cut. Nobody near: nothing happens (it isn't spent).
+  // of them, with one last cut. Nobody near: nothing happens (it isn't spent). Only with your feet on the floor.
   updateReap(dt, c) {
     let m = this.reap;
     if (!m) {
-      if (!c.skill || this.skillCD > 0 || !this.alive || this.roll) return;
+      if (!c.skill || this.skillCD > 0 || !this.alive || this.roll || !this.onGround) return;   // (feet on the floor: not in the air, not on a ladder)
       const G = this.game, near = G.fighters.filter((v) => v !== this && v.alive && !v.vanish && !v.shade && G.foes(this, v) && !(v.hidden && !v.glimpsed)
         && Math.hypot(v.x - this.x, v.y - this.y) < REAP_RANGE && G.los(this.x, this.y - 14, v.x, v.y - 14));
       if (!near.length) { if (G.viewer === this) G.fx.motes(this.x, this.y - 16, 6, ['#3a0a5a', '#9a3aff']); return; }
