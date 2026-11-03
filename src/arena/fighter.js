@@ -182,11 +182,11 @@ const EX_T = { raise: EX_RAISE, charge: EX_CHARGE, swing: EX_SWING, out: EX_OUT 
 // walls no matter - it's space that's cut); the cuts there (JC_CUTS of them, one every JC_EVERY, each JC_HIT to anyone in
 // the sphere, JC_R); the sword put away (JC_END) - the sphere breaking first (JC_BREAK into it: JC_LAST), then the click;
 // the wait after. (Its hits: main.js, jcCut.)
-const JC_STANCE = 0.45, JC_CUTS = 12, JC_EVERY = 0.06, JC_END = 0.7, JC_BREAK = 0.15, JC_SHUT = 0.32, JC_CD = 18;
+const JC_STANCE = 0.45, JC_CUTS = 12, JC_EVERY = 0.06, JC_END = 0.7, JC_BREAK = 0.15, JC_SHUT = JC_BREAK, JC_CD = 18;   // (the click and the break: the same moment)
 // (the sword by you meanwhile: drawn straight out of the scabbard - JC_DRAW - and spun round the hand three times right
 // there, fast - JC_SPIN - like a shotgun twirled, to come round lined up with the scabbard and go straight back in,
-// all but the last of it (JC_GAP still out, JC_SLIDE) - and only once the sphere's broken (JC_BREAK), snapped shut
-// (JC_SHUT))
+// all but the last of it (JC_GAP still out, JC_SLIDE) - and snapped shut the very moment the sphere breaks
+// (JC_SHUT, JC_BREAK))
 const JC_DRAW = 0.18, JC_SPIN = 0.36, JC_SLIDE = 0.2, JC_MOUTH = 22, JC_GAP = 5, JC_SQ = 0.72;
 export const JC_R = 46, JC_RANGE = 300, JC_HIT = 11, JC_LAST = 70;
 const JC_CUT = JC_CUTS * JC_EVERY + 0.1;
@@ -2557,7 +2557,7 @@ export class Fighter {
     if (tt < spun) return { sheathed: false, ...this.jcSpin(tt) };                      // (spun right there)
     // straight back in, all but the last of it - held so - and, the sphere broken, snapped shut
     if (m.phase === 'cut' || m.t < JC_SHUT) return this.jcSheath(JC_GAP + (JC_MOUTH - JC_GAP) * (1 - ease((tt - spun) / JC_SLIDE)));
-    return this.jcSheath(JC_GAP * Math.max(0, 1 - (m.t - JC_SHUT) / 0.04));
+    return this.jcSheath(0);   // (shut: at once, as it breaks)
   }
   // in its scabbard at the hip, pulled out p: where the hand on its hilt is
   jcSheath(p) {
