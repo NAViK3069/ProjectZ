@@ -14,26 +14,42 @@ const V = { deep: '#3a0a7a', mid: '#7a3aff', lite: '#b88aff', pale: '#e8d8ff' };
 const lit = (ctx, fn) => { ctx.save(); ctx.globalCompositeOperation = 'lighter'; fn(); ctx.restore(); };
 
 // ---------- golden fangs ----------
-// One dagger, pointing along a (the middle at x, y): drawn once for each of 32 ways it can point, kept.
-const FANG_TURNS = 32, FANG_SIZE = 23, fangArt = [];
-function fangCanvas(i) {
-  if (fangArt[i]) return fangArt[i];
+// The two daggers, pointing along a (the middle at x, y): each drawn once for each of 32 ways it can point, kept.
+// A fang: long and slender, a gold blade sweeping to a point with a white edge and a violet line down it, a swept
+// guard, a wrapped grip, a violet stone at the pommel. The mark: a kunai - a leaf of dark steel edged in gold with a
+// crimson heart, a short grip bound in red, a gold ring at its end.
+const FANG_TURNS = 32, FANG_SIZE = 29, fangArt = { fang: [], mark: [] };
+const K = { steel: '#2a2430', steelHi: '#5a5068', red: '#ff3a4a', redLo: '#8a1020', ring: '#ffd25a' };
+function daggerCell(kind, s, j) {
+  const aj = Math.abs(j);
+  if (kind === 'mark') {
+    if (s < -6.5) { const r = Math.hypot(s + 8, j); return r > 0.7 && r < 1.9 ? (j < 0 ? G.lite : K.ring) : null; }   // (the ring)
+    if (s < -2.5) return aj <= 0.8 ? (Math.round(s * 2) % 2 ? K.redLo : K.red) : null;                               // (the grip, bound in red)
+    if (s < -1.5) return aj <= 2.1 ? (aj > 1.5 ? G.deep : G.mid) : null;                                             // (the guard)
+    const w = s < 3 ? 1.1 + (s + 1.5) * 0.42 : 3 * (1 - (s - 3) / 7.5);   // (the leaf: widest a third of the way)
+    if (aj > w) return null;
+    if (aj > w - 0.55) return j < 0 ? G.glint : G.mid;   // (gold edges)
+    if (aj < 0.5 && s > -1 && s < 6) return K.red;         // (the crimson heart)
+    return j < 0 ? K.steelHi : K.steel;
+  }
+  if (s < -5.5) return aj <= 0.9 ? '#b88aff' : null;                                                     // (the stone)
+  if (s < -2) return aj <= 0.7 ? (Math.round(s * 2) % 2 ? G.wrap : G.grip) : null;                       // (the grip, wrapped)
+  if (s < -0.75) return aj <= 2.8 && !(aj > 1.6 && s > -1.25) ? (aj > 2 ? G.deep : s < -1.5 ? G.mid : G.lite) : null;   // (the guard, swept back)
+  const w = 1.5 * (1 - s / 11.5) + 0.2 + 0.25 * Math.sin((s / 11) * Math.PI);   // (the blade: slender, swelling a touch, to a point)
+  if (aj > w) return null;
+  if (aj > w - 0.4 && j < 0) return '#ffffff';   // (the edge, white)
+  if (aj < 0.35 && s > 0.5 && s < 8) return '#9a5aff';   // (the violet line down it)
+  return j > 0 ? G.deep : G.mid;
+}
+function daggerCanvas(kind, i) {
+  const art = fangArt[kind];
+  if (art[i]) return art[i];
   const c = document.createElement('canvas');
   c.width = c.height = FANG_SIZE;
   const g = c.getContext('2d'), a = (i / FANG_TURNS) * Math.PI * 2, ux = Math.cos(a), uy = Math.sin(a), nx = -uy, ny = ux, mid = (FANG_SIZE - 1) / 2;
   const cells = new Map();
-  // along it from the pommel (-6) to the tip (8): what's across it there
-  for (let s = -6; s <= 8.01; s += 0.25) for (let j = -2.75; j <= 2.76; j += 0.25) {
-    const aj = Math.abs(j);
-    let col = null;
-    if (s < -4.5) { if (aj <= 0.9) col = G.gem; }
-    else if (s < -1.5) { if (aj <= 0.7) col = Math.round(s * 2) % 2 ? G.wrap : G.grip; }   // the grip, wrapped
-    else if (s < -0.25) { if (aj <= 2.75) col = aj > 2 ? G.deep : s < -1 ? G.mid : G.lite; }   // the guard, swept out either side
-    else {
-      const w = 1.7 * (1 - s / 8.6) + 0.15;   // (the blade: wide at the guard, to a point)
-      if (aj <= w) col = aj < 0.45 && s < 7 ? G.glint : j > 0 ? G.deep : G.mid;
-      if (aj <= w && aj > w - 0.4 && j < 0) col = G.lite;   // (the edge catching the light)
-    }
+  for (let s = -10; s <= 11.01; s += 0.25) for (let j = -3.25; j <= 3.26; j += 0.25) {
+    const col = daggerCell(kind, s, j);
     if (!col) continue;
     const x = Math.round(mid + ux * s + nx * j), y = Math.round(mid + uy * s + ny * j);
     cells.set(`${x},${y}`, [x, y, col]);
@@ -41,11 +57,11 @@ function fangCanvas(i) {
   g.fillStyle = G.ink;
   for (const [x, y] of cells.values()) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!cells.has(`${x + dx},${y + dy}`)) g.fillRect(x + dx, y + dy, 1, 1);
   for (const [x, y, col] of cells.values()) { g.fillStyle = col; g.fillRect(x, y, 1, 1); }
-  return (fangArt[i] = c);
+  return (art[i] = c);
 }
-export function drawFang(ctx, x, y, a) {
+export function drawFang(ctx, x, y, a, kind = 'fang') {
   const i = ((Math.round((a / (Math.PI * 2)) * FANG_TURNS) % FANG_TURNS) + FANG_TURNS) % FANG_TURNS;
-  ctx.drawImage(fangCanvas(i), Math.round(x - (FANG_SIZE - 1) / 2), Math.round(y - (FANG_SIZE - 1) / 2));
+  ctx.drawImage(daggerCanvas(kind, i), Math.round(x - (FANG_SIZE - 1) / 2), Math.round(y - (FANG_SIZE - 1) / 2));
 }
 // The glint running down the blade now and then, and a soft gold light round it (after the lighting).
 export function drawFangGlow(ctx, x, y, a, t, seed, back) {
@@ -63,23 +79,34 @@ export function drawFangGlow(ctx, x, y, a, t, seed, back) {
 }
 // Behind one in flight: a streak of gold along where it's been (pts: newest first), thinning and breaking up into
 // motes toward the end - brighter and longer on the way home.
-export function drawFangTrail(ctx, pts, back, seed) {
+export function drawFangTrail(ctx, pts, back, seed, mark = false) {
   if (!pts || pts.length < 2) return;
   let total = 0;
   for (let i = 1; i < pts.length; i++) total += Math.max(1, Math.ceil(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)));
+  const second = mark ? '#ff3a4a' : '#9a5aff';
   lit(ctx, () => {
     let n = 0;
     for (let i = 1; i < pts.length; i++) {
-      const p = pts[i - 1], q = pts[i], d = Math.hypot(q.x - p.x, q.y - p.y), steps = Math.max(1, Math.ceil(d));
+      const p = pts[i - 1], q = pts[i], d = Math.hypot(q.x - p.x, q.y - p.y), steps = Math.max(1, Math.ceil(d)), nx = -(q.y - p.y) / (d || 1), ny = (q.x - p.x) / (d || 1);
       for (let s = 0; s < steps; s++, n++) {
         const k = 1 - n / (total + 1);
         if (k <= 0) return;
         const x = p.x + ((q.x - p.x) * s) / steps, y = p.y + ((q.y - p.y) * s) / steps;
-        if (k < 0.45 && hash(n, 3, seed) > k * 2) continue;   // (breaking up)
-        ctx.globalAlpha = k * (back ? 0.95 : 0.7);
-        ctx.fillStyle = k > 0.75 ? '#fff6c8' : k > 0.4 ? '#ffd25a' : '#c8861a';
-        ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
-        if (back && k > 0.6) { ctx.globalAlpha = k * 0.35; ctx.fillRect(Math.round(x), Math.round(y) + 1, 1, 1); }
+        if (k < 0.4 && hash(n, 3, seed) > k * 2.2) continue;   // (breaking up)
+        // two strands wound round the line of it, the gold over, the other under
+        const w = Math.sin(n * 0.35 + seed) * (1.6 * k + 0.4);
+        ctx.globalAlpha = k * (back ? 1 : 0.85);
+        ctx.fillStyle = k > 0.8 ? '#ffffff' : k > 0.45 ? '#ffd25a' : '#c8861a';
+        ctx.fillRect(Math.round(x + nx * w), Math.round(y + ny * w), 1, 1);
+        ctx.globalAlpha = k * 0.75;
+        ctx.fillStyle = second;
+        ctx.fillRect(Math.round(x - nx * w), Math.round(y - ny * w), 1, 1);
+        if (k > 0.55 && hash(n, 7, seed + Math.floor(n / 9)) > 0.86) {   // (glints thrown off it)
+          ctx.globalAlpha = k;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(Math.round(x + nx * 3) - 1, Math.round(y + ny * 3), 3, 1);
+          ctx.fillRect(Math.round(x + nx * 3), Math.round(y + ny * 3) - 1, 1, 3);
+        }
       }
     }
   });
@@ -100,6 +127,57 @@ export function drawFangFlash(ctx, x, y, a, k) {
 
 // The mark on whoever the sixth dagger's in: a gold diamond over them, turning, its corners flicking out, a violet
 // heart to it.
+// (on them all over: x, feet - a ring of gold turning at their feet, motes rising, a crimson glow)
+export function drawFangMarked(ctx, x, feet, t) {
+  glowAt(ctx, x, feet - 14, 22, [[0, `rgba(255, 60, 80, ${0.18 + 0.08 * Math.sin(t * 8)})`], [1, 'rgba(255, 40, 60, 0)']]);
+  lit(ctx, () => {
+    for (let j = 0; j < 6; j++) {
+      const a0 = t * 2 + (j * Math.PI) / 3;
+      ctx.fillStyle = j % 2 ? '#ffd85a' : '#ff6a7a';
+      for (let q = 0; q < 6; q++) { const a = a0 + q * 0.09; ctx.fillRect(Math.round(x + Math.cos(a) * 11), Math.round(feet - 1 + Math.sin(a) * 2.5), 1, 1); }
+    }
+    for (let i = 0; i < 6; i++) {
+      const ph = (t * 1.3 + i / 6) % 1;
+      ctx.globalAlpha = 1 - ph;
+      ctx.fillStyle = i % 2 ? '#ffd85a' : '#ff6a7a';
+      ctx.fillRect(Math.round(x + Math.sin(i * 2.3 + t * 3) * 7), Math.round(feet - 2 - ph * 26), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+// The way to whoever's marked, for the one who marked them: a faint dashed line of gold out to them, floating, still.
+export function drawFangGuide(ctx, x0, y0, x1, y1, t) {
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
+  if (L < 16) return;
+  const ux = dx / L, uy = dy / L, bob = Math.sin(t * 2.5) * 1.2;
+  lit(ctx, () => {
+    ctx.fillStyle = '#ffd85a';
+    for (let s = 12; s < L - 10; s += 1) {
+      if (s % 6 > 2) continue;
+      ctx.globalAlpha = 0.3 * Math.min(1, s / 30, (L - 10 - s) / 30);
+      ctx.fillRect(Math.round(x0 + ux * s), Math.round(y0 + uy * s + bob), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+// Behind a thrown dagger, as behind the gold sniper's shot: a long tail of gold, white near the blade, wavering,
+// thinning and breaking up toward its end, motes shed off it (the kunai's: gold and crimson).
+export function drawGoldShot(ctx, x, y, dx, dy, len, t, seed, mark = false) {
+  const nx = -dy, ny = dx, L = Math.max(1, Math.round(len));
+  lit(ctx, () => {
+    for (let i = 4; i <= L; i++) {
+      const k = 1 - i / L, px = x - dx * i, py = y - dy * i;
+      const wob = Math.sin(i * 0.28 - t * 30 + seed) * (1 - k) * 1.4;
+      if (k < 0.3 && hash(i, 1, seed) > k * 3) continue;
+      ctx.globalAlpha = 0.2 + 0.8 * k;
+      ctx.fillStyle = k > 0.8 ? '#ffffff' : k > 0.5 ? '#fff6c8' : k > 0.25 ? '#ffd25a' : mark ? '#ff4a5a' : '#c8861a';
+      ctx.fillRect(Math.round(px + nx * wob), Math.round(py + ny * wob), 1, 1);
+      if (k > 0.6) { ctx.globalAlpha = (k - 0.6) * 1.2; ctx.fillStyle = mark ? '#ff6a7a' : '#ffd25a'; ctx.fillRect(Math.round(px + nx * (wob + 1)), Math.round(py + ny * (wob + 1)), 1, 1); ctx.fillRect(Math.round(px - nx * (1 - wob)), Math.round(py - ny * (1 - wob)), 1, 1); }
+      if (hash(i, 2, seed) > 0.95) { ctx.globalAlpha = k; ctx.fillStyle = '#ffffff'; ctx.fillRect(Math.round(px + nx * 3 * (hash(i, 3, seed) - 0.5) * 2), Math.round(py + ny * 3 * (hash(i, 3, seed) - 0.5) * 2), 1, 1); }
+    }
+    ctx.globalAlpha = 1;
+  });
+}
 export function drawFangMark(ctx, x, y, t) {
   lit(ctx, () => {
     const R = 5 + Math.sin(t * 6) * 0.8, a = t * 2.5;
@@ -225,8 +303,7 @@ export function drawAurumHum(ctx, sx, sy, aim, t, left) {
     if (left <= 0.15 && Math.sin(t * 30) < 0) continue;
     glowAt(ctx, x, y, 3 + p * 2, [[0, `rgba(200, 150, 255, ${0.12 + 0.18 * p})`], [1, 'rgba(140, 70, 255, 0)']]);
   }
-  // (running out: it flickers)
-  if (left > 0.15 || Math.sin(t * 30) > 0) glowAt(ctx, sx + ux * GUN_LEN, sy + uy * GUN_LEN, 7, [[0, 'rgba(170, 110, 255, 0.22)'], [1, 'rgba(120, 60, 255, 0)']]);
+
 }
 // Off the muzzle at (x, y) as it fires along a (k 0..1): rings of violet and gold thrown forward along the shot, each
 // further out and wider, thinning out; a flash; sparks of gold.

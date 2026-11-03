@@ -16,13 +16,13 @@ import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
 import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
-import { drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot, drawVioletMuzzle, drawVioletTrace, drawFangMark, drawFangDash, drawFangCut } from './goldfx.js';
+import { drawGoldShot, drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot, drawVioletMuzzle, drawVioletTrace, drawFangMark, drawFangMarked, drawFangGuide, drawFangDash, drawFangCut } from './goldfx.js';
 import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier } from './ai.js';
 import { drawBolts, drawVoidHole, drawVoidGlitter } from './void.js';
-import { drawBlast } from './flame.js';
+import { drawBlast, drawSpaceCrack, drawFireGo } from './flame.js';
 import { drawCircle, drawHole, drawBoom, drawHoleShine } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
 import { drawLockBeam, drawLockMark, drawMissile, drawMissileBoom } from './visor.js';
@@ -224,6 +224,7 @@ const game = {
   aurumOff: (f) => aurumOff(f),
   reapCut: (f, v, dmg, ux, uy, last) => reapCut(f, v, dmg, ux, uy, last),
   fangDash: (f, v) => fangDash(f, v),
+  blazeGo: (f, x, y, a) => game.bursts.push({ kind: 'blazego', x, y, a, t: 0 }),
   lockMissile: (f, v, x, y) => lockMissile(f, v, x, y),
   eaFire: (f, x, y, a) => eaFire(f, x, y, a),
   eaBeam: (f, x, y, a, len, wk, seed) => eaBeam(f, x, y, a, len, wk, seed),
@@ -339,6 +340,7 @@ const game = {
     if (a.vanish || b.vanish || (a.dummy && b.dummy)) return false;
     const ra = a.owner ?? a, rb = b.owner ?? b;   // (a shadow clone sides with whoever made it)
     if (state === 'training' && !trainCfg.pvp && isTrainee(ra) && isTrainee(rb)) return false;   // (training: PLAYERS HURT EACH OTHER off)
+    if (state === 'training' && (ra.tbot?.ally ?? ra) === (rb.tbot?.ally ?? rb)) return false;   // (training: a bot on someone's side - and its fellows)
     return ra !== rb && (!teamMode() || ra.team !== rb.team);
   },
   // The shadow clone skill: a double of f, at f's spot, holding what f holds,
@@ -1424,7 +1426,7 @@ function drawVoids(ctx) {
 const FIST_SPLASH = 45, FIST_R = 44, FIST_LIFE = 0.6;
 function flameFist(f, x, y, a, v) {
   const fx = game.fx, ux = Math.cos(a), uy = Math.sin(a);
-  game.fists.push({ x, y, ax: ux, ay: uy, t: 0, seed: Math.random() * 100 });
+  game.bursts.push({ kind: 'crack', x, y, ax: ux, ay: uy, t: 0, seed: Math.random() * 100 });   // (its look: flame.js, drawSpaceCrack)
   for (const o of game.fighters) {
     if (o === f || o === v || !o.alive || o.vanish || !game.foes(f, o)) continue;
     const dx = o.x - x, dy = o.y - 14 - y, d = Math.hypot(dx, dy);
@@ -1984,7 +1986,7 @@ const FANG_N = 5, FANG_SPREAD = 0.6, FANG_SPEED = 820, FANG_REACH = 420, FANG_HI
 const FANG_HOME = 1000, FANG_PULL = 3400, FANG_BACK_HIT = FANG_HIT, FANG_RIP = 12;   // home: top speed, how fast it gets there, what it takes going through someone (and torn out of them)
 // (the sixth, the mark: straight at the mouse, quicker, no further than FANG_REACH, stopped by a wall - gone if it
 // hits nothing; whoever it hits, it sticks in and marks)
-const FANG_MARK_HIT = 15, FANG_DASH_HIT = 45;
+const FANG_MARK_HIT = 15, FANG_DASH_HIT = 35, FANG_STAB = 16, FANG_TURN = 0.12;   // (called home with the dash: each turned round first, FANG_TURN, then in - FANG_STAB as it goes through them)
 function throwFangs(f) {
   const s = f.shoulder, seed = Math.random() * 100;
   for (let i = 0; i < FANG_N; i++) {
@@ -1997,7 +1999,7 @@ function throwFangs(f) {
   game.lights.flash(s.x, s.y, 80, '255, 200, 90', 0.12);
   game.fx.sparks(s.x, s.y, 8, Math.cos(f.aim), Math.sin(f.aim), '#ffd25a');
 }
-// (dur: called home to arrive in just that time - the dash's - wherever their owner's got to by then)
+// (dur: called home with the dash - each turned round where it is first, then home at its own pace)
 function recallFangs(f, dur = 0) {
   for (const d of game.fangs) {
     if (d.owner !== f || d.state === 'back') continue;
@@ -2070,8 +2072,14 @@ function updateFangs(dt) {
       else { d.x = v.x + d.ox; d.y = v.y + d.oy; }
     } else if (d.state === 'back') {
       const s = o.shoulder, dx = s.x - d.x, dy = s.y - d.y, dist = Math.hypot(dx, dy) || 1, ux = dx / dist, uy = dy / dist;
+      if (d.timed && game.time - d.timed.t0 < FANG_TURN) {
+        // (first turned round where it is, point to its owner - then it goes)
+        const want = Math.atan2(uy, ux), dd = Math.atan2(Math.sin(want - d.a), Math.cos(want - d.a));
+        d.a += dd * Math.min(1, dt / Math.max(dt, FANG_TURN - (game.time - d.timed.t0)));
+        if (d.state === 'in' || d.on) { d.on = null; }
+        continue;
+      }
       d.sp = Math.min(FANG_HOME, (d.sp ?? 120) + FANG_PULL * dt);
-      if (d.timed) d.sp = Math.max(60, dist / Math.max(dt, d.timed.t0 + d.timed.dur - game.time));   // (home just as the dash gets there)
       d.a = Math.atan2(uy, ux);   // (point first, home)
       const step = Math.min(dist, d.sp * dt);
       d.x += ux * step;
@@ -2082,7 +2090,7 @@ function updateFangs(dt) {
         if (!q.alive || q.vanish || d.hits.includes(q) || (q.hidden && !q.glimpsed) || !game.foes(o, q) || Math.hypot(q.x - d.x, q.y - 14 - d.y) > 10) continue;
         d.hits.push(q);
         q.hitHow = 'GOLDEN FANGS';
-        q.hurt(FANG_BACK_HIT, o, ux * 120, -50);
+        q.hurt(d.timed ? FANG_STAB : FANG_BACK_HIT, o, ux * 120, -50);
         game.fx.blood(d.x, d.y, 4, ux, uy);
         game.fx.sparks(d.x, d.y, 5, ux, uy, '#ffd25a');
       }
@@ -2161,15 +2169,21 @@ function drawFangs(ctx) {
   for (const f of game.fighters) {
     const m = f.fang;
     if (!m) continue;
-    if (m.mark?.alive && !m.dash) drawFangMark(ctx, m.mark.x, m.mark.y - 40, game.time);
+    if (m.mark?.alive && !m.dash) {
+      drawFangMarked(ctx, m.mark.x, m.mark.y, game.time);
+      drawFangMark(ctx, m.mark.x, m.mark.y - 40, game.time);
+      // (and to whoever threw it - and their side - the way to them)
+      if (!game.foes(player, f)) drawFangGuide(ctx, f.x, f.y - 14, m.mark.x, m.mark.y - 14, game.time);
+    }
     if (m.dash) drawFangDash(ctx, m.dash.x0, m.dash.y0 - 14, f.x, f.y - 14, Math.min(1, m.dash.t / m.dash.dur), game.time);
   }
   for (const d of game.fangs) {
     const tr = (d._pts ??= []), moving = d.state === 'fly' || d.state === 'back';
-    if (moving) { tr.unshift({ x: d.x, y: d.y }); tr.length = Math.min(tr.length, d.state === 'back' ? 7 : 5); } else if (tr.length) tr.pop();
-    drawFangTrail(ctx, tr, d.state === 'back', d.seed);
+    if (moving) { tr.unshift({ x: d.x, y: d.y }); tr.length = Math.min(tr.length, d.state === 'back' ? 12 : 9); } else if (tr.length) tr.pop();
+    if (d.state === 'fly') { d.x0 ??= d.x - Math.cos(d.a) * 2; d.y0 ??= d.y - Math.sin(d.a) * 2; drawGoldShot(ctx, d.x, d.y, Math.cos(d.a), Math.sin(d.a), Math.min(140, Math.hypot(d.x - d.x0, d.y - d.y0)), game.time, d.seed, d.mark); }
+    drawFangTrail(ctx, tr, d.state === 'back', d.seed, d.mark);
     const bob = d.state === 'hang' ? Math.sin(game.time * 3 + d.seed) * 1.5 : 0;
-    drawFang(ctx, d.x, d.y + bob, d.a);
+    drawFang(ctx, d.x, d.y + bob, d.a, d.mark ? 'mark' : 'fang');
     drawFangGlow(ctx, d.x, d.y + bob, d.a, game.time, d.seed, d.state === 'back' || d.mark);
   }
 }
@@ -2342,6 +2356,8 @@ function drawBursts(ctx) {
     else if (b.kind === 'fang') drawFangFlash(ctx, b.x, b.y, b.a, b.t / 0.25);
     else if (b.kind === 'fangcut') drawFangCut(ctx, b.x, b.y, b.a, k, b.seed);
     else if (b.kind === 'missile') drawMissileBoom(ctx, b.x, b.y, k, b.seed);
+    else if (b.kind === 'crack') drawSpaceCrack(ctx, b.x, b.y, b.ax, b.ay, k, game.time, b.seed);
+    else if (b.kind === 'blazego') drawFireGo(ctx, b.x, b.y, b.a, Math.min(1, k * 2.5));
     else if (b.kind === 'vmuzzle') drawVioletMuzzle(ctx, b.x, b.y, b.a, k, game.time, b.seed);
     else if (b.kind === 'vtrace') drawVioletTrace(ctx, b.x0, b.y0, b.x, b.y, k, game.time, b.seed);
     else if (b.kind === 'card') drawCardBurst(ctx, b.x, b.y, b.r, b.card, k, game.time, b.seed, b.links);
@@ -2872,7 +2888,7 @@ function drawWorld() {
     if (m.phase === 'charge') { const k = Math.min(1, m.t / 1.3); extra.push({ x: p.x, y: p.y, r: 50 + 90 * k, rgb: '255, 220, 130', k: 0.25 + 0.4 * k }, { x: f.x, y: f.y - 4, r: 60, rgb: '255, 210, 120', k: 0.25 * k }); }
     else if (m.phase === 'fire') { const w = f.xcWidth(); for (let s = 0; s < m.len; s += 70) extra.push({ x: p.x + Math.cos(m.a) * s, y: p.y + Math.sin(m.a) * s, r: 100, rgb: '255, 225, 140', k: 0.6 * w }); }
   }
-  for (const f of game.fighters) if (f.alive && f.aurum && !f.hidden) extra.push({ x: f.x + Math.cos(f.aim) * 16, y: f.y - 14 + Math.sin(f.aim) * 16, r: 22, rgb: '170, 110, 255', k: 0.14 });
+  for (const f of game.fighters) if (f.alive && f.aurum && !f.hidden && (f.gun?.flash ?? 0) > 0) extra.push({ x: f.x + Math.cos(f.aim) * 30, y: f.y - 14 + Math.sin(f.aim) * 30, r: 40, rgb: '170, 110, 255', k: 0.5 });   // (only as it fires)
   for (const p of game.pickups) if (p.ready) extra.push({ x: p.x, y: p.y - 6, r: 26, rgb: p.kind === 'health' ? '255, 120, 110' : '170, 240, 255', k: 0.3 });
   for (const g of game.grenades) if (Math.sin(g.t * (g.t < 0.6 ? 40 : 14)) > 0) extra.push({ x: g.x, y: g.y - 3, r: 16, rgb: '255, 80, 60', k: 0.6 });
   if (overtime) extra.push({ x: renderer.camera.x, y: renderer.camera.y, r: 600, rgb: '120, 20, 10', k: 0.15 + 0.08 * Math.sin(time * 5) });
@@ -3952,17 +3968,18 @@ function respawnTrainee(f) {
 // ---- the bots ----
 // Each put in with how it's to be: FIGHTS (a bot) or STANDS STILL; its shots and blows hurt, or don't; killed, it
 // comes back where it was put, stays dead, or can't die at all; a skill of its own, or none.
-const BOT_OPTS = { fight: [[true, 'FIGHTS'], [false, 'STANDS STILL']], dmg: [[true, 'ON'], [false, 'OFF']], death: [['back', 'COMES BACK'], ['stay', 'STAYS DEAD'], ['never', "CAN'T DIE"]], skill: [[true, 'RANDOM'], [false, 'NONE']] };
-const trainBotOpts = { fight: true, dmg: true, death: 'back', skill: true };
+const BOT_OPTS = { side: [['foe', 'ENEMY'], ['ally', 'ON YOUR SIDE']], fight: [[true, 'FIGHTS'], [false, 'STANDS STILL']], dmg: [[true, 'ON'], [false, 'OFF']], death: [['back', 'COMES BACK'], ['stay', 'STAYS DEAD'], ['never', "CAN'T DIE"]], skill: [[true, 'RANDOM'], [false, 'NONE']] };
+const trainBotOpts = { side: 'foe', fight: true, dmg: true, death: 'back', skill: true };
 let trainBotN = 0;
 function spawnTrainBot(o, by) {
   if (game.fighters.filter((f) => f.tbot).length >= 12) return;
-  const n = ++trainBotN, f = new Fighter(game, images, { name: `BOT ${n}`, color: '#ff8a5a', hue: (n * 53) % 360, sat: 1.2 });
+  const ally = o.side === 'ally' && by ? by : null;   // (on the side of whoever put it in)
+  const n = ++trainBotN, f = new Fighter(game, images, { name: `BOT ${n}`, color: ally ? '#7affa0' : '#ff8a5a', hue: (n * 53) % 360, sat: 1.2 });
   const ox = by ? by.x + (by.facing || 1) * 48 : defaultSpawn().x, oy = by ? by.y : defaultSpawn().y;
   const at = by && !level.solidAt(ox, oy - 14) ? { x: ox, y: oy } : { x: by?.x ?? ox, y: by?.y ?? oy };
   f.team = 200 + n;
   f.bot = true;
-  f.tbot = { fight: !!o.fight, dmg: !!o.dmg, death: ['back', 'stay', 'never'].includes(o.death) ? o.death : 'back', skill: !!o.skill, n };
+  f.tbot = { fight: !!o.fight, dmg: !!o.dmg, death: ['back', 'stay', 'never'].includes(o.death) ? o.death : 'back', skill: !!o.skill, n, ally };
   f.home = at;
   f.reset(at.x, at.y);
   while (f.hits(f.x - 5, f.y - 28, f.x + 5, f.y)) f.y -= 1;
@@ -3972,7 +3989,7 @@ function spawnTrainBot(o, by) {
   f.give(pick(GUN_POOL), 900);
   f.slot = 2;
   f.skill = f.tbot.skill ? pick(BOT_SKILLS) : null;
-  f.name = `BOT ${n}${f.skill ? ' - ' + skillName(f.skill) : ''}`;
+  f.name = `${ally ? 'ALLY' : 'BOT'} ${n}${f.skill ? ' - ' + skillName(f.skill) : ''}`;
   f.facing = by ? -(by.facing || 1) : -1;
   game.fighters.push(f);
   bots.push(new Bot(game, f, 0.85));
@@ -4172,7 +4189,7 @@ function drawTrainTab(kind, ctx, u, x, y, w, h) {
   if (kind === 'bots') {
     head('BOTS', x, y);
     note(admin ? 'SET HOW IT IS, THEN ADD IT - IT COMES IN IN FRONT OF YOU' : 'ONLY ROOT AND ADMINS CAN ADD AND REMOVE BOTS', x, y + 13);
-    const opts = [['fight', 'MOVES'], ['dmg', 'DAMAGE'], ['death', 'KILLED'], ['skill', 'SKILL']], ow = Math.floor((w - 9) / 4);
+    const opts = [['side', 'SIDE'], ['fight', 'MOVES'], ['dmg', 'DAMAGE'], ['death', 'KILLED'], ['skill', 'SKILL']], ow = Math.floor((w - 12) / 5);
     opts.forEach(([k, label], i) => {
       const ox = x + i * (ow + 3);
       note(label, ox, y + 25);
@@ -4186,7 +4203,7 @@ function drawTrainTab(kind, ctx, u, x, y, w, h) {
       const col = i % 2, row = Math.floor(i / 2), bw = Math.floor((w - 4) / 2), bx = x + col * (bw + 4), ry = y + 80 + row * 18, o = f.tbot ?? {};
       px(bx, ry, bw, 16, '#161b17');
       text(f.alive ? 'UP' : 'DOWN', bx + 3, ry + 5, f.alive ? '#8aff9a' : '#a04a3a');
-      let nm = `BOT ${o.n ?? ''} ${o.fight ? '' : 'STILL '}${o.dmg ? '' : 'NO DMG '}${o.death === 'never' ? "CAN'T DIE" : o.death === 'stay' ? 'STAYS DEAD' : ''}`;
+      let nm = `${o.ally ? 'ALLY' : 'BOT'} ${o.n ?? ''} ${o.fight ? '' : 'STILL '}${o.dmg ? '' : 'NO DMG '}${o.death === 'never' ? "CAN'T DIE" : o.death === 'stay' ? 'STAYS DEAD' : ''}`;
       while (textWidth(nm) > bw - 70) nm = nm.slice(0, -1);
       text(nm, bx + 28, ry + 5, '#e8ecd8');
       btn(`tm:rmbot:${o.n ?? 0}`, bx + bw - 40, ry + 1, 38, 14, 'X', { kind: 'danger', disabled: !admin });
@@ -4425,10 +4442,10 @@ const SKILL_INFO = [
   { key: 'decoy', name: 'SHADOW CLONE', img: CLONE_ICON, color: '#8aa8ff', desc: 'A DOUBLE FIGHTS FOR YOU, 3 S UNSEEN, AND YOUR NEXT HIT COUNTS X1.8' },
   { key: 'archery', name: 'ARCHERY', img: BOW_ICON, color: '#7aff8a', desc: 'LOCK ON TO EVERY FOE NEAR, EVEN THE UNSEEN - NOBODY: IT RAINS ROUND YOU' },
   { key: 'murasaki', name: 'MURASAKI', img: VOID_ICON, color: '#c07aff', desc: 'RED AND BLUE MADE ONE: A PURPLE THAT ERASES ALL IN ITS LINE' },
-  { key: 'blaze', name: 'FLAME FIST', img: FIST_FIRE_ICON, color: '#ff9a4a', desc: 'FISTS ALIGHT, THEN A DASH AND A PUNCH THE WAY YOU AIM' },
+  { key: 'blaze', name: 'FLAME FIST', img: FIST_FIRE_ICON, color: '#ff9a4a', desc: 'FISTS ALIGHT, THEN A DASH AND A PUNCH THE WAY YOU AIM - CATCH THEM SHOOTING AND THE GUN GOES FLYING' },
   { key: 'galaxy', name: 'GALAXY', img: GALAXY_ICON, color: '#7af0ff', desc: 'A BLACK HOLE WHERE YOU AIM: DRAGS THEM IN, THEN GOES OFF' },
   { key: 'demon', name: 'FLYING SWORDS', img: SWORDS_ICON, color: '#8fe0ff', desc: 'TAKES ALL YOUR STAMINA: A SWORD FOR EVERY 20%, THEY FLY AT WHOEVER COMES NEAR' },
-  { key: 'lock', name: 'TARGET LOCK', img: LOCK_ICON, color: '#8fe8ff', desc: '5 S: YOUR SHOTS GO FOR THE FOE NEAREST THE MOUSE, WITH LESS KICK - AND 3 LITTLE MISSILES GO AFTER THEM, ONE AT A TIME. THEY SEE IT, AND CAN DODGE' },
+  { key: 'lock', name: 'TARGET LOCK', img: LOCK_ICON, color: '#8fe8ff', desc: '5 S: YOUR SHOTS GO FOR THE FOE NEAREST THE MOUSE, WITH LESS KICK - AND A LITTLE DRONE FLYING WITH YOU SENDS 4 MISSILES AFTER THEM, ONE AT A TIME. THEY SEE IT, AND CAN DODGE' },
   { key: 'shield', name: 'BLUE SHIELD', img: SHIELD_ICON, color: '#6ad8ff', desc: 'TAKES 110 DAMAGE FOR 4 S, THEN GOES OFF - THE MORE IT TOOK, THE HARDER AND WIDER THE BLAST. UNTOUCHABLE 0.5 S AFTER. SLOWER, WEAKER SHOTS' },
   { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'THE RING AS IT LANDS: ALLIES IN IT SHARE IT, FOES GET THE OTHER SIDE - RED BURNS, BLUE THROWS BACK, PURPLE JAMS THEIR GUNS. DRAG TO A CARD: RED FULL MAG + FIRE RATE + HARDER SHOTS, GREEN HEAL + SHAKES OFF HACKS, BLUE FULL STAMINA + SPEED, PURPLE UNSEEN THEN A X1.8 HIT. SOMETIMES A JOKER: RED, GREEN AND BLUE AT ONCE. TEAMMATES NEAR SHARE IT' },
   { key: 'vampire', name: 'VAMPIRE', img: VAMPIRE_ICON, color: '#ff5a6a', desc: 'BATS DRAW BLOOD FOR YOU, AND YOU TURN TO SMOKE: UNTOUCHABLE, FAST, UNTIL YOU ATTACK OR ROLL' },

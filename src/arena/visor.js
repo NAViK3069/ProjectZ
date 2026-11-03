@@ -9,6 +9,49 @@ const MARK = palette(Object.values(R));
 const ease = (k) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
 const mh = (a, b, c = 0) => { const v = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return v - Math.floor(v); };
 
+// The lock's drone at (x, y), facing face (up 0..1: how far out; fired: how many of its four missiles are gone; look:
+// the way to whoever's locked): a little gunmetal box tipped toward them, a rotor spinning over it on a mast - its
+// blades a blur, flicking - an ice-blue eye looking at them, the missiles still slung under it, a red light blinking,
+// a down-draught of air under it.
+export function drawLockPod(ctx, x, y, face, up, fired, t, look = 0) {
+  if (up <= 0.02) return;
+  const X = Math.round(x), Y = Math.round(y), lean = Math.max(-1, Math.min(1, Math.cos(look))) * face;
+  const r = (dx, dy, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(face > 0 ? X + dx : X - dx - w + 1, Y + dy, w, h); };
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, up * 1.5);
+  // the rotor: a blur of two blades, flicking between lengths, and the mast
+  const blade = 4 + ((Math.floor(t * 40) % 3) * 2);
+  ctx.fillStyle = '#9aa8b0';
+  ctx.fillRect(X - blade, Y - 7, blade * 2 + 1, 1);
+  ctx.fillStyle = '#d8e4ea';
+  ctx.fillRect(X - Math.round(blade / 2), Y - 7, Math.round(blade) + 1, 1);
+  ctx.globalAlpha *= 0.5;
+  ctx.fillStyle = '#c8d4da';
+  ctx.fillRect(X - blade + 2, Y - 8, blade * 2 - 3, 1);
+  ctx.globalAlpha = Math.min(1, up * 1.5);
+  r(0, -6, 1, 2, '#3a4248');
+  // the body: an outline, gunmetal, a light top, a dark belly - tipped toward the one it's after
+  r(-5, -4, 11, 7, '#0b0e10');
+  r(-4, -3, 9, 5, '#2a3238');
+  r(-4, -3, 9, 1, '#5a6a74');
+  r(-4, 1, 9, 1, '#1a2024');
+  r(-4 + (lean > 0.3 ? 1 : 0), 2, 8, 1, '#0b0e10');
+  // its eye, ice-blue, looking at them; a red light at its tail
+  r(3, -2, 2, 2, '#8fe8ff');
+  r(4, -2, 1, 1, '#e8faff');
+  if (Math.sin(t * 12) > 0) r(-4, -2, 1, 1, '#ff4a55');
+  // the missiles slung under it - those still to go
+  for (let i = 0; i < 4; i++) if (i >= fired) { r(-3 + i * 2, 3, 1, 2, '#e8faff'); r(-3 + i * 2, 5, 1, 1, '#ff4a55'); }
+  ctx.restore();
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.45 * up;
+  r(3, -2, 2, 2, '#8fe8ff');
+  // the down-draught: specks of air pushed down under the rotor
+  ctx.fillStyle = '#c8e8ff';
+  for (let i = 0; i < 4; i++) { const ph = (t * 3 + i / 4) % 1; ctx.globalAlpha = (1 - ph) * 0.35 * up; ctx.fillRect(X - 4 + i * 3, Math.round(Y + 4 + ph * 10), 1, 1); }
+  ctx.restore();
+}
 // The lock's little missile `m` ({ x, y, a, t, seed }): a body of white and ice-blue a few pixels long, a red tip, fins,
 // a flickering flame out of the back and a short tail of light; a red line ahead of it, faint, to whoever it's after.
 export function drawMissile(ctx, m, t) {

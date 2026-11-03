@@ -17,8 +17,9 @@ import { Weapon, RELOAD_EVENTS, SHELL_IN } from '../combat/weapons.js';
 import { MeleeWeapon, MELEE, FISTS, WIND, STRIKE } from '../combat/melee.js';
 import { T, SOLID, PLAT, LADDER, ACID, LOW, LOW_H } from './level.js';
 import { ORB, drawOrb, drawBolts, drawVoidHole } from './void.js';
-import { drawFlame } from './flame.js';
-import { drawVisor } from './visor.js';
+import { drawFlame, drawFireSwirl, drawFireHelix } from './flame.js';
+import { drawDragon } from './dragonfx.js';
+import { drawVisor, drawLockPod } from './visor.js';
 import { drawOctoArms, drawOctoGuns, drawOctoGlow, octoRoot } from './octo.js';
 import { drawArcheryCast, drawArcheryMark } from './archery.js';
 import { drawPhased } from './rift.js';
@@ -109,7 +110,8 @@ export const CARD_LAST = { red: 5, green: 6, blue: 7, purple: 2.5, joker: 5 };
 const CARD_JOKER = 0.15;   // the chance, each time they're dealt, that one of the four is the joker: red, green and blue at once
 const CARD_PATCH = 0.12;   // green, as it lands: this much of full health back at once (and a hack shaken off)
 export const CARD_ALLY = 0.7;
-const CARD_RING = 170;   // (as far as its ring reaches: main.js, CARD_SHARE)   // a teammate near by when the card's turned: this much of its effect, for this much of its time
+const CARD_RING = 170;   // (as far as its ring reaches: main.js, CARD_SHARE)
+const CARD_BURST = 0.9, CARD_BURST_T = 0.7;   // blue: on top of its speed, this much more for the first CARD_BURST_T after it lands   // a teammate near by when the card's turned: this much of its effect, for this much of its time
 const CARD_FIRE = 0.6, CARD_MELEE = 0.3, CARD_HEAL = 0.045, CARD_SPEED = 1.3, CARD_DRAIN = 0.4;   // red: guns recover this much faster; green: of full health a second; blue: feet, what running costs
 // the shadow clone's charge: the next hit counts this much, for this long once the clone's gone
 const POWER_MUL = 1.8, POWER_AFTER = 2;
@@ -150,7 +152,7 @@ const OCTO_SLOTS = [[11, -45], [-9, -50], [-27, -35], [-27, -15]], OCTO_REACH_AT
 const CHIDORI_CHARGE = 0.45, CHIDORI_TIME = 4, CHIDORI_CD = 16, CHIDORI_RUN = 1.3, CHIDORI_LUNGE = 520, CHIDORI_LUNGE_T = 0.3;
 const CHIDORI_STAB = 0.45;   // the moment it's in them: both held there, then they're thrown off it
 // deflect (skill, Q): how long the blade's up turning shots back, then the dash - how fast, how far, how hard - the wait after
-const DEFLECT_TIME = 1.5, DEFLECT_SPEED = 720, DEFLECT_REACH = 165, DEFLECT_CUT = 70, DEFLECT_CD = 14, DEFLECT_SLOW = 0.75, DEFLECT_FINISH = 0.24;
+const DEFLECT_TIME = 1.5, DEFLECT_SPEED = 720, DEFLECT_REACH = 260, DEFLECT_CUT = 70, DEFLECT_CD = 14, DEFLECT_SLOW = 0.75, DEFLECT_FINISH = 0.24;
 const HACK_HURT = 1.2;   // someone hacked takes this much more from everything
 const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can turn (rad/s, of its slowed time)
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
@@ -158,12 +160,12 @@ export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot
 const LOCK_TIME = 5, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
 // (and with someone locked, a little missile off the shoulder at them every LOCK_EVERY - LOCK_MISSILES in all - once the
 // lock's held a moment; they can be got out of the way of: see main.js, updateMissiles)
-const LOCK_MISSILES = 3, LOCK_EVERY = 1.2, LOCK_SETTLE = 0.35;
+const LOCK_MISSILES = 4, LOCK_EVERY = 0.95, LOCK_SETTLE = 0.35;
 // golden fangs (skill, Q): out as long as this at most (Q again, or the time's up: they all come back), the wait after
 const FANG_TIME = 3, FANG_CD = 12;
 // (a sixth dagger thrown straight at the mouse marks whoever it hits; Q again with someone marked: you go to them -
 // through walls and all - FANG_DASH quick, the five called home to arrive the moment you do, and a cut as you get there)
-const FANG_DASH = 900, FANG_DASH_MIN = 0.14, FANG_DASH_MAX = 0.5;
+const FANG_DASH = 640, FANG_DASH_MIN = 0.22, FANG_DASH_MAX = 0.6;
 // aurum (skill, Q): the gold sniper building in the hands, how long it's yours at most, the wait after (the gun: catalog.js)
 export const AURUM_CAST = 0.55;
 const AURUM_TIME = 12, AURUM_CD = 20;
@@ -788,7 +790,7 @@ export class Fighter {
         this.wall = null;
       }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.sande ? SANDE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.sande ? SANDE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (1 + CARD_BURST * this.cardBurst()) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -1270,6 +1272,12 @@ export class Fighter {
       this.airRoll = true;
     }
   }
+  // the blue card's burst: 1 the moment it lands, falling to nothing over CARD_BURST_T (a share of it, a share)
+  cardBurst() {
+    const m = this.card?.on ? this.card : null, al = this.allyCard;
+    const of = (c, k) => (c && (c.kind === 'blue' || c.kind === 'joker') ? k * Math.max(0, 1 - (c.total - c.left) / CARD_BURST_T) : 0);
+    return Math.max(of(m, 1), of(al, CARD_ALLY));
+  }
   // Whoever's looking at the screen isn't fooled by this one being unseen: it's them, or someone on their side.
   get seesThrough() {
     const v = this.game.viewer;
@@ -1632,6 +1640,7 @@ export class Fighter {
         this.game.fx.sparks(this.x, this.y - 14, 10, -Math.cos(b.a), -Math.sin(b.a), '#ffb04a');
         this.game.fx.smoke(this.x, this.y - 8, 4);
         this.game.lights.flash(this.x, this.y - 14, 70, '255, 140, 60', 0.15);
+        this.game.blazeGo?.(this, this.x, this.y - 14, b.a);
         if (this.game.viewer === this) this.game.kick?.(-Math.cos(b.a) * 3, -Math.sin(b.a) * 3);
       }
     } else if (b.phase === 'hit' && b.t >= BLAZE_RECOVER) {
@@ -1664,7 +1673,10 @@ export class Fighter {
     b.t = 0;
     if (v) {
       v.hitHow = 'FLAME FIST';
+      // (caught firing - the gun in their hands, a shot just gone: it's knocked out of them)
+      const firing = v.slot === 2 && v.gun && !v.gun.def.skillGun && (v.lastFireT ?? 9) < 0.4;
       v.hurt(BLAZE_DMG, this, ux * 520, -220 + uy * 160);
+      if (firing && v.alive) this.game.disarm?.(v, Math.sign(ux) || this.facing);
     }
     // knocked back off it
     this.vx = -ux * 110;
@@ -1724,6 +1736,7 @@ export class Fighter {
         ctx.fillRect(Math.round(p.x + Math.cos(ang) * r), Math.round(p.y + Math.sin(ang) * r), 1, 1);
       }
       ctx.globalAlpha = 1;
+      drawFireSwirl(ctx, this.x, this.y, p.x, p.y, k, t, b.seed);
       drawFlame(ctx, q.x, q.y, 0.8 + k * 1.4, t, b.seed + 5);
       drawFlame(ctx, p.x, p.y, 2 + k * 4.5, t, b.seed);
       return;
@@ -1750,6 +1763,7 @@ export class Fighter {
         const o = (((i * 37 + Math.floor(t * 60)) % 22) - 11), sx = this.x - ux * (14 + i * 6) - uy * o, sy = this.y - 14 - uy * (14 + i * 6) + ux * o;
         for (let s = 0; s < 8; s++) ctx.fillRect(Math.round(sx - ux * s), Math.round(sy - uy * s), 1, 1);
       }
+      drawFireHelix(ctx, b.trail, b.a, t, b.seed);
       // the comet: the fist in a great flame streaming back
       drawFlame(ctx, p.x, p.y, 6.5, t, b.seed, -ux, -uy, 4.2);
       return;
@@ -1868,7 +1882,7 @@ export class Fighter {
     const m = this.lockOn;
     if (!m) {
       if (c.skill && this.skillCD <= 0 && this.alive) {
-        this.lockOn = { t: LOCK_TIME, k: 0, acq: 0, target: null, shots: 0, next: 0.6 };
+        this.lockOn = { t: LOCK_TIME, k: 0, acq: 0, target: null, shots: 0, next: 0.6, px: this.x, py: this.y - 22 };
         this.game.fx.sparks(this.x + this.facing * 6, this.y - 18, 8, this.facing, 0, '#8fe8ff');
       }
       return;
@@ -1888,14 +1902,24 @@ export class Fighter {
       if (d < bd) { bd = d; best = v; }
     }
     if (best !== m.target) { m.target = best; m.acq = 0; }
+    // the drone: up over your shoulder, following you about a little behind, bobbing (gone home at the end)
+    const hx = this.x - this.facing * 14, hy = this.y + this.pose.body - 44 + Math.sin(m.k * 3.1) * 2.5, k = 1 - Math.exp(-7 * dt);
+    m.px += (hx - m.px) * k;
+    m.py += (hy - m.py) * k;
     // the missiles: one at a time, while there's someone locked and held a moment
     m.next -= dt;
     if (m.shots < LOCK_MISSILES && m.next <= 0 && m.target && m.acq > LOCK_SETTLE) {
       m.shots++;
       m.next = LOCK_EVERY;
-      const s = this.shoulder;
-      this.game.lockMissile?.(this, m.target, s.x - this.facing * 3, s.y - 6);
+      const p = this.lockPod();   // (dropped from under the drone: its next pod)
+      this.game.lockMissile?.(this, m.target, p.x + (m.shots - 2.5) * 2, p.y + 4);
     }
+  }
+  // The little drone that comes up while the lock's on and follows you about: where it is (up: how far it's come out
+  // - it flies up off your shoulder at the start, and back at the end).
+  lockPod() {
+    const m = this.lockOn, up = m ? Math.min(1, m.k / 0.3, m.t / 0.35) : 0, sx = this.x - this.facing * 3, sy = this.y + this.pose.body - 20;
+    return m ? { x: sx + (m.px - sx) * up, y: sy + (m.py - sy) * up, up } : { x: sx, y: sy, up: 0 };
   }
   // Whoever's locked: the aim's on them.
   lockAim() {
@@ -2229,10 +2253,9 @@ export class Fighter {
     } else if (!m.back && ((c.skill && m.t > 0.25) || m.t >= FANG_TIME)) { m.back = true; this.game.recallFangs?.(this); }   // (nobody marked, or left too long: home, and no going)
     if (m.t > FANG_TIME + 4) { this.fang = null; this.skillCD = FANG_CD; }   // (lost track of them: let it go)
   }
-  // where the dash ends: right by them on the near side - or on them, if that's in a wall
+  // where the dash ends: right where they stand
   fangDashTo(v) {
-    const side = Math.sign(this.x - v.x) || -v.facing || 1, x = v.x + side * 12, L = this.game.level;
-    return L.solidAt(x, v.y - 14) || L.solidAt(x, v.y - 2) ? { x: v.x, y: v.y } : { x, y: v.y };
+    return { x: v.x, y: v.y };
   }
   // the dash: straight there, through anything, quick in and quick out; arriving, the cut (main.js: fangDash)
   fangDashStep(dt) {
@@ -2952,7 +2975,7 @@ export class Fighter {
     const m = this.deflect;
     m.dist += moved;
     m.trail.unshift({ x: this.x, y: this.y - 14 });
-    m.trail.length = Math.min(m.trail.length, 14);
+    m.trail.length = Math.min(m.trail.length, 40);   // (the dragon's body follows the whole way)
     this.game.deflectCut?.(this, m, DEFLECT_CUT);
     // the end of its reach, or a wall: stopped dead, the blade out, the cut left hanging in the air behind
     if (m.dist >= DEFLECT_REACH || moved < DEFLECT_SPEED * dt * 0.3) {
@@ -3770,7 +3793,34 @@ export class Fighter {
     this.drawAurum(ctx, t);
     this.drawEa(ctx, t);
     this.drawExcal(ctx, t);
+    if (this.fang?.dash) {
+      // the dash: afterimages of you in gold strung out behind, fading
+      const d = this.fang.dash, img = this.paintSelf(0.85, '255, 200, 90')[0];
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 1; i <= 4; i++) {
+        const k = Math.max(0, Math.min(1, d.t / d.dur) - i * 0.09), e = k < 0.5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k);
+        ctx.globalAlpha = 0.5 - i * 0.1;
+        ctx.drawImage(img, Math.round(d.x0 + (d.x1 - d.x0) * e) - 32, Math.round(d.y0 + (d.y1 - d.y0) * e) - 50);
+      }
+      ctx.restore();
+    }
     this.drawJudge(ctx, t);
+    const burst = this.cardBurst();
+    if (burst > 0 && Math.abs(this.vx) > 40) {
+      // the blue card's burst: streaks of blue blown off you as you go
+      const dir = -Math.sign(this.vx);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 6; i++) {
+        const y = Math.round(this.y - 4 - i * 4 - ((i * 7 + Math.floor(t * 40)) % 3)), L = 6 + ((i * 13 + Math.floor(t * 30)) % 9);
+        ctx.globalAlpha = burst * (0.4 + 0.1 * (i % 3));
+        ctx.fillStyle = i % 2 ? '#5ac8ff' : '#d8f4ff';
+        ctx.fillRect(Math.round(this.x + dir * (6 + (i % 3) * 3) - (dir < 0 ? L : 0)), y, L, 1);
+      }
+      ctx.restore();
+    }
+    if (this.lockOn && !(this.hidden && !this.seesThrough)) { const p = this.lockPod(), v = this.lockOn.target; drawLockPod(ctx, p.x, p.y, this.facing, p.up, this.lockOn.shots ?? 0, t, v?.alive ? Math.atan2(v.y - 14 - p.y, v.x - p.x) : this.aim); }
     // wraith form going on and off: a burst of smoke, on whoever's screen this is. And all the while, more pouring off it.
     const wr = this.wraith, now = performance.now();
     if (!!wr !== !!this._wraithWas) {
@@ -3793,8 +3843,8 @@ export class Fighter {
     if (this.hackedT > 0) drawHacked(ctx, this.x, this.y, this.hackedT, HACK_LOCK, t, 1, this.labelY(HACKED_H));
     const m = this.card;
     const pin = (m?.pick || m?.fly) && this.game.cardPin?.(this);   // (your own: where it was put on the screen)
-    // (how far the card's ring will reach: faint, round you, while it's picked - and fainter while it's on)
-    if (m && (m.pick || m.fly || m.on) && (mine || !this.game.foes(this.game.viewer ?? this, this))) drawCardRange(ctx, this.x, this.y - 14, CARD_RING, m.pick ? m.pick.hover ?? 'joker' : m.kind, t, m.on ? 0.45 : 1);
+    // (how far the card's ring will reach: faint, round you, while it's being picked - gone once it's used)
+    if (m && (m.pick || m.fly) && (mine || !this.game.foes(this.game.viewer ?? this, this))) drawCardRange(ctx, this.x, this.y - 14, CARD_RING, m.pick ? m.pick.hover ?? 'joker' : m.kind, t);
     if (m?.pick) drawCardFan(ctx, pin ? pin.x : this.x + m.pick.x, pin ? pin.y : this.y + m.pick.y, m.pick.t, m.pick.hover, t, mine, m.joker);
     else if (m?.fly) drawCardFly(ctx, pin ? pin.x : this.x + m.fly.x, pin ? pin.y : this.y + m.fly.y, m.kind, this.x, this.labelY(34) + 21, m.fly.t / CARD_FLY, t, m.seed, m.slot ?? m.kind, m.joker);
     else if (m) {
@@ -3858,7 +3908,13 @@ export class Fighter {
         ctx.drawImage(c0, Math.round(q.x) - 32, Math.round(q.y + 14) - 50);
       });
       ctx.restore();
-      drawDeflectDash(ctx, dm.trail.slice(3), dm.a);   // (from just behind the body, not over its face)
+      drawDeflectDash(ctx, dm.trail.slice(3, 14), dm.a);   // (from just behind the body, not over its face)
+    }
+    // the dragon flying with the dash: its head out in front of you, its body back along the way you came; at the end
+    // of the dash it flies on a little, and is gone
+    if (dm && (dm.phase === 'dash' || dm.phase === 'finish') && dm.trail?.length) {
+      const fin = dm.phase === 'finish' ? 1 - dm.t / DEFLECT_FINISH : 0, ux = Math.cos(dm.a), uy = Math.sin(dm.a), go = 12 + fin * 26;
+      drawDragon(ctx, this.x + ux * go, this.y - 15 + uy * go, dm.a, [{ x: this.x + ux * (go - 8), y: this.y - 15 + uy * (go - 8) }, ...dm.trail], t, dm.phase === 'dash' ? 1 : 1 - fin, dm.seed ?? 3);
     }
     if (this.powered) drawPowered(ctx, this.x + this.facing * 8, this.y - 14, t, 1);
     if (this.hackCast) drawHackCast(ctx, this.x + this.facing * 5, this.y - 22, Math.min(1, this.hackCast.t / HACK_CAST), t);

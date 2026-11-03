@@ -901,7 +901,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'cloakStab', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist', 'drain', 'throwFangs', 'recallFangs', 'aurumOn', 'aurumOff', 'reapCut', 'fangDash', 'lockMissile', 'eaFire', 'eaBeam', 'xcFire', 'xcBeam', 'jcOpen', 'jcCut']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'cloakStab', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist', 'drain', 'throwFangs', 'recallFangs', 'aurumOn', 'aurumOff', 'reapCut', 'fangDash', 'lockMissile', 'blazeGo', 'eaFire', 'eaBeam', 'xcFire', 'xcBeam', 'jcOpen', 'jcCut']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)
