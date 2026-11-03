@@ -206,10 +206,63 @@ const ATTACH = {
   },
 };
 
-// The aurum skill's gold sniper: its metal gone violet, its gold run through with thin violet lines on the slant;
-// and a gold scope to go on it.
-const AURUM_METAL = { h: 'p', f: 'p', k: 'p', q: 'p', g: 'X', e: 'X', d: 'z', c: 'm', l: 'm', S: 'N', Z: 'N' };
-const aurumRows = (rows) => rows.map((r, y) => [...r].map((ch, x) => (AURUM_METAL[ch] ?? ((ch === 'J' || ch === 'M') && (x + y) % 9 < 2 ? 'z' : ch))).join(''));
+// The aurum skill's gold sniper, redrawn on the long gun's frame (so the hands and the muzzle are where they were): a
+// long gold shroud the length of the barrel with three violet slots let into it glowing; a gold receiver with a dark
+// band through it and a violet line lit along that; a gold stock with dark violet strokes cut across it like
+// lightning; a gold brake with violet vents; a grip, a guard, a mag of dark violet with gold on them. And a gold scope.
+function aurumArt(parts) {
+  const grid = (w, h, ch = '.') => Array.from({ length: h }, () => Array(w).fill(ch));
+  const rows = (g) => g.map((r) => r.join(''));
+  const fill = (g, x0, y0, x1, y1, ch) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (g[y]?.[x] !== undefined) g[y][x] = ch; };
+  // the shroud, over the barrel to the brake: 36 across
+  const W = 36, sh = grid(W, 8, 'J');
+  fill(sh, 0, 0, W - 1, 0, 'N'); fill(sh, 0, 1, W - 1, 1, 'M');
+  fill(sh, 1, 2, W - 2, 4, 'p');   // (the channel the slots are in)
+  for (const x0 of [3, 13, 23]) { fill(sh, x0, 3, x0 + 8, 3, 'm'); sh[3][x0] = sh[3][x0 + 8] = 'z'; fill(sh, x0 + 3, 3, x0 + 5, 3, 'L'); fill(sh, x0 + 1, 2, x0 + 7, 2, 'X'); fill(sh, x0 + 1, 4, x0 + 7, 4, 'X'); }
+  fill(sh, 0, 5, W - 1, 5, 'J'); fill(sh, 0, 6, W - 1, 6, 'H'); fill(sh, 0, 7, W - 1, 7, 'G');
+  for (const [x0, len] of [[2, 6], [12, 4], [20, 8]]) { fill(sh, x0, 6, x0 + len, 6, 'X'); sh[5][x0 + len + 1] = 'X'; }   // (dark strokes on its lower side)
+  if (parts.handguard) { parts.handguard.rows = rows(sh); parts.handguard.y = 2; }
+  if (parts.barrel) { parts.barrel.rows = rows(sh).slice(2, 5); parts.barrel.y = 4; parts.barrel.x = parts.handguard?.x ?? parts.barrel.x; }   // (the same, where the barrel shows through)
+  if (parts.gas) parts.gas.rows = ['.'];   // (no gas block: under the shroud)
+  if (parts.brake) {
+    const b = grid(6, 7, 'J');
+    fill(b, 0, 0, 5, 0, 'N');
+    for (let y = 1; y <= 5; y++) for (const x of [1, 3]) b[y][x] = y % 2 ? 'X' : 'z';
+    fill(b, 5, 1, 5, 5, 'H'); fill(b, 0, 6, 5, 6, 'G');
+    parts.brake.rows = rows(b);
+  }
+  if (parts.receiver) {
+    const r = grid(20, 8, 'J');
+    fill(r, 0, 0, 19, 0, 'N'); fill(r, 0, 1, 19, 1, 'M');
+    fill(r, 2, 2, 17, 4, 'p'); fill(r, 3, 3, 16, 3, 'z'); fill(r, 8, 3, 10, 3, 'm');
+    for (const x of [5, 6, 13, 14]) r[5][x] = 'X';
+    r[6][6] = r[6][13] = 'X';
+    fill(r, 0, 6, 19, 6, 'H'); r[6][6] = r[6][13] = 'X';
+    fill(r, 0, 7, 19, 7, 'G');
+    parts.receiver.rows = rows(r);
+  }
+  if (parts.bolt) parts.bolt.rows = parts.bolt.rows.map((row, y) => [...row].map(() => (y === 0 ? 'm' : y === 1 ? 'X' : 'p')).join(''));
+  if (parts.stock) {
+    // its own shape (the thumbhole, the butt), repainted: gold, and dark violet strokes across it on the slant
+    parts.stock.rows = parts.stock.rows.map((row, y) => [...row].map((ch, x) => {
+      if (ch === '.') return ch;
+      if (ch === 'k' || ch === 'f') return y === 0 ? 'N' : 'p';
+      if (y === 0) return 'N';
+      const d = (x + y * 1.4) % 9;
+      if (x > 4 && y > 0 && y < 9 && d < 1.2) return 'p';
+      if (x > 4 && y > 0 && y < 9 && d < 2.2) return 'z';
+      return y === 1 ? 'M' : y >= 9 ? (y === parts.stock.rows.length - 1 ? 'G' : 'H') : 'J';
+    }).join(''));
+  }
+  if (parts.cheek) parts.cheek.rows = parts.cheek.rows.map((row, y) => row.replace(/[^.]/g, y ? 'M' : 'N'));
+  if (parts.rail) parts.rail.rows = parts.rail.rows.map((row, y) => [...row].map((ch, x) => (ch === '.' ? ch : y === 0 ? 'M' : x % 3 === 2 ? 'G' : 'H')).join(''));
+  if (parts.handle) parts.handle.rows = parts.handle.rows.map((row, y) => row.replace(/[^.]/g, y ? 'J' : 'N'));
+  const dark = (row, y, top = 'J') => [...row].map((ch) => (ch === '.' ? ch : y === 0 ? top : ch === 'p' || ch === 'k' || ch === 'h' ? 'p' : 'X')).join('');
+  if (parts.grip) parts.grip.rows = parts.grip.rows.map((row, y) => dark(row, y));
+  if (parts.guard) parts.guard.rows = parts.guard.rows.map((row) => row.replace(/[^.]/g, 'X'));
+  if (parts.trigger) parts.trigger.rows = parts.trigger.rows.map((row) => row.replace(/[^.]/g, 'm'));
+  if (parts.mag) parts.mag.rows = parts.mag.rows.map((row, y, all) => [...row].map((ch, x) => (ch === '.' ? ch : y === all.length - 1 ? 'M' : y === 3 ? 'J' : x === row.length - 1 ? 'z' : 'X')).join(''));
+}
 const GOLD_METAL = { f: 'G', g: 'H', e: 'J', d: 'M', c: 'N' };
 ATTACH.goldScope = { ...ATTACH.scope, rows: ATTACH.scope.rows.map((r) => [...r].map((ch) => GOLD_METAL[ch] ?? ch).join('')) };
 
@@ -219,7 +272,7 @@ for (const [k, a] of Object.entries(ATTACH)) ATTACH_ART[k] = { ...a, ...part(a.r
 // The catalog is generated from specs (gunbuild.js).
 for (const [key, , , , spec] of CATALOG) {
   GUNS[key] = spec.hand === 'long' ? longGun(spec) : handgun({ ...spec, box: spec.box || spec.hand === 'box' });
-  if (spec.aurum) for (const p of Object.values(GUNS[key].parts)) p.rows = aurumRows(p.rows);
+  if (spec.aurum) aurumArt(GUNS[key].parts);
 }
 
 // A gun drawn before the art went finer (res 1): every pixel becomes RES x RES.

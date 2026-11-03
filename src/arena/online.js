@@ -317,7 +317,7 @@ function handDelta(f, out) {
   N.sent.set(f, last);
 }
 // Lists sent whole, while there's anything in them and it's changed (things few and short-lived)
-const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets'], ['ba', 'bats'], ['bo', 'bloods'], ['ri', 'rifts'], ['fa', 'fangs'], ['tg', 'tags']];
+const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets'], ['ba', 'bats'], ['bo', 'bloods'], ['ri', 'rifts'], ['fa', 'fangs'], ['mi', 'missiles'], ['tg', 'tags']];
 // Things that happen once and run their course on each screen: sent the once
 const ONCE = [['nu', 'numbers'], ['bl', 'blasts'], ['pu', 'punches'], ['bu', 'bursts'], ['fi', 'fists'], ['fe', 'feed']];
 const LIFE = { numbers: 0.9, blasts: 0.35, punches: 0.45, bursts: 0.7, fists: 0.6 };
@@ -505,7 +505,7 @@ function applyHeader(h) {
     N.later = [];
     N.pickups.clear();
     N.trk.clear();
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'numbers', 'blasts', 'punches', 'bursts', 'fists', 'feed', 'fangs', 'tags']) g[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'numbers', 'blasts', 'punches', 'bursts', 'fists', 'feed', 'fangs', 'missiles', 'tags']) g[name] = [];
   }
   if ('st' in h) A.state = h.st;
   if ('sT' in h) A.stateT = h.sT;
@@ -786,7 +786,7 @@ export function clientFrame(dt) {
   const wk = self?.sande || g.fighters.some((q) => q.alive && q.sande) ? SANDE_WORLD : 1, wdt = dt * wk;
   if (wk < 1) {
     for (const b of N.shots) b.rt0 += dt * (1 - wk);
-    for (const name of ['grenades', 'thrown', 'arrows', 'voids', 'bats', 'bloods', 'fangs']) for (const o of g[name]) if (o?._rt !== undefined) o._rt += dt * (1 - wk);
+    for (const name of ['grenades', 'thrown', 'arrows', 'voids', 'bats', 'bloods', 'fangs', 'missiles']) for (const o of g[name]) if (o?._rt !== undefined) o._rt += dt * (1 - wk);
   }
   carryShots(wdt, then, self);
   carryThings(wdt, then, hostNow, self);
@@ -871,7 +871,7 @@ function carryThings(dt, then, hostNow, self) {
   const g = A.game, k = Math.min(1, dt * 30);
   // (a flying sword: on the way it was going, between the host's words)
   for (const d of g.swordSets) for (const s of d.swords ?? []) if (s.state === 'out') { s.x += s.vx * dt; s.y += s.vy * dt; }
-  for (const name of ['grenades', 'thrown', 'arrows', 'voids', 'bats', 'bloods', 'fangs']) for (const o of g[name]) {
+  for (const name of ['grenades', 'thrown', 'arrows', 'voids', 'bats', 'bloods', 'fangs', 'missiles']) for (const o of g[name]) {
     if (!o || o._hx === undefined) continue;
     const vx = o.vx ?? (o.sp !== undefined && o.done < 0 ? Math.cos(o.a) * o.sp : 0), vy = o.vy ?? (o.sp !== undefined && o.done < 0 ? Math.sin(o.a) * o.sp : 0);
     if (typeof o.t === 'number' && name === 'arrows') o.t += dt;
@@ -901,7 +901,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'cloakStab', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist', 'drain', 'throwFangs', 'recallFangs', 'aurumOn', 'aurumOff', 'reapCut', 'eaFire', 'eaBeam', 'xcFire', 'xcBeam', 'jcOpen', 'jcCut']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'cloakStab', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist', 'drain', 'throwFangs', 'recallFangs', 'aurumOn', 'aurumOff', 'reapCut', 'fangDash', 'lockMissile', 'eaFire', 'eaBeam', 'xcFire', 'xcBeam', 'jcOpen', 'jcCut']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)
@@ -1111,7 +1111,7 @@ function resetOwn() {
 // What a screen that was only drawing the game has in the air: it isn't the real thing, and can't be run as if it was
 function clearAir() {
   const g = A.game;
-  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'blasts', 'punches', 'bursts', 'fists', 'numbers', 'fangs', 'tags']) g[name] = [];
+  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'blasts', 'punches', 'bursts', 'fists', 'numbers', 'fangs', 'missiles', 'tags']) g[name] = [];
   N.shots = [];
   N.local = [];
   N.later = [];

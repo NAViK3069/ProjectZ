@@ -16,7 +16,7 @@ import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
 import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
-import { drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot } from './goldfx.js';
+import { drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot, drawVioletMuzzle, drawVioletTrace, drawFangMark, drawFangDash, drawFangCut } from './goldfx.js';
 import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
@@ -25,10 +25,11 @@ import { drawBolts, drawVoidHole, drawVoidGlitter } from './void.js';
 import { drawBlast } from './flame.js';
 import { drawCircle, drawHole, drawBoom, drawHoleShine } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
-import { drawLockBeam, drawLockMark } from './visor.js';
+import { drawLockBeam, drawLockMark, drawMissile, drawMissileBoom } from './visor.js';
 import { drawArrow, drawArrowRing } from './archery.js';
 import { drawRiftPortal, drawRiftPath, drawRiftTraveller, drawRiftBurst, drawRiftCrack } from './rift.js';
 import { drawStabRing, drawStabBurst } from './cloakfx.js';
+import { drawCardBurst } from './skillfx.js';
 import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBatTrail, drawBlood, drawDeflectCut, drawChidoriHit, drawStealBurst, drawStealMark, DEFLECT_R, CARDS, CARD_LEAN, CARD_PICK, cardToward } from './skillfx.js';
 import { sound } from './sound.js';
 import { TouchControls, isPhone } from './touch.js';
@@ -176,7 +177,7 @@ const FIST_ICON = sprite(9, 7, (g) => g.drawImage(HANDS.open.img, 1, 0, HANDS.op
 // ---------- the game ----------
 
 const game = {
-  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [], bursts: [], bats: [], bloods: [], rifts: [], fangs: [], tags: [], obj: null,
+  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [], bursts: [], bats: [], bloods: [], rifts: [], fangs: [], missiles: [], tags: [], obj: null,
   get gunDamage() { return settings.dmg; },
   get regen() { return !overtime; },   // out of a fight for a while, you heal (not once the lab's venting)
   get viewer() { return player; },
@@ -218,10 +219,12 @@ const game = {
   },
   objective: (f) => objectiveFor(f),
   throwFangs: (f) => throwFangs(f),
-  recallFangs: (f) => recallFangs(f),
+  recallFangs: (f, dur) => recallFangs(f, dur),   // (dur: home in just that time - the dash's)
   aurumOn: (f) => aurumOn(f),
   aurumOff: (f) => aurumOff(f),
   reapCut: (f, v, dmg, ux, uy, last) => reapCut(f, v, dmg, ux, uy, last),
+  fangDash: (f, v) => fangDash(f, v),
+  lockMissile: (f, v, x, y) => lockMissile(f, v, x, y),
   eaFire: (f, x, y, a) => eaFire(f, x, y, a),
   eaBeam: (f, x, y, a, len, wk, seed) => eaBeam(f, x, y, a, len, wk, seed),
   xcFire: (f, x, y, a) => xcFire(f, x, y, a),
@@ -290,14 +293,27 @@ const game = {
   cardPin: (f) => (f === player && cardPin && !online.watching ? renderer.screenToWorld(cardPin.x, cardPin.y) : null),
   // the card's turned: teammates near by get their share of it
   shareCard(f, kind) {
+    const links = [], is = (q) => kind === q || kind === 'joker';
     for (const o of this.fighters) {
-      if (o === f || !o.alive || o.isDecoy || o.vanish || this.foes(f, o) || Math.hypot(o.x - f.x, o.y - f.y) > CARD_SHARE) continue;
-      const left = CARD_LAST[kind] * CARD_ALLY;
+      if (o === f || !o.alive || o.isDecoy || o.vanish || Math.hypot(o.x - f.x, o.y - f.y) > CARD_SHARE) continue;
+      if (this.foes(f, o)) {
+        // the other side of the card
+        const dx = o.x - f.x, dy = o.y - f.y, d = Math.hypot(dx, dy) || 1;
+        if (is('red')) { o.hitHow = 'BUFF CARDS'; o.hurt(CARD_BURN, f, 0, -40); this.fx.sparks(o.x, o.y - 14, 8, 0, -1, '#ff5a48'); }
+        if (is('blue')) { o.vx += (dx / d) * 420; o.vy = Math.min(o.vy, -180); this.fx.sparks(o.x, o.y - 14, 8, dx / d, -0.3, '#5ac8ff'); }
+        if (is('purple')) { o.jamT = Math.max(o.jamT ?? 0, CARD_DAZZLE); this.fx.sparks(o.x, o.y - 24, 8, 0, -1, '#c88aff'); }
+        links.push({ x: o.x, y: o.y - 14, foe: true });
+        continue;
+      }
+      const k = kind === 'green' ? 1 : CARD_ALLY, left = CARD_LAST[kind] * k;
       o.allyCard = { kind, left, total: left };
-      o.cardLands?.(kind, CARD_ALLY);
+      o.cardLands?.(kind, k);
       if (kind === 'purple') o.fade = { t: 0, dur: 0.3, out: true, seed: Math.random() * 100, rgb: '180, 110, 255' };
       this.fx.sparks(o.x, o.y - 18, 8, 0, -1, '#ffe08a');
+      links.push({ x: o.x, y: o.y - 14 });
     }
+    this.bursts.push({ kind: 'card', card: kind, x: f.x, y: f.y - 14, t: 0, seed: Math.random() * 100, r: CARD_SHARE, links });
+    this.lights.flash(f.x, f.y - 14, CARD_SHARE, CARDS[kind]?.rgb ?? '255, 210, 90', 0.3);
   },
   onShieldHit(v, d) {
     this.numbers.push({ text: Math.round(d), x: v.x + rand(-5, 5), y: v.y - 34, t: 0, color: '#8fdcff', big: false });
@@ -383,6 +399,12 @@ const game = {
     // (id, sq: online, how a shot's known; rw: how far behind now its shooter saw everyone - see pastOf)
     const b = { id: (this.shotIds = (this.shotIds ?? 0) + 1), x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, speed, owner: f, dmg, left: range, travelled: 0, pierce, far, done: new Set(), dead: false, sq: f.shotSeed ?? 0, rw: f.rewind ?? 0, violet: !!f.weapon?.def.violet };
     this.bullets.push(b);
+    if (b.violet) {
+      // the gold sniper's: rings thrown off the muzzle; and where it set off from, for the line it leaves
+      b.x0 = x;
+      b.y0 = y;
+      this.bursts.push({ kind: 'vmuzzle', x, y, a, t: 0, seed: Math.random() * 100 });
+    }
     this.onShot?.(b);
   },
   // the main game's muzzle: a flash of light, a puff of smoke off the barrel, the camera kicked back
@@ -616,6 +638,7 @@ function startRound() {
   game.bats = [];
   game.rifts = [];
   game.fangs = [];
+  game.missiles = [];
   game.bloods = [];
   game.punches = [];
   game.numbers = [];
@@ -1908,7 +1931,11 @@ function drawRifts(ctx) {
 
 const CHIDORI_DMG = 120;   // what chidori does, driven through someone
 const STEAL_HACK = 1.5;   // how long the skill thief's hack cuts them off for
-const CARD_SHARE = 110;   // how near a teammate has to be to get a share of a buff card
+export const CARD_SHARE = 170;   // how near a teammate has to be to get a share of a buff card (and a foe, its sting)
+// The ring of it as the card lands goes out to CARD_SHARE: teammates in it get their share (green: all of it); and foes
+// in it get the other side of the card - red: burnt (CARD_BURN), blue: thrown back out of it, purple: dazzled (their
+// guns won't fire for CARD_DAZZLE), the joker: all three. (Green does nothing to foes: it's all for your side.)
+const CARD_BURN = 20, CARD_DAZZLE = 1.2;
 const CARD_SHOT = 0.15;   // the red card: shots this much harder too
 const SHIELD_BLAST = 26, SHIELD_REACH = 68, BURST_LIFE = 0.7, HACK_REACH = 170;
 // The shield going off. charge: what it took, of all it could (0 .. 1, a little over if the blow that broke it was
@@ -1955,19 +1982,26 @@ function hackBurst(f) {
 // (The owner's side of it: Fighter.updateFang.)
 const FANG_N = 5, FANG_SPREAD = 0.6, FANG_SPEED = 820, FANG_REACH = 420, FANG_HIT = 30;   // how many, how wide, how fast, how far, how hard
 const FANG_HOME = 1000, FANG_PULL = 3400, FANG_BACK_HIT = FANG_HIT, FANG_RIP = 12;   // home: top speed, how fast it gets there, what it takes going through someone (and torn out of them)
+// (the sixth, the mark: straight at the mouse, quicker, no further than FANG_REACH, stopped by a wall - gone if it
+// hits nothing; whoever it hits, it sticks in and marks)
+const FANG_MARK_HIT = 15, FANG_DASH_HIT = 45;
 function throwFangs(f) {
   const s = f.shoulder, seed = Math.random() * 100;
   for (let i = 0; i < FANG_N; i++) {
     const a = f.aim + (i - (FANG_N - 1) / 2) * (FANG_SPREAD / (FANG_N - 1)) + rand(-0.025, 0.025), sp = FANG_SPEED * rand(0.94, 1.06);
     game.fangs.push({ owner: f, x: s.x + Math.cos(a) * 6, y: s.y + Math.sin(a) * 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, a, state: 'fly', dist: 0, on: null, ox: 0, oy: 0, hits: [], seed: seed + i * 7, t: 0 });
   }
+  const a = f.aim, sp = FANG_SPEED * 1.15;
+  game.fangs.push({ owner: f, mark: true, x: s.x + Math.cos(a) * 6, y: s.y + Math.sin(a) * 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, a, state: 'fly', dist: 0, on: null, ox: 0, oy: 0, hits: [], seed: seed + 99, t: 0 });
   game.bursts.push({ kind: 'fang', x: s.x, y: s.y, a: f.aim, t: 0 });
   game.lights.flash(s.x, s.y, 80, '255, 200, 90', 0.12);
   game.fx.sparks(s.x, s.y, 8, Math.cos(f.aim), Math.sin(f.aim), '#ffd25a');
 }
-function recallFangs(f) {
+// (dur: called home to arrive in just that time - the dash's - wherever their owner's got to by then)
+function recallFangs(f, dur = 0) {
   for (const d of game.fangs) {
     if (d.owner !== f || d.state === 'back') continue;
+    if (dur) d.timed = { t0: game.time, dur };
     d.hits = [];
     const v = d.on;
     if (d.state === 'in' && v?.alive) {
@@ -1999,9 +2033,24 @@ function updateFangs(dt) {
         if (level.solidAt(tx, ty)) {
           d.state = 'wall';
           game.fx.sparks(tx, ty, 5, -ux, -uy, '#ffd25a');
+          if (d.mark) { d.gone = true; game.fx.motes(d.x, d.y, 6, ['#ffd25a', '#fff6c8', '#c09aff']); }   // (the mark: a wall's the end of it)
           break;
         }
         const h = game.fighters.find((q) => q.alive && !q.vanish && !d.hits.includes(q) && (!q.hidden || q.glimpsed) && game.foes(o, q) && (q.hitPart(tx, ty) || Math.hypot(q.x - tx, q.y - 14 - ty) < 8));
+        if (h && d.mark) {
+          // marked: in them, and theirs to wear till it's called home
+          h.hitHow = 'GOLDEN FANGS';
+          h.hurt(FANG_MARK_HIT, o, ux * 60, -30);
+          d.state = 'in';
+          d.on = h;
+          d.ox = tx - h.x;
+          d.oy = ty - h.y;
+          if (o.fang) o.fang.mark = h;
+          game.fx.sparks(tx, ty, 10, ux, uy, '#ffd25a');
+          game.fx.sparks(tx, ty, 6, 0, -1, '#c09aff');
+          game.lights.flash(tx, ty, 60, '255, 200, 90', 0.15);
+          break;
+        }
         if (h) {
           h.hitHow = 'GOLDEN FANGS';
           h.hurt(FANG_HIT, o, ux * 140, -60, h.hitPart(tx, ty) === 'head');
@@ -2010,7 +2059,10 @@ function updateFangs(dt) {
           game.fx.sparks(tx, ty, 6, ux, uy, '#ffd25a');
         }
       }
-      if (d.state === 'fly' && d.dist > FANG_REACH) d.state = 'hang';
+      if (d.state === 'fly' && d.dist > FANG_REACH) {
+        if (d.mark) { d.gone = true; game.fx.motes(d.x, d.y, 6, ['#ffd25a', '#fff6c8', '#c09aff']); }   // (out of reach: gone)
+        else d.state = 'hang';
+      }
       if (d.state !== 'fly') { d.vx = 0; d.vy = 0; }
     } else if (d.state === 'in') {
       const v = d.on;
@@ -2019,6 +2071,7 @@ function updateFangs(dt) {
     } else if (d.state === 'back') {
       const s = o.shoulder, dx = s.x - d.x, dy = s.y - d.y, dist = Math.hypot(dx, dy) || 1, ux = dx / dist, uy = dy / dist;
       d.sp = Math.min(FANG_HOME, (d.sp ?? 120) + FANG_PULL * dt);
+      if (d.timed) d.sp = Math.max(60, dist / Math.max(dt, d.timed.t0 + d.timed.dur - game.time));   // (home just as the dash gets there)
       d.a = Math.atan2(uy, ux);   // (point first, home)
       const step = Math.min(dist, d.sp * dt);
       d.x += ux * step;
@@ -2040,14 +2093,84 @@ function updateFangs(dt) {
   // all back in the hand: now the wait starts
   for (const f of game.fighters) if (f.fang?.back && !game.fangs.some((d) => d.owner === f)) { f.fang = null; if (f.alive) f.skillCD = SKILL_CD.fang; }
 }
+// Arriving: the cut on whoever was marked - a hard one, thrown off - and the gold of it
+function fangDash(f, v) {
+  if (!v?.alive) return;
+  const ux = Math.sign(v.x - f.x) || f.facing;
+  v.hitHow = 'GOLDEN FANGS';
+  v.hurt(FANG_DASH_HIT, f, ux * 260, -160);
+  game.fx.blood(v.x, v.y - 14, 10, ux, -0.3);
+  game.fx.sparks(v.x, v.y - 14, 18, ux, -0.4, '#ffd25a');
+  game.fx.sparks(v.x, v.y - 14, 10, -ux, -0.6, '#fff6c8');
+  game.bursts.push({ kind: 'fangcut', x: v.x, y: v.y - 14, a: ux > 0 ? 0 : Math.PI, t: 0, seed: Math.random() * 100 });
+  game.lights.flash(v.x, v.y - 14, 130, '255, 200, 90', 0.35);
+  if (Math.hypot(player.x - v.x, player.y - v.y) < 260) renderer.kick(ux * 6, -3);
+}
+// ---------- the target lock's missiles ----------
+// Off the shoulder, kicked up and back a little, then after whoever's locked: quicker as they go, but only turning so
+// fast (MIS_TURN) - so a quick enough change of direction, or a wall in the way, gets out of one. A little blast where
+// one goes off: not much (MIS_DMG at most), a shove. They burn out after MIS_LIFE.
+const MIS_SPEED = 340, MIS_TURN = 6.5, MIS_LIFE = 2.6, MIS_DMG = 20, MIS_R = 26;
+function lockMissile(f, v, x, y) {
+  // (off toward them, tipped up a little - so it arcs in, low enough to go under a ceiling)
+  const to = Math.atan2(v.y - 14 - y, v.x - x), tip = 0.5 * Math.min(1, Math.hypot(v.x - x, v.y - 14 - y) / 160), a = to + (Math.cos(to) >= 0 ? -tip : tip);
+  game.missiles.push({ owner: f, target: v, x, y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, a, sp: 160, t: 0, seed: Math.random() * 100 });
+  game.fx.sparks(x, y, 6, Math.cos(a), Math.sin(a), '#8fe8ff');
+  game.fx.smoke(x, y, 2);
+}
+function updateMissiles(dt) {
+  for (const m of game.missiles) {
+    m.t += dt;
+    const v = m.target?.alive && !m.target.vanish ? m.target : null;
+    m.sp = Math.min(MIS_SPEED, m.sp + 520 * dt);
+    if (v && m.t > 0.12) {
+      const want = Math.atan2(v.y - 14 - m.y, v.x - m.x), d = Math.atan2(Math.sin(want - m.a), Math.cos(want - m.a));
+      m.a += Math.max(-MIS_TURN * dt, Math.min(MIS_TURN * dt, d));
+    }
+    m.vx = Math.cos(m.a) * m.sp;
+    m.vy = Math.sin(m.a) * m.sp;
+    m.x += m.vx * dt;
+    m.y += m.vy * dt;
+    if (Math.random() < 0.6) game.fx.smoke(m.x - Math.cos(m.a) * 3, m.y - Math.sin(m.a) * 3, 1);
+    const hit = game.fighters.find((o) => o !== m.owner && o.alive && !o.vanish && game.foes(m.owner, o) && Math.hypot(o.x - m.x, o.y - 14 - m.y) < 13);   // (a near miss sets it off)
+    if (hit || level.solidAt(m.x, m.y) || game.props.some((p) => !p.dead && p.contains(m.x, m.y)) || m.t > MIS_LIFE) {
+      m.gone = true;
+      game.bursts.push({ kind: 'missile', x: m.x, y: m.y, t: 0, seed: m.seed });
+      for (const o of game.fighters) {
+        if (!o.alive || o.vanish || !game.foes(m.owner, o)) continue;
+        const dx = o.x - m.x, dy = o.y - 14 - m.y, d = Math.hypot(dx, dy);
+        if (d > MIS_R) continue;
+        const k = 1 - d / MIS_R, n = d || 1;
+        o.hitHow = 'TARGET LOCK';
+        o.blast = true;
+        o.hurt(MIS_DMG * (0.4 + 0.6 * k), m.owner, (dx / n) * 180 * k, -90 * k);
+        o.blast = false;
+      }
+      for (const p of game.props) if (!p.dead && Math.hypot(p.x - m.x, p.y - p.h / 2 - m.y) < MIS_R) game.damageProp(p, 40, m.owner, 0, -60);
+      game.fx.sparks(m.x, m.y, 12, 0, -1, '#ffd27a');
+      game.fx.sparks(m.x, m.y, 8, 0, 0, '#8fe8ff');
+      game.fx.smoke(m.x, m.y, 4);
+      game.lights.flash(m.x, m.y, 70, '255, 180, 110', 0.2);
+      if (Math.hypot(player.x - m.x, player.y - m.y) < 160) renderer.kick((Math.random() - 0.5) * 3, -1.5);
+    }
+  }
+  game.missiles = game.missiles.filter((m) => !m.gone);
+}
 function drawFangs(ctx) {
+  // whoever's marked: a gold sigil turning over them; and the dash: a streak of gold the way you went
+  for (const f of game.fighters) {
+    const m = f.fang;
+    if (!m) continue;
+    if (m.mark?.alive && !m.dash) drawFangMark(ctx, m.mark.x, m.mark.y - 40, game.time);
+    if (m.dash) drawFangDash(ctx, m.dash.x0, m.dash.y0 - 14, f.x, f.y - 14, Math.min(1, m.dash.t / m.dash.dur), game.time);
+  }
   for (const d of game.fangs) {
     const tr = (d._pts ??= []), moving = d.state === 'fly' || d.state === 'back';
     if (moving) { tr.unshift({ x: d.x, y: d.y }); tr.length = Math.min(tr.length, d.state === 'back' ? 7 : 5); } else if (tr.length) tr.pop();
     drawFangTrail(ctx, tr, d.state === 'back', d.seed);
     const bob = d.state === 'hang' ? Math.sin(game.time * 3 + d.seed) * 1.5 : 0;
     drawFang(ctx, d.x, d.y + bob, d.a);
-    drawFangGlow(ctx, d.x, d.y + bob, d.a, game.time, d.seed, d.state === 'back');
+    drawFangGlow(ctx, d.x, d.y + bob, d.a, game.time, d.seed, d.state === 'back' || d.mark);
   }
 }
 
@@ -2217,6 +2340,11 @@ function drawBursts(ctx) {
     else if (b.kind === 'chidori') drawChidoriHit(ctx, b.x, b.y, b.a, k, b.seed);
     else if (b.kind === 'rift') drawRiftBurst(ctx, b.x, b.y, k);
     else if (b.kind === 'fang') drawFangFlash(ctx, b.x, b.y, b.a, b.t / 0.25);
+    else if (b.kind === 'fangcut') drawFangCut(ctx, b.x, b.y, b.a, k, b.seed);
+    else if (b.kind === 'missile') drawMissileBoom(ctx, b.x, b.y, k, b.seed);
+    else if (b.kind === 'vmuzzle') drawVioletMuzzle(ctx, b.x, b.y, b.a, k, game.time, b.seed);
+    else if (b.kind === 'vtrace') drawVioletTrace(ctx, b.x0, b.y0, b.x, b.y, k, game.time, b.seed);
+    else if (b.kind === 'card') drawCardBurst(ctx, b.x, b.y, b.r, b.card, k, game.time, b.seed, b.links);
     else if (b.kind === 'stab') drawStabBurst(ctx, b.x, b.y, b.a, k, b.back, b.seed);
     else if (b.kind === 'steal') drawStealBurst(ctx, b.x, b.y, b.owner?.alive ? b.owner.x : b.x0, b.owner?.alive ? b.owner.y - 17 : b.y0, k, b.seed);
     else drawHackWave(ctx, b.x, b.y, k, game.time, b.seed, b.r, b.links);
@@ -2313,9 +2441,11 @@ function bendShot(b, dt) {
 }
 function updateBullets(dt) {
   const fx = game.fx, spheres = cutSpheres();
+  for (const b of game.bullets) if (b.dead && b.violet && b.x0 !== undefined) game.bursts.push({ kind: 'vtrace', x0: b.x0, y0: b.y0, x: b.x, y: b.y, t: 0, seed: (b.id ?? 0) * 3.1 });   // (the line it leaves, lingering)
   game.bullets = game.bullets.filter((b) => !b.dead);
   for (const b of game.bullets) {
     if (game.galaxies.length) bendShot(b, dt);
+    if (b.violet && b.travelled > 4) game.fx.motes(b.x - b.vx * dt * Math.random(), b.y - b.vy * dt * Math.random(), 2, ['#c09aff', '#ffd25a', '#ffffff', '#e8d8ff']);   // (glitter left along its way)
     const dist = b.speed * dt, n = Math.ceil(dist / 3), sx = b.vx * dt / n, sy = b.vy * dt / n, dx = b.vx / b.speed, dy = b.vy / b.speed;
     for (let i = 0; i < n && !b.dead; i++) {
       b.x += sx;
@@ -2742,7 +2872,7 @@ function drawWorld() {
     if (m.phase === 'charge') { const k = Math.min(1, m.t / 1.3); extra.push({ x: p.x, y: p.y, r: 50 + 90 * k, rgb: '255, 220, 130', k: 0.25 + 0.4 * k }, { x: f.x, y: f.y - 4, r: 60, rgb: '255, 210, 120', k: 0.25 * k }); }
     else if (m.phase === 'fire') { const w = f.xcWidth(); for (let s = 0; s < m.len; s += 70) extra.push({ x: p.x + Math.cos(m.a) * s, y: p.y + Math.sin(m.a) * s, r: 100, rgb: '255, 225, 140', k: 0.6 * w }); }
   }
-  for (const f of game.fighters) if (f.alive && f.aurum && !f.hidden) extra.push({ x: f.x + Math.cos(f.aim) * 16, y: f.y - 14 + Math.sin(f.aim) * 16, r: 26, rgb: '170, 110, 255', k: 0.3 });
+  for (const f of game.fighters) if (f.alive && f.aurum && !f.hidden) extra.push({ x: f.x + Math.cos(f.aim) * 16, y: f.y - 14 + Math.sin(f.aim) * 16, r: 22, rgb: '170, 110, 255', k: 0.14 });
   for (const p of game.pickups) if (p.ready) extra.push({ x: p.x, y: p.y - 6, r: 26, rgb: p.kind === 'health' ? '255, 120, 110' : '170, 240, 255', k: 0.3 });
   for (const g of game.grenades) if (Math.sin(g.t * (g.t < 0.6 ? 40 : 14)) > 0) extra.push({ x: g.x, y: g.y - 3, r: 16, rgb: '255, 80, 60', k: 0.6 });
   if (overtime) extra.push({ x: renderer.camera.x, y: renderer.camera.y, r: 600, rgb: '120, 20, 10', k: 0.15 + 0.08 * Math.sin(time * 5) });
@@ -2790,6 +2920,7 @@ function drawWorld() {
   drawRifts(ctx);
   drawSwordsOnTop(ctx);
   drawFangs(ctx);
+  for (const m of game.missiles) drawMissile(ctx, m, game.time);
   drawObjectivesLit(ctx);
   drawLocks(ctx);
   drawBursts(ctx);
@@ -2890,7 +3021,7 @@ function drawDecoGlow(ctx, time) {
 function drawBullet(ctx, b) {
   if (b.dead && b.travelled < 2) return;
   const dx = b.vx / b.speed, dy = b.vy / b.speed;
-  if (b.violet) return drawVioletShot(ctx, b.x, b.y, dx, dy, Math.min(130, b.travelled), game.time, (b.id ?? 0) * 7.3);   // (the gold sniper's)
+  if (b.violet) return drawVioletShot(ctx, b.x, b.y, dx, dy, Math.min(260, b.travelled), game.time, (b.id ?? 0) * 7.3);   // (the gold sniper's)
   const len = Math.min(26, b.speed * 0.022, b.travelled), x = b.x, y = b.y;
   ctx.save();
   ctx.lineCap = 'round';
@@ -3655,7 +3786,7 @@ function startTraining() {
   paused = false;
   banner = { text: 'TRAINING', sub: 'TAB: GUNS, SKILLS - ESC: OPTIONS - LIVE FIRE, FAR RIGHT', t: 2.4, color: '#8ff0ff' };
   locker = null;
-  game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = []; game.bursts = []; game.bats = []; game.bloods = []; game.fangs = [];
+  game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = []; game.bursts = []; game.bats = []; game.bloods = []; game.fangs = []; game.missiles = [];
   stats.reset();
   player = new Fighter(game, images, ROSTER[0]);
   player.team = 0;
@@ -4297,9 +4428,9 @@ const SKILL_INFO = [
   { key: 'blaze', name: 'FLAME FIST', img: FIST_FIRE_ICON, color: '#ff9a4a', desc: 'FISTS ALIGHT, THEN A DASH AND A PUNCH THE WAY YOU AIM' },
   { key: 'galaxy', name: 'GALAXY', img: GALAXY_ICON, color: '#7af0ff', desc: 'A BLACK HOLE WHERE YOU AIM: DRAGS THEM IN, THEN GOES OFF' },
   { key: 'demon', name: 'FLYING SWORDS', img: SWORDS_ICON, color: '#8fe0ff', desc: 'TAKES ALL YOUR STAMINA: A SWORD FOR EVERY 20%, THEY FLY AT WHOEVER COMES NEAR' },
-  { key: 'lock', name: 'TARGET LOCK', img: LOCK_ICON, color: '#8fe8ff', desc: '3 S: YOUR SHOTS GO FOR THE FOE NEAREST THE MOUSE, WITH LESS KICK. THEY SEE IT' },
+  { key: 'lock', name: 'TARGET LOCK', img: LOCK_ICON, color: '#8fe8ff', desc: '5 S: YOUR SHOTS GO FOR THE FOE NEAREST THE MOUSE, WITH LESS KICK - AND 3 LITTLE MISSILES GO AFTER THEM, ONE AT A TIME. THEY SEE IT, AND CAN DODGE' },
   { key: 'shield', name: 'BLUE SHIELD', img: SHIELD_ICON, color: '#6ad8ff', desc: 'TAKES 110 DAMAGE FOR 4 S, THEN GOES OFF - THE MORE IT TOOK, THE HARDER AND WIDER THE BLAST. UNTOUCHABLE 0.5 S AFTER. SLOWER, WEAKER SHOTS' },
-  { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'DRAG TO A CARD: RED FULL MAG + FIRE RATE + HARDER SHOTS, GREEN HEAL + SHAKES OFF HACKS, BLUE FULL STAMINA + SPEED, PURPLE UNSEEN THEN A X1.8 HIT. SOMETIMES A JOKER: RED, GREEN AND BLUE AT ONCE. TEAMMATES NEAR SHARE IT' },
+  { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'THE RING AS IT LANDS: ALLIES IN IT SHARE IT, FOES GET THE OTHER SIDE - RED BURNS, BLUE THROWS BACK, PURPLE JAMS THEIR GUNS. DRAG TO A CARD: RED FULL MAG + FIRE RATE + HARDER SHOTS, GREEN HEAL + SHAKES OFF HACKS, BLUE FULL STAMINA + SPEED, PURPLE UNSEEN THEN A X1.8 HIT. SOMETIMES A JOKER: RED, GREEN AND BLUE AT ONCE. TEAMMATES NEAR SHARE IT' },
   { key: 'vampire', name: 'VAMPIRE', img: VAMPIRE_ICON, color: '#ff5a6a', desc: 'BATS DRAW BLOOD FOR YOU, AND YOU TURN TO SMOKE: UNTOUCHABLE, FAST, UNTIL YOU ATTACK OR ROLL' },
   { key: 'deflect', name: 'DEFLECT', img: DEFLECT_ICON, color: '#7affd0', desc: 'KATANA AT THE HIP: A FIELD TURNS SHOTS BACK WHERE YOU AIM, THEN DASH AND CUT' },
   { key: 'chidori', name: 'CHIDORI', img: CHIDORI_ICON, color: '#9fe6ff', desc: 'LIGHTNING IN THE HAND, AND QUICKER FEET: RUN INTO A FOE TO DRIVE IT THROUGH THEM. Q: LUNGE' },
@@ -4308,7 +4439,7 @@ const SKILL_INFO = [
   { key: 'jumper', name: 'JUMPER', img: JUMPER_ICON, color: '#c08aff', desc: 'INTO THE OTHER PLACE: UNTOUCHABLE, FAST. Q AGAIN OPENS A RIFT BACK - ANYONE CAN GO THROUGH THE PAIR' },
   { key: 'sande', name: 'SANDEVISTAN', img: SANDE_ICON, color: '#7affc8', desc: 'THE WORLD ALL BUT STOPS AND YOU MOVE ON, QUICKER: AS LONG AS YOUR STAMINA, UP TO 2.6 S. COSTS 15% HEALTH' },
   { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT 5 S, NO SHOOTING 1.6 S' },
-  { key: 'fang', name: 'GOLDEN FANGS', img: FANG_ICON, color: '#ffd25a', desc: 'FIVE GOLD DAGGERS FANNED OUT LIKE A SHOTGUN, STRAIGHT THROUGH WHOEVER THEY HIT. Q AGAIN (OR 3 S): ALL FLY HOME, CUTTING THROUGH ANYONE IN THE WAY AS HARD' },
+  { key: 'fang', name: 'GOLDEN FANGS', img: FANG_ICON, color: '#ffd25a', desc: 'FIVE GOLD DAGGERS FANNED OUT, THROUGH WHOEVER THEY HIT - AND A SIXTH AT THE MOUSE THAT MARKS. Q AGAIN: ALL FLY HOME - AND WITH SOMEONE MARKED, YOU GO TO THEM, THROUGH WALLS, AND CUT' },
   { key: 'aurum', name: 'AURUM', img: AURUM_ICON, color: '#d0a8ff', desc: 'A GOLD SNIPER BUILT IN YOUR HANDS: 5 HEAVY SHOTS THROUGH ANYONE IN LINE, A VIOLET STREAK BEHIND. 12 S, Q: PUT AWAY' },
   { key: 'judge', name: 'JUDGEMENT CUT', img: JUDGE_ICON, color: '#5ad8ff', desc: 'THE STANCE, THEN THE SPACE WHERE YOU AIM IS CUT - WALLS NO MATTER: 12 CUTS ON ANYONE IN IT, HELD THERE, THEN IT BREAKS LIKE GLASS FOR 70. UP TO 200' },
   { key: 'excal', name: 'EXCALIBUR', img: EXCAL_ICON, color: '#ffd24a', desc: 'THE SWORD UNVEILED, RAISED TO THE SKY: 1.75 S GATHERING LIGHT, ROOTED - THEN ONE STROKE, A WAVE OF LIGHT AS WIDE AS A WALL STRAIGHT DOWN THE AIM, THROUGH ALL. ITS FRONT HITS 110' },
@@ -4778,7 +4909,7 @@ initOnline({
     stateT = 0;
     paused = false;
     locker = null;
-    for (const k of ['bullets', 'grenades', 'pickups', 'feed', 'blasts', 'thrown', 'numbers', 'arrows', 'voids', 'fists', 'galaxies', 'swordSets', 'punches', 'bursts', 'bats', 'bloods', 'fangs', 'props', 'racks']) game[k] = [];
+    for (const k of ['bullets', 'grenades', 'pickups', 'feed', 'blasts', 'thrown', 'numbers', 'arrows', 'voids', 'fists', 'galaxies', 'swordSets', 'punches', 'bursts', 'bats', 'bloods', 'fangs', 'missiles', 'props', 'racks']) game[k] = [];
     stats.reset();
     player = new Fighter(game, images, ROSTER[0]);
     player.alive = false;
@@ -4844,7 +4975,7 @@ function menuBackdrop(dt) {
   if (game.fighters.length) {
     game.fighters = [];
     bots = [];
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'bursts', 'bats', 'bloods', 'rifts', 'fists', 'numbers', 'feed', 'fangs']) game[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'blasts', 'punches', 'bursts', 'bats', 'bloods', 'rifts', 'fists', 'numbers', 'feed', 'fangs', 'missiles']) game[name] = [];
   }
   const picked = state === 'title' && settings.map !== 'random' ? settings.map : null;
   backdropT -= dt;
@@ -4961,6 +5092,7 @@ function tick(realDt, draw = true) {
     updateGalaxies(wdt);
     updateSwords(wdt);
     updateFangs(wdt);
+    updateMissiles(wdt);
     updateAurums();
     updateBats(wdt);
     updateRifts(wdt, own);

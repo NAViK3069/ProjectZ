@@ -7,6 +7,38 @@ import { palette, drawPixels, glowAt, pixArc } from './pixfx.js';
 const R = { white: '#ffffff', pale: '#ffc8c8', red: '#ff4a55', deep: '#c0182e', ink: '#6a0a1e' };
 const MARK = palette(Object.values(R));
 const ease = (k) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
+const mh = (a, b, c = 0) => { const v = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return v - Math.floor(v); };
+
+// The lock's little missile `m` ({ x, y, a, t, seed }): a body of white and ice-blue a few pixels long, a red tip, fins,
+// a flickering flame out of the back and a short tail of light; a red line ahead of it, faint, to whoever it's after.
+export function drawMissile(ctx, m, t) {
+  const ux = Math.cos(m.a), uy = Math.sin(m.a), nx = -uy, ny = ux, at = (s, j) => [Math.round(m.x + ux * s + nx * j), Math.round(m.y + uy * s + ny * j)];
+  const px = (s, j, col) => { const [x, y] = at(s, j); ctx.fillStyle = col; ctx.fillRect(x, y, 1, 1); };
+  for (let s = -3; s <= 1; s++) px(s, 0, s === 1 ? R.red : s > -2 ? '#e8faff' : '#8fe8ff');
+  px(-3, -1, '#5a8aa8'); px(-3, 1, '#5a8aa8');
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const fl = 2 + Math.floor(mh(Math.floor(t * 30), 1, m.seed) * 3);
+  for (let s = 1; s <= fl; s++) px(-3 - s, 0, s === 1 ? '#ffffff' : s === 2 ? '#ffd27a' : '#ff8a3a');
+  // a tail of light behind
+  for (let s = fl + 1; s < fl + 10; s++) { ctx.globalAlpha = 0.6 * (1 - (s - fl) / 10); px(-3 - s, Math.round(Math.sin(s * 0.8 + t * 30) * 0.6), '#8fe8ff'); }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  glowAt(ctx, m.x - ux * 4, m.y - uy * 4, 8, [[0, 'rgba(255, 190, 120, 0.4)'], [1, 'rgba(255, 140, 60, 0)']]);
+}
+// Where one goes off, k 0..1: a white flash, a ring of orange going out, flecks of ice-blue - small.
+export function drawMissileBoom(ctx, x, y, k, seed) {
+  if (k >= 1) return;
+  glowAt(ctx, x, y, 12 + 18 * k, [[0, `rgba(255, 240, 210, ${0.7 * (1 - k)})`], [0.5, `rgba(255, 150, 60, ${0.35 * (1 - k)})`], [1, 'rgba(255, 100, 30, 0)']]);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 1 - k;
+  ctx.fillStyle = k < 0.25 ? '#ffffff' : '#ffb060';
+  pixArc(ctx, x, y, 4 + 20 * k, 4 + 20 * k, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#8fe8ff';
+  for (let i = 0; i < 10; i++) { const a = mh(i, 1, seed) * Math.PI * 2, d = 3 + k * (10 + mh(i, 2, seed) * 14); ctx.fillRect(Math.round(x + Math.cos(a) * d), Math.round(y + Math.sin(a) * d), 1, 1); }
+  ctx.restore();
+}
 
 // The visor on the eyes at (x, y), looking toward `face` (1 / -1). k: seconds it's been on; left: seconds it has left.
 // A burst of light as it boots; rings of hologram turning round the head; the band across the eyes, burning white at

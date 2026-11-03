@@ -5,7 +5,7 @@
 
 import { glowAt } from './pixfx.js';
 
-const hash = (a, b, c) => {
+const hash = (a, b, c = 0) => {
   const v = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453;
   return v - Math.floor(v);
 };
@@ -98,8 +98,71 @@ export function drawFangFlash(ctx, x, y, a, k) {
   });
 }
 
+// The mark on whoever the sixth dagger's in: a gold diamond over them, turning, its corners flicking out, a violet
+// heart to it.
+export function drawFangMark(ctx, x, y, t) {
+  lit(ctx, () => {
+    const R = 5 + Math.sin(t * 6) * 0.8, a = t * 2.5;
+    for (let j = 0; j < 4; j++) {
+      const q = a + (j * Math.PI) / 2, cx = Math.round(x + Math.cos(q) * R), cy = Math.round(y + Math.sin(q) * R * 0.6);
+      ctx.fillStyle = j % 2 ? '#ffd85a' : '#fff6c8';
+      ctx.fillRect(cx, cy, 1, 1);
+      ctx.fillRect(cx + Math.round(Math.cos(q) * 2), cy + Math.round(Math.sin(q) * 1.2), 1, 1);
+    }
+    ctx.fillStyle = '#b88aff';
+    ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 3, 3);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
+    // a line of gold dropping from it to them, flickering
+    ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 14);
+    ctx.fillStyle = '#ffd85a';
+    for (let i = 4; i < 10; i += 2) ctx.fillRect(Math.round(x), Math.round(y) + i, 1, 1);
+    ctx.globalAlpha = 1;
+  });
+}
+// The dash, from (x0, y0) to where you are (x, y), k 0..1 through it: a streak of gold the way you went, white near
+// you, glinting, and broken up behind.
+export function drawFangDash(ctx, x0, y0, x, y, k, t) {
+  const dx = x - x0, dy = y - y0, L = Math.hypot(dx, dy);
+  if (L < 1) return;
+  const ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+  lit(ctx, () => {
+    for (let i = 0; i <= L; i++) {
+      const q = i / L;   // (0 at the start, 1 at you)
+      if (q < 0.6 && hash(i, 3, Math.floor(t * 20)) > q * 1.6) continue;
+      ctx.globalAlpha = 0.25 + 0.75 * q;
+      ctx.fillStyle = q > 0.85 ? '#ffffff' : q > 0.5 ? '#fff6c8' : '#ffd85a';
+      for (const j of q > 0.7 ? [-1, 0, 1] : [0]) ctx.fillRect(Math.round(x0 + ux * i + nx * j), Math.round(y0 + uy * i + ny * j), 1, 1);
+    }
+    for (let i = 0; i < 8; i++) {
+      const s = hash(i, 5, Math.floor(t * 12)) * L, j = (hash(i, 6) - 0.5) * 12;
+      ctx.globalAlpha = 0.8;
+      ctx.fillStyle = i % 2 ? '#ffd85a' : '#b88aff';
+      ctx.fillRect(Math.round(x0 + ux * s + nx * j), Math.round(y0 + uy * s + ny * j), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+// The cut as the dash gets there: a crescent of gold across them, white at its edge, k 0..1.
+export function drawFangCut(ctx, x, y, a, k, seed) {
+  if (k >= 1) return;
+  lit(ctx, () => {
+    ctx.globalAlpha = 1 - k;
+    for (let j = 0; j < 4; j++) {
+      const R = 14 - j * 2 + k * 6;
+      ctx.fillStyle = j === 0 ? '#ffffff' : j < 2 ? '#fff6c8' : '#ffd85a';
+      for (let i = 0; i <= 24; i++) {
+        const q = a - 1.2 + (2.4 * i) / 24;
+        ctx.fillRect(Math.round(x + Math.cos(q) * R * 0.6), Math.round(y + Math.sin(q) * R), 1, 1);
+      }
+    }
+    ctx.globalAlpha = 1;
+  });
+  glowAt(ctx, x, y, 22, [[0, `rgba(255, 220, 140, ${0.5 * (1 - k)})`], [1, 'rgba(255, 200, 90, 0)']]);
+}
+
 // ---------- aurum ----------
-const GUN_LEN = 30;   // (about how far the sniper reaches from the shoulder)
+const GUN_LEN = 42;   // (about how far the sniper reaches, from a little behind the grip)
 // Being built: ahead of the scan, a violet wireframe of the gun, flickering; the scan, a bar of white-violet light
 // going out along it; motes of violet coming in to it from all round. k: 0 .. 1 of it.
 export function drawAurumCast(ctx, sx, sy, aim, k, t) {
@@ -110,7 +173,7 @@ export function drawAurumCast(ctx, sx, sy, aim, k, t) {
     ctx.fillStyle = V.mid;
     for (let s = -6; s <= GUN_LEN; s += 1) {
       if (s < scan) continue;
-      const half = s < 2 ? 2.5 : s < 14 ? 2 : 1;
+      const half = s < 13 ? 3.5 : s < 22 ? 2.5 : 2;   // (the stock, the body, the shroud)
       ctx.globalAlpha = (Math.floor(t * 30 + s) % 3 ? 0.75 : 0.35);
       if ((s & 1) === 0) { const [x, y] = at(s, -half); ctx.fillRect(x, y, 1, 1); const [x2, y2] = at(s, half); ctx.fillRect(x2, y2, 1, 1); }
       if (s % 6 === 0) for (let j = -half; j <= half; j++) { const [x, y] = at(s, j); ctx.fillRect(x, y, 1, 1); }   // (cross-ribs)
@@ -156,8 +219,65 @@ export function drawAurumHum(ctx, sx, sy, aim, t, left) {
       ctx.fillRect(Math.round(sx + ux * d + nx * 2), Math.round(sy + uy * d + ny * 2 - q * 7), 1, 1);
     }
   });
+  // the slots in the shroud: pulsing violet, one after another (where they are along it, from the back)
+  for (let i = 0; i < 3; i++) {
+    const s = 20.5 + i * 5, p = 0.5 + 0.5 * Math.sin(t * 7 - i * 1.3), x = sx + ux * s, y = sy + uy * s;
+    if (left <= 0.15 && Math.sin(t * 30) < 0) continue;
+    glowAt(ctx, x, y, 3 + p * 2, [[0, `rgba(200, 150, 255, ${0.12 + 0.18 * p})`], [1, 'rgba(140, 70, 255, 0)']]);
+  }
   // (running out: it flickers)
-  if (left > 0.15 || Math.sin(t * 30) > 0) glowAt(ctx, sx + ux * GUN_LEN, sy + uy * GUN_LEN, 10, [[0, 'rgba(170, 110, 255, 0.35)'], [1, 'rgba(120, 60, 255, 0)']]);
+  if (left > 0.15 || Math.sin(t * 30) > 0) glowAt(ctx, sx + ux * GUN_LEN, sy + uy * GUN_LEN, 7, [[0, 'rgba(170, 110, 255, 0.22)'], [1, 'rgba(120, 60, 255, 0)']]);
+}
+// Off the muzzle at (x, y) as it fires along a (k 0..1): rings of violet and gold thrown forward along the shot, each
+// further out and wider, thinning out; a flash; sparks of gold.
+export function drawVioletMuzzle(ctx, x, y, a, k, t, seed) {
+  if (k >= 1) return;
+  const ux = Math.cos(a), uy = Math.sin(a), nx = -uy, ny = ux;
+  glowAt(ctx, x, y, 14 + 10 * k, [[0, `rgba(230, 200, 255, ${0.7 * (1 - k) ** 2})`], [1, 'rgba(160, 90, 255, 0)']]);
+  lit(ctx, () => {
+    for (let j = 0; j < 3; j++) {
+      const q = Math.min(1, k * 1.6 + j * 0.1), d = 3 + j * 7 + q * (8 + j * 6), w = 3 + j * 1.5 + q * (5 + j * 3);
+      ctx.globalAlpha = (1 - k) * (1 - j * 0.2);
+      ctx.fillStyle = j === 0 ? '#ffffff' : j === 1 ? V.lite : '#ffd85a';
+      // (a ring seen edge on: a thin ellipse across the line of the shot)
+      for (let i = 0; i < 28; i++) {
+        const b = (i / 28) * Math.PI * 2, ex = Math.cos(b) * (1 + q), ey = Math.sin(b) * w;
+        ctx.fillRect(Math.round(x + ux * (d + ex) + nx * ey), Math.round(y + uy * (d + ex) + ny * ey), 1, 1);
+      }
+    }
+    for (let i = 0; i < 10; i++) {
+      const s = 2 + hash(i, 1, seed) * 26 * Math.min(1, k * 2), j = (hash(i, 2, seed) - 0.5) * 14 * k;
+      ctx.globalAlpha = 1 - k;
+      ctx.fillStyle = i % 2 ? '#ffd85a' : V.pale;
+      ctx.fillRect(Math.round(x + ux * s + nx * j), Math.round(y + uy * s + ny * j), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+// The line a shot leaves from (x0, y0) to where it stopped (x1, y1), lingering, k 0..1 as it goes: a thin violet line
+// with gold glints running along it, breaking up into motes as it fades.
+export function drawVioletTrace(ctx, x0, y0, x1, y1, k, t, seed) {
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
+  if (L < 2 || k >= 1) return;
+  const ux = dx / L, uy = dy / L;
+  lit(ctx, () => {
+    for (let i = 0; i < L; i += 1) {
+      if (hash(Math.floor(i / 2), 4, seed) < k * 1.2) continue;   // (breaking up)
+      ctx.globalAlpha = (1 - k) * 0.55;
+      ctx.fillStyle = V.mid;
+      ctx.fillRect(Math.round(x0 + ux * i), Math.round(y0 + uy * i), 1, 1);
+    }
+    for (let i = 0; i < 18; i++) {
+      const s = ((hash(i, 5, seed) + t * 0.6) % 1) * L, tw = Math.sin(t * 20 + i * 3);
+      if (tw < 0) continue;
+      const x = Math.round(x0 + ux * s), y = Math.round(y0 + uy * s - k * 8 * hash(i, 6, seed));
+      ctx.globalAlpha = (1 - k) * tw;
+      ctx.fillStyle = i % 3 ? '#ffd85a' : '#ffffff';
+      ctx.fillRect(x - 1, y, 3, 1);
+      ctx.fillRect(x, y - 1, 1, 3);
+    }
+    ctx.globalAlpha = 1;
+  });
 }
 // Its shot at (x, y), going (dx, dy) (unit): a white-hot round, a violet tail len long behind it - wavering, thinning
 // and breaking up toward its end, motes shed off it.

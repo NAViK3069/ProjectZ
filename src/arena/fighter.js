@@ -29,6 +29,7 @@ import { drawEaSword, drawEaRipple, drawEaCharge, drawEaBeam, drawEaBlast, EA_LE
 import { drawJcMark, drawJcSphere, drawJcWind, drawJcTrail, drawJcAura, drawJcShatter, drawJcShut, jcCutList } from './cutfx.js';
 import { drawExSword, drawExVeil, drawExCharge, drawExSlash, drawExWave, drawExBlast, drawExAfter, EX_LEN, EX_SUPPORT } from './holyfx.js';
 import { GUN_ART } from '../combat/gunart.js';
+import { drawCardRange } from './skillfx.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
@@ -107,7 +108,8 @@ const CARD_UP = 0.5, CARD_TURN = 0.35, CARD_CD = 15, CARD_WAIT = 4, CARD_FLY = 0
 export const CARD_LAST = { red: 5, green: 6, blue: 7, purple: 2.5, joker: 5 };
 const CARD_JOKER = 0.15;   // the chance, each time they're dealt, that one of the four is the joker: red, green and blue at once
 const CARD_PATCH = 0.12;   // green, as it lands: this much of full health back at once (and a hack shaken off)
-export const CARD_ALLY = 0.7;   // a teammate near by when the card's turned: this much of its effect, for this much of its time
+export const CARD_ALLY = 0.7;
+const CARD_RING = 170;   // (as far as its ring reaches: main.js, CARD_SHARE)   // a teammate near by when the card's turned: this much of its effect, for this much of its time
 const CARD_FIRE = 0.6, CARD_MELEE = 0.3, CARD_HEAL = 0.045, CARD_SPEED = 1.3, CARD_DRAIN = 0.4;   // red: guns recover this much faster; green: of full health a second; blue: feet, what running costs
 // the shadow clone's charge: the next hit counts this much, for this long once the clone's gone
 const POWER_MUL = 1.8, POWER_AFTER = 2;
@@ -153,9 +155,15 @@ const HACK_HURT = 1.2;   // someone hacked takes this much more from everything
 const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can turn (rad/s, of its slowed time)
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
 // the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
-const LOCK_TIME = 3, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
+const LOCK_TIME = 5, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
+// (and with someone locked, a little missile off the shoulder at them every LOCK_EVERY - LOCK_MISSILES in all - once the
+// lock's held a moment; they can be got out of the way of: see main.js, updateMissiles)
+const LOCK_MISSILES = 3, LOCK_EVERY = 1.2, LOCK_SETTLE = 0.35;
 // golden fangs (skill, Q): out as long as this at most (Q again, or the time's up: they all come back), the wait after
 const FANG_TIME = 3, FANG_CD = 12;
+// (a sixth dagger thrown straight at the mouse marks whoever it hits; Q again with someone marked: you go to them -
+// through walls and all - FANG_DASH quick, the five called home to arrive the moment you do, and a cut as you get there)
+const FANG_DASH = 900, FANG_DASH_MIN = 0.14, FANG_DASH_MAX = 0.5;
 // aurum (skill, Q): the gold sniper building in the hands, how long it's yours at most, the wait after (the gun: catalog.js)
 export const AURUM_CAST = 0.55;
 const AURUM_TIME = 12, AURUM_CD = 20;
@@ -637,6 +645,8 @@ export class Fighter {
       if (this.stamina <= 0) this.windOut();
     } else if ((this.staminaRest -= dt) <= 0) this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt);
 
+    // (rooted by a skill - the big swords, the shadow kill: no jumping out of it, not even a jump pressed a moment before)
+    if (this.jc || (this.ea && this.ea.phase !== 'out') || (this.xc && this.xc.phase !== 'out') || (this.reap && this.reap.phase !== 'out') || this.fang?.dash) { c = { ...c, jump: false, jumpHeld: false, roll: false }; this.jumpBuf = 0; }
     this.coyote = this.onGround ? COYOTE : this.coyote - dt;
     this.jumpBuf = c.jump ? BUFFER : this.jumpBuf - dt;
     this.dropT -= dt;
@@ -839,12 +849,13 @@ export class Fighter {
       if (this.vy > 100) this.dropT = 0.1;   // (down through a catwalk too)
     }
     // enuma elish set off in the air: held up there, still, the whole time (and down after)
-    const hover = this.ea?.air || (this.xc?.air && this.xc.phase !== 'out') || this.jc?.air;
+    const hover = this.ea?.air || (this.xc?.air && this.xc.phase !== 'out') || this.jc?.air || !!this.fang?.dash;
     if (hover) { this.vy = 0; this.vx *= Math.exp(-10 * dt); }
     if (!this.onLadder && !this.lunge && !dashing && !cutting && !lunging && !this.wall && !hover) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
 
     const wasGround = this.onGround, fall = this.vy, px = this.x, py = this.y;
-    this.move(dt);
+    if (this.fang?.dash) this.fangDashStep(dt);
+    else this.move(dt);
     if (dashing) this.blazeStep(Math.hypot(this.x - px, this.y - py), dt);
     if (cutting) this.deflectStep(Math.hypot(this.x - px, this.y - py), dt);
     // climbed down to the floor (or walking off along it): off the ladder
@@ -886,7 +897,7 @@ export class Fighter {
     if (this.jamT > 0) { this.jamT -= dt; if (this.slot === 2) c = { ...c, fire: false }; }
     if (this.aurum && this.aurum.t < AURUM_CAST) c = { ...c, fire: false, reload: false };   // (the gold sniper's still being built)
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase || this.reap || this.ea || this.xc || this.jc) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase || this.reap || this.ea || this.xc || this.jc || this.fang?.dash) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -1857,7 +1868,7 @@ export class Fighter {
     const m = this.lockOn;
     if (!m) {
       if (c.skill && this.skillCD <= 0 && this.alive) {
-        this.lockOn = { t: LOCK_TIME, k: 0, acq: 0, target: null };
+        this.lockOn = { t: LOCK_TIME, k: 0, acq: 0, target: null, shots: 0, next: 0.6 };
         this.game.fx.sparks(this.x + this.facing * 6, this.y - 18, 8, this.facing, 0, '#8fe8ff');
       }
       return;
@@ -1877,6 +1888,14 @@ export class Fighter {
       if (d < bd) { bd = d; best = v; }
     }
     if (best !== m.target) { m.target = best; m.acq = 0; }
+    // the missiles: one at a time, while there's someone locked and held a moment
+    m.next -= dt;
+    if (m.shots < LOCK_MISSILES && m.next <= 0 && m.target && m.acq > LOCK_SETTLE) {
+      m.shots++;
+      m.next = LOCK_EVERY;
+      const s = this.shoulder;
+      this.game.lockMissile?.(this, m.target, s.x - this.facing * 3, s.y - 6);
+    }
   }
   // Whoever's locked: the aim's on them.
   lockAim() {
@@ -2198,8 +2217,43 @@ export class Fighter {
       return;
     }
     m.t += dt;
-    if (!m.back && ((c.skill && m.t > 0.25) || m.t >= FANG_TIME)) { m.back = true; this.game.recallFangs?.(this); }
+    const mark = m.mark?.alive && !m.mark.vanish ? m.mark : null;
+    if (!m.back && c.skill && m.t > 0.25 && mark) {
+      // to whoever's marked: as long as the way there takes, and the five come home in exactly that time
+      const to = this.fangDashTo(mark), d = Math.hypot(to.x - this.x, to.y - this.y);
+      m.dash = { t: 0, dur: Math.max(FANG_DASH_MIN, Math.min(FANG_DASH_MAX, d / FANG_DASH)), x0: this.x, y0: this.y, x1: to.x, y1: to.y };
+      m.back = true;
+      this.roll = null;
+      this.onLadder = false;
+      this.game.recallFangs?.(this, m.dash.dur);
+    } else if (!m.back && ((c.skill && m.t > 0.25) || m.t >= FANG_TIME)) { m.back = true; this.game.recallFangs?.(this); }   // (nobody marked, or left too long: home, and no going)
     if (m.t > FANG_TIME + 4) { this.fang = null; this.skillCD = FANG_CD; }   // (lost track of them: let it go)
+  }
+  // where the dash ends: right by them on the near side - or on them, if that's in a wall
+  fangDashTo(v) {
+    const side = Math.sign(this.x - v.x) || -v.facing || 1, x = v.x + side * 12, L = this.game.level;
+    return L.solidAt(x, v.y - 14) || L.solidAt(x, v.y - 2) ? { x: v.x, y: v.y } : { x, y: v.y };
+  }
+  // the dash: straight there, through anything, quick in and quick out; arriving, the cut (main.js: fangDash)
+  fangDashStep(dt) {
+    const m = this.fang, d = m.dash;
+    d.t += dt;
+    const v = m.mark?.alive ? m.mark : null;
+    if (v) { const to = this.fangDashTo(v); d.x1 = to.x; d.y1 = to.y; }   // (they're still moving: after them)
+    const k = Math.min(1, d.t / d.dur), e = k < 0.5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k);
+    const px = this.x;
+    this.x = d.x0 + (d.x1 - d.x0) * e;
+    this.y = d.y0 + (d.y1 - d.y0) * e;
+    if (Math.abs(this.x - px) > 0.2) this.facing = Math.sign(this.x - px);
+    this.vx = 0;
+    this.vy = 0;
+    this.onGround = false;
+    if (k < 1) return;
+    m.dash = null;
+    m.mark = null;
+    // (out of anything it's ended up in)
+    for (let i = 0; i < 40 && this.hits(this.x - HALF_W, this.y - HEIGHT, this.x + HALF_W, this.y); i++) this.y -= 1;
+    if (v) { this.facing = Math.sign(v.x - this.x) || this.facing; this.game.fangDash?.(this, v); }
   }
 
   // ---------- aurum (skill, Q) ----------
@@ -3739,6 +3793,8 @@ export class Fighter {
     if (this.hackedT > 0) drawHacked(ctx, this.x, this.y, this.hackedT, HACK_LOCK, t, 1, this.labelY(HACKED_H));
     const m = this.card;
     const pin = (m?.pick || m?.fly) && this.game.cardPin?.(this);   // (your own: where it was put on the screen)
+    // (how far the card's ring will reach: faint, round you, while it's picked - and fainter while it's on)
+    if (m && (m.pick || m.fly || m.on) && (mine || !this.game.foes(this.game.viewer ?? this, this))) drawCardRange(ctx, this.x, this.y - 14, CARD_RING, m.pick ? m.pick.hover ?? 'joker' : m.kind, t, m.on ? 0.45 : 1);
     if (m?.pick) drawCardFan(ctx, pin ? pin.x : this.x + m.pick.x, pin ? pin.y : this.y + m.pick.y, m.pick.t, m.pick.hover, t, mine, m.joker);
     else if (m?.fly) drawCardFly(ctx, pin ? pin.x : this.x + m.fly.x, pin ? pin.y : this.y + m.fly.y, m.kind, this.x, this.labelY(34) + 21, m.fly.t / CARD_FLY, t, m.seed, m.slot ?? m.kind, m.joker);
     else if (m) {
@@ -4284,6 +4340,15 @@ export class Fighter {
       ctx.restore();
     }
     enter(g.x, g.y);
+    const building = this.aurum && w.def.skillGun && this.aurum.t < AURUM_CAST;
+    if (building) {
+      // (where the scan's got to, along the gun from its back: the same line goldfx's drawAurumCast draws)
+      const at = -13 + (this.aurum.t / AURUM_CAST) * 48;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(-40, -20, 40 + at, 40);
+      ctx.clip();
+    }
     const act = w.def.action && w.actionProgress >= 0 ? w.actionProgress : -1;
     const spin = act >= 0 && w.def.action.spin ? Math.PI * 2 * smooth(Math.min(1, Math.max(0, (act - 0.08) / 0.8))) : 0;
     if (spin) { ctx.save(); ctx.rotate(-spin); }
@@ -4295,6 +4360,7 @@ export class Fighter {
       drawHand(ctx, act >= 0 && w.def.action.part === 'lever' ? 'support' : 'trigger', 0, 0);
     }
     if (spin) ctx.restore();
+    if (building) ctx.restore();
     if (!reloading || h.trigger) {
       let s = pts.support;
       if (act >= 0 && w.def.action.part === 'pump') s = { x: s.x - w.actionOffset, y: s.y };

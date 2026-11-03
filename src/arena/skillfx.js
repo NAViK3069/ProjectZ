@@ -182,6 +182,71 @@ export const CARDS = {
   purple: { name: 'PHANTOM', a: '#c88aff', b: '#3c1470', rgb: '180, 110, 255' },
   joker: { name: 'JOKER', a: '#ffd25a', b: '#2a1a40', rgb: '255, 210, 90' },
 };
+// How far a buff card's ring reaches, round (x, y): a faint dashed circle in the card's colour, turning, little
+// diamonds riding on it - k: how strong (fainter while it's on).
+export function drawCardRange(ctx, x, y, R, kind, t, k = 1) {
+  const col = CARDS[kind]?.a ?? '#ffd25a';
+  lit(ctx, () => {
+    ctx.globalAlpha = 0.22 * k;
+    ctx.fillStyle = col;
+    for (let j = 0; j < 24; j++) { const a0 = (j / 24) * Math.PI * 2 + t * 0.4; pixArc(ctx, x, y, R, R, 0, a0, a0 + 0.13); }
+    ctx.globalAlpha = 0.5 * k;
+    for (let j = 0; j < 4; j++) {
+      const a = t * 0.4 + (j * Math.PI) / 2, px = Math.round(x + Math.cos(a) * R), py = Math.round(y + Math.sin(a) * R);
+      ctx.fillRect(px, py - 2, 1, 5); ctx.fillRect(px - 2, py, 5, 1); ctx.fillRect(px - 1, py - 1, 3, 3);
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+// As a card lands (k 0..1): its ring going out from (x, y) to R in its colour - a white edge to it, glitter all round,
+// little diamonds flung out with it - and a line of sparkles out to each one in it (links: allies, and foes it stung).
+export function drawCardBurst(ctx, x, y, R, kind, k, t, seed, links = []) {
+  const c = CARDS[kind] ?? CARDS.joker, e = 1 - Math.pow(1 - Math.min(1, k * 1.6), 3), r = 8 + (R - 8) * e, fade = 1 - k;
+  glowAt(ctx, x, y, r * 1.1, [[0, `rgba(${c.rgb}, ${0.25 * fade})`], [0.8, `rgba(${c.rgb}, ${0.12 * fade})`], [1, `rgba(${c.rgb}, 0)`]]);
+  lit(ctx, () => {
+    // the ring: a white edge, the card's colour behind it, a thinner ring inside
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = '#ffffff';
+    pixArc(ctx, x, y, r, r, 0, 0, Math.PI * 2);
+    ctx.fillStyle = c.a;
+    pixArc(ctx, x, y, r - 2, r - 2, 0, 0, Math.PI * 2);
+    ctx.globalAlpha = fade * 0.6;
+    pixArc(ctx, x, y, r * 0.7, r * 0.7, 0, t * 3, t * 3 + Math.PI * 1.5);
+    // glitter on it and inside it, twinkling
+    for (let i = 0; i < 40; i++) {
+      const a = hash(i, 1, seed) * Math.PI * 2, d = r * (0.3 + 0.75 * hash(i, 2, seed)), tw = Math.sin(t * (14 + 8 * hash(i, 3, seed)) + i * 2.1);
+      if (tw < 0.1) continue;
+      const px = Math.round(x + Math.cos(a) * d), py = Math.round(y + Math.sin(a) * d), L = tw > 0.8 ? 2 : 1;
+      ctx.globalAlpha = fade * tw;
+      ctx.fillStyle = i % 3 ? '#ffffff' : c.a;
+      ctx.fillRect(px - L, py, L * 2 + 1, 1);
+      ctx.fillRect(px, py - L, 1, L * 2 + 1);
+    }
+    // diamonds flung out with it
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + seed, d = r * (0.85 + 0.2 * hash(i, 4, seed)), px = Math.round(x + Math.cos(a) * d), py = Math.round(y + Math.sin(a) * d);
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = c.a;
+      ctx.fillRect(px, py - 2, 1, 5); ctx.fillRect(px - 1, py - 1, 3, 3); ctx.fillRect(px - 2, py, 5, 1);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(px, py, 1, 1);
+    }
+    // out to each one it reached: a line of sparkles running out along it
+    for (const l of links) {
+      const dx = l.x - x, dy = l.y - y, L = Math.hypot(dx, dy);
+      if (L < 2) continue;
+      const reach = Math.min(1, k * 2.4) * L;
+      for (let s = 0; s < reach; s += 3) {
+        if (hash(Math.floor(s), Math.floor(t * 20), seed) > 0.7) continue;
+        ctx.globalAlpha = fade * (0.4 + 0.6 * (s / L));
+        ctx.fillStyle = l.foe ? (kind === 'blue' ? '#5ac8ff' : kind === 'purple' ? '#c88aff' : '#ff5a48') : s / L > 0.8 ? '#ffffff' : c.a;
+        ctx.fillRect(Math.round(x + (dx * s) / L), Math.round(y + (dy * s) / L), 1, 1);
+      }
+      if (k > 0.35) { ctx.globalAlpha = fade; ctx.fillStyle = '#ffffff'; pixArc(ctx, l.x, l.y, 6 + 6 * k, 6 + 6 * k, 0, 0, Math.PI * 2); }
+    }
+    ctx.globalAlpha = 1;
+  });
+}
 function cardFace(ctx, kind, x, y) {
   const c = CARDS[kind], r = (cx, cy, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(x + cx, y + cy, w, h); };
   r(-7, -10, 14, 20, '#ece6d4');
