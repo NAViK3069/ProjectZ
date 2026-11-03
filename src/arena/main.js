@@ -4311,11 +4311,26 @@ function openBans(k, changed = () => {}) {
 }
 function pickerInput() {
   const c = kit.click, P = picker, n = P.items.length, cols = P.cols ?? (renderer.width >= 440 * hudScale() ? 3 : 2);
+  // a list longer than the screen: the wheel (a drag, on a phone) or the bar scrolls it; the picked one's kept in sight
+  const v = P.view, ci = c?.startsWith(`${P.id}:`) ? c.slice(P.id.length + 1) : null;
+  if (v && v.all > v.rows) {
+    const step = Math.sign(input.wheel) + (ci === 'down' ? 1 : ci === 'up' ? -1 : 0);
+    if (step) P.top = Math.max(0, Math.min(v.all - v.rows, (P.top ?? v.top) + step));
+    if (ci === 'up' || ci === 'down' || ci === 'none') return;
+  } else if (ci === 'none' || ci === 'up' || ci === 'down') return;
+  const before = P.sel;
+  const keep = () => {
+    if (!v || P.sel === before) return;
+    const row = Math.floor(P.sel / cols), top = P.top ?? v.top;
+    if (row < top) P.top = row;
+    else if (row >= top + v.rows) P.top = row - v.rows + 1;
+  };
   if (P.multi) {
     if (input.wasPressed('KeyA', 'ArrowLeft')) P.sel = (P.sel + n - 1) % n;
     if (input.wasPressed('KeyD', 'ArrowRight')) P.sel = (P.sel + 1) % n;
     if (input.wasPressed('KeyW', 'ArrowUp')) P.sel = (P.sel - cols + n) % n;
     if (input.wasPressed('KeyS', 'ArrowDown')) P.sel = (P.sel + cols) % n;
+    keep();
     const i = c?.startsWith(`${P.id}:`) ? c.slice(P.id.length + 1) : null, k = P.multi;
     if (i === 'done' || input.wasPressed('Escape', 'Enter')) { picker = null; return; }
     if (i === 'clear') settings[k] = [];
@@ -4334,6 +4349,7 @@ function pickerInput() {
   if (input.wasPressed('KeyD', 'ArrowRight')) P.sel = (P.sel + 1) % n;
   if (input.wasPressed('KeyW', 'ArrowUp')) P.sel = (P.sel - cols + n) % n;
   if (input.wasPressed('KeyS', 'ArrowDown')) P.sel = (P.sel + cols) % n;
+  keep();
   const i = c?.startsWith(`${P.id}:`) ? c.slice(P.id.length + 1) : null;
   if (i === 'close' || input.wasPressed('Escape')) picker = null;
   else if ((i !== null && i !== '') || input.wasPressed('Enter', 'Space')) {
@@ -4344,8 +4360,8 @@ function pickerInput() {
 }
 const drawPicker = () => {
   if (!picker) return;
-  if (picker.multi) { picker.cols = kit.toggles(picker.id, picker.title, picker.items.map((it) => ({ ...it, off: settings[picker.multi].includes(it.key) })), picker.sel); return; }
-  if (!picker.maps) return kit.choices(picker.id, picker.title, picker.items, picker.current, picker.sel);
+  if (picker.multi) { picker.view = kit.toggles(picker.id, picker.title, picker.items.map((it) => ({ ...it, off: settings[picker.multi].includes(it.key) })), picker.sel, picker.top); picker.cols = picker.view.cols; return; }
+  if (!picker.maps) { picker.view = kit.choices(picker.id, picker.title, picker.items, picker.current, picker.sel, picker.top); picker.cols = picker.view.cols; return; }
   // (the maps' pictures: one a frame, the one wanted first if it's still to come)
   const next = picker.items[picker.sel]?.maps && !picker.items[picker.sel].thumb ? picker.items[picker.sel] : picker.items.find((it) => it.maps && !it.thumb);
   if (next) next.thumb = mapThumb(next.key);
@@ -4819,7 +4835,7 @@ function menuBackdrop(dt) {
 const touchCombat = () => ['intro', 'fight', 'end', 'training'].includes(state) && player.alive && !paused && !locker && !picker && !soundPanel && !online.menuOpen && !online.watching;
 const touch = isPhone ? new TouchControls(input, {
   combat: touchCombat,
-  scroll: () => !!locker,
+  scroll: () => !!locker || !!picker,
   showEsc: () => (['fight', 'end', 'training'].includes(state) && !player.alive && !paused && !online.menuOpen),
   skill: () => ({ has: !!player.skill, cd: skillShown() }),
   pin: () => (player?.card?.pick && cardPin ? { ...cardPin, k: renderer.scale / renderer.dpr } : null),   // (the cards fanned out: the aim stick leans toward one, from their middle)

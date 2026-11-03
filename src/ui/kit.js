@@ -181,21 +181,43 @@ export class Kit {
     if (line) out.push(line);
     return out;
   }
+  // (a list's rows too many for the screen: as many as fit, from `top` - a bar down the right showing where in it you
+  // are; a click on the bar above the handle or below it scrolls a row. Ids `${id}:up`, `${id}:down`.)
+  scrollbar(id, x, y, h, top, rows, all) {
+    const u = this.u;
+    if (all <= rows) return;
+    this.rect(x, y, 3 * u, h, '#0b100e');
+    const th = Math.max(8 * u, (h * rows) / all), ty = y + ((h - th) * top) / Math.max(1, all - rows);
+    this.rect(x, Math.round(ty), 3 * u, Math.round(th), K.teal);
+    this.hit(`${id}:up`, x - 3 * u, y, 9 * u, ty - y);
+    this.hit(`${id}:down`, x - 3 * u, ty + th, 9 * u, y + h - ty - th);
+  }
+  // how many rows of a list fit, and from which to show them: `top` asked for (or, not asked, the picked one in the
+  // middle), kept in range
+  static rowsIn(all, fit, top, sel, cols) {
+    const rows = Math.max(1, Math.min(all, fit));
+    const want = top ?? Math.floor(Math.max(0, sel) / cols) - Math.floor(rows / 2);
+    return { rows, top: Math.max(0, Math.min(all - rows, want)) };
+  }
   // A list to pick from, over everything else (a dropdown made big): a card for each choice
   // - its picture, its name, a line or two about it, a note at its corner - the one picked now
-  // lit gold. Only these can be clicked while it's up: `${id}:<n>`, or `${id}:close` outside it.
-  choices(id, title, items, current, sel = -1) {
+  // lit gold. Only these can be clicked while it's up: `${id}:<n>`, or `${id}:close` outside it. More than the screen
+  // holds: as many rows as fit, from `top` (scrolled: the wheel, a drag, the bar). Gives back { cols, rows, top, all }.
+  choices(id, title, items, current, sel = -1, top = undefined) {
     const { u, W, H, ctx } = this;
     this.shade(0.6);
     this.hits = [];
     const cols = W >= 440 * u ? 3 : 2, gap = 6 * u, ch = 36 * u;
-    const cw = Math.min(150 * u, Math.floor((W - 28 * u - gap * (cols - 1)) / cols)), rows = Math.ceil(items.length / cols);
+    const cw = Math.min(150 * u, Math.floor((W - 28 * u - gap * (cols - 1)) / cols)), all = Math.ceil(items.length / cols);
+    const view = Kit.rowsIn(all, Math.floor((H - 12 * u - 30 * u + gap) / (ch + gap)), top, sel, cols), rows = view.rows;
     const pw = cols * cw + (cols - 1) * gap + 16 * u, ph = 26 * u + rows * (ch + gap) + 4 * u;
     const px = Math.round(W / 2 - pw / 2), py = Math.max(6 * u, Math.round(H / 2 - ph / 2));
-    const y0 = this.panel(px, py, pw, ph, { title, note: 'CLICK ONE  -  THE NUMBER: ITS WAIT BETWEEN USES  -  ESC TO CLOSE' });
+    const y0 = this.panel(px, py, pw, ph, { title, note: all > rows ? 'CLICK ONE  -  SCROLL FOR MORE  -  ESC TO CLOSE' : 'CLICK ONE  -  THE NUMBER: ITS WAIT BETWEEN USES  -  ESC TO CLOSE' });
     const cards = [];
     items.forEach((it, i) => {
-      const x = px + 8 * u + (i % cols) * (cw + gap), y = y0 + Math.floor(i / cols) * (ch + gap), hid = `${id}:${i}`;
+      const r = Math.floor(i / cols) - view.top;
+      if (r < 0 || r >= rows) return;
+      const x = px + 8 * u + (i % cols) * (cw + gap), y = y0 + r * (ch + gap), hid = `${id}:${i}`;
       const on = it.key === current, hot = this.hover === hid || sel === i;
       this.rect(x - u, y - u, cw + 2 * u, ch + 2 * u, K.ink);
       this.rect(x, y, cw, ch, on ? K.gold : hot ? K.teal : K.edge);
@@ -210,24 +232,30 @@ export class Kit {
       this.wrap(it.desc ?? '', cw - 36 * u).slice(0, 3).forEach((l, j) => this.text(l, x + 32 * u, y + 14 * u + j * 7 * u, { small: true, color: K.muted }));
       cards.push([hid, x, y, cw, ch]);
     });
+    this.scrollbar(id, px + pw - 5 * u, y0, rows * (ch + gap) - gap, view.top, rows, all);
     for (const c of cards) this.hit(...c);
+    this.hit(`${id}:none`, px, py, pw, ph);   // (the panel itself, between the cards: nothing)
     this.hit(`${id}:close`, 0, 0, W, H);   // (after the cards: the first hit under the mouse is the one that counts)
+    return { cols, rows, top: view.top, all };
   }
   // A list to ban things in: a small card for each (its picture, its name), the banned ones in red, crossed out. A click
   // bans one or lets it back - the list stays open - with ALLOW ALL, BAN ALL and DONE under it. items: { label, img,
   // color, off }. Gives back how many across, for the arrow keys.
-  toggles(id, title, items, sel = -1) {
+  toggles(id, title, items, sel = -1, top = undefined) {
     const { u, W, H, ctx } = this;
     this.shade(0.6);
     this.hits = [];
     const gap = 3 * u, ch = 20 * u, cols = Math.max(2, Math.min(6, Math.floor((W - 28 * u + gap) / (90 * u + gap))));
-    const cw = Math.min(104 * u, Math.floor((W - 28 * u - gap * (cols - 1)) / cols)), rows = Math.ceil(items.length / cols);
+    const cw = Math.min(104 * u, Math.floor((W - 28 * u - gap * (cols - 1)) / cols)), all = Math.ceil(items.length / cols);
+    const view = Kit.rowsIn(all, Math.floor((H - 12 * u - 52 * u + gap) / (ch + gap)), top, sel, cols), rows = view.rows;
     const pw = cols * cw + (cols - 1) * gap + 16 * u, ph = 26 * u + rows * (ch + gap) + 26 * u;
     const px = Math.round(W / 2 - pw / 2), py = Math.max(6 * u, Math.round(H / 2 - ph / 2)), n = items.filter((it) => it.off).length;
     const y0 = this.panel(px, py, pw, ph, { title, note: `${n ? `${n} BANNED` : 'NONE BANNED'}  -  CLICK ONE TO BAN IT, AGAIN TO LET IT BACK`, noteColor: n ? K.red : K.muted });
     const cards = [];
     items.forEach((it, i) => {
-      const x = px + 8 * u + (i % cols) * (cw + gap), y = y0 + Math.floor(i / cols) * (ch + gap), hid = `${id}:${i}`;
+      const r = Math.floor(i / cols) - view.top;
+      if (r < 0 || r >= rows) return;
+      const x = px + 8 * u + (i % cols) * (cw + gap), y = y0 + r * (ch + gap), hid = `${id}:${i}`;
       const off = !!it.off, hot = this.hover === hid || sel === i;
       this.rect(x - u, y - u, cw + 2 * u, ch + 2 * u, K.ink);
       this.rect(x, y, cw, ch, off ? K.red : hot ? K.teal : K.edge);
@@ -254,10 +282,11 @@ export class Kit {
     this.button(`${id}:clear`, px + 8 * u, by, bw, 14 * u, 'ALLOW ALL', { disabled: !n });
     this.button(`${id}:all`, px + 14 * u + bw, by, bw, 14 * u, 'BAN ALL', { kind: 'danger', disabled: n === items.length });
     this.button(`${id}:done`, px + pw - 8 * u - bw, by, bw, 14 * u, 'DONE', { kind: 'primary' });
+    this.scrollbar(id, px + pw - 5 * u, y0, rows * (ch + gap) - gap, view.top, rows, all);
     for (const c of cards) this.hit(...c);
     this.hit(`${id}:none`, px, py, pw, ph);   // (the panel itself: nothing)
     this.hit(`${id}:done`, 0, 0, W, H);       // (outside it: done)
-    return cols;
+    return { cols, rows, top: view.top, all };
   }
   // The same, for the maps: a card for each with a picture of it (it.thumb, a canvas, when it's ready), its name and a
   // line about it, as many across as fit the screen. Gives back how many across, for the arrow keys.
