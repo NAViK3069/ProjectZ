@@ -3267,6 +3267,7 @@ export class Fighter {
     if (!this.alive || this.vanish) return false;
     if (this.roll && this.roll.t < ROLL_SAFE && !this.blast) return false;   // diving under it
     if (this.shield > 0 || this.phantom || this.wraith || this.phase || this.jump || this.guardT > 0 || this.shade) return false;   // just beamed back in; the purple card; the shield just gone
+    if (this.fang?.dash || this.hook?.state === 'on') return false;   // (going to whoever's marked with the golden fangs; pulled along the grapple line: nothing touches you on the way)
     if ((from?.owner ?? from)?.noDmg) { this.flash = 0.04; return true; }   // (training: a bot put in with its DAMAGE off - it lands, and nothing comes of it)
     let d = dmg * (head ? HEAD_MUL : 1) * (this.hackedT > 0 ? HACK_HURT : 1);
     // whoever hit them with a clone's charge on: it counts for more, the once (a shotgun's pellets all count as the one)
