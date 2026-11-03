@@ -25,7 +25,19 @@ export class Kit {
     this.click = null;
     if (!input.mouse.active) return;
     const mx = input.mouse.x * dpr, my = input.mouse.y * dpr;
-    this.hover = this.hits.find((h) => mx >= h.x0 && mx < h.x1 && my >= h.y0 && my < h.y1)?.id ?? null;
+    let h = this.hits.find((q) => mx >= q.x0 && mx < q.x1 && my >= q.y0 && my < q.y1);
+    // (slack, on a phone: a tap that just misses a button is for the nearest one - not for something the size of the
+    // screen behind it, like a list's "anywhere else closes it")
+    const big = (q) => (q.x1 - q.x0) * (q.y1 - q.y0) > this.W * this.H * 0.25;
+    if (this.slack && (!h || big(h))) {
+      let bd = this.slack;
+      for (const q of this.hits) {
+        if (big(q)) continue;
+        const d = Math.hypot(Math.max(q.x0 - mx, 0, mx - q.x1), Math.max(q.y0 - my, 0, my - q.y1));
+        if (d < bd) { bd = d; h = q; }
+      }
+    }
+    this.hover = h?.id ?? null;
     if (input.wasPressed('Mouse0')) this.click = this.hover;
   }
 

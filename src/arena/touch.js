@@ -1,7 +1,8 @@
 // Playing on a phone: the screen's controls stand in for the keyboard and mouse, so the game (and online) hears the
-// same keys as ever. Left thumb: a stick, anywhere on the left - sideways to walk, right out to run, up to jump, down to
-// crouch. Right thumb: a stick, anywhere on the right that isn't a button - it points the gun, and pushed far out it
-// fires. Round them, the buttons. On the menus a tap is a click and a drag scrolls.
+// same keys as ever. Left thumb: a stick that stays where it is in the bottom corner - sideways to walk, right out to
+// run, up to jump, down to crouch. Right thumb: the same in the other corner - it points the gun, and pushed far out it
+// fires. Round each, in an arc, the buttons: the fight's on the right, the rest on the left. On the menus a tap is a
+// click and a drag scrolls.
 // Only ever played sideways and full screen: until then a screen that asks for it stands in front of everything.
 
 import { drawText, textWidth } from '../ui/font.js';
@@ -12,25 +13,19 @@ const canAsk = () => !!(document.documentElement.requestFullscreen || document.d
 // A phone or tablet: touch is what it's mainly driven by (a laptop with a touch screen still has its mouse).
 export const isPhone = navigator.maxTouchPoints > 0 && (matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent));
 
-const STICK_R = 54;        // css px: how far a stick goes
 const WALK_AT = 0.3, UP_AT = 0.62, RUN_AT = 0.92, AIM_AT = 0.2, FIRE_AT = 0.72;   // how far out each starts (0..1)
 const AIM_REACH = 110;     // world px: how far out the crosshair sits
 const FACE_AFTER = 0.7;    // not aiming for this long: the gun turns to the way you're walking
 const DRAG_ROW = 22;       // css px dragged on a menu for one notch of the wheel
 
+// A stick fixed in its place (it doesn't follow the thumb): how far the thumb is from its middle, and which way
 class Stick {
-  constructor() { this.id = null; this.ox = this.oy = this.x = this.y = 0; }
-  start(e) { this.id = e.pointerId; this.ox = this.x = e.clientX; this.oy = this.y = e.clientY; }
-  move(e) {
-    this.x = e.clientX;
-    this.y = e.clientY;
-    // (the base follows the thumb when it drags past the rim)
-    const dx = this.x - this.ox, dy = this.y - this.oy, d = Math.hypot(dx, dy);
-    if (d > STICK_R) { this.ox = this.x - (dx / d) * STICK_R; this.oy = this.y - (dy / d) * STICK_R; }
-  }
+  constructor() { this.id = null; this.ox = this.oy = this.x = this.y = 0; this.r = 60; }
+  start(e, ox, oy, r) { this.id = e.pointerId; this.ox = ox; this.oy = oy; this.r = r; this.x = e.clientX; this.y = e.clientY; }
+  move(e) { this.x = e.clientX; this.y = e.clientY; }
   get on() { return this.id !== null; }
   get vec() {
-    const dx = this.x - this.ox, dy = this.y - this.oy, d = Math.hypot(dx, dy), m = this.on ? Math.min(1, d / STICK_R) : 0;
+    const dx = this.x - this.ox, dy = this.y - this.oy, d = Math.hypot(dx, dy), m = this.on ? Math.min(1, d / this.r) : 0;
     return { x: d ? (dx / d) * m : 0, y: d ? (dy / d) * m : 0, m };
   }
 }
@@ -87,22 +82,33 @@ export class TouchControls {
   }
 
   // ---------- the buttons ----------
-  // Round the place the right thumb rests, in an arc; the small ones along the top. (css px)
+  // The two sticks in the bottom corners, each with an arc of buttons round it - the right thumb's for the fight (jump,
+  // roll, the skill, a hit), the left thumb's for the rest - and MENU and TAB in the top corner. (css px)
   layout() {
-    const W = innerWidth, H = innerHeight, r = Math.max(20, Math.min(30, H * 0.085)), m = 14;
-    const ax = W - m - 2.7 * r, ay = H - m - 2.7 * r, skill = this.how.skill();
-    const arc = (a, d = 4.5) => ({ x: ax + Math.cos((a * Math.PI) / 180) * d * r, y: ay + Math.sin((a * Math.PI) / 180) * d * r });
+    const W = innerWidth, H = innerHeight, m = 12, skill = this.how.skill();
+    const R = Math.max(42, Math.min(72, H * 0.145)), r = Math.max(22, Math.min(40, H * 0.083)), rb = r * 1.2, rs = r * 0.87;
+    const mx = m + R + 6, my = H - m - R - 6, ax = W - mx, ay = my;
+    // (round a stick: at an angle in degrees (0 is to the right, -90 up), in the ring next to it or the one out past
+    // that; mirrored for the left stick)
+    const at = (cx, cy, side, a, ring, br) => {
+      const d = ring ? R + 3 * r + 18 : R + br + (br > r ? 8 : 10), t = (a * Math.PI) / 180;
+      return { r: br, x: cx + side * Math.cos(t) * d, y: cy + Math.sin(t) * d };
+    };
     const list = [
-      { id: 'jump', key: 'Space', label: 'JUMP', r: r * 1.25, ...arc(180, 4.9) },
-      { id: 'roll', key: 'ShiftLeft', label: 'ROLL', r, ...arc(212) },
-      { id: 'skill', key: 'KeyQ', label: skill.cd > 0 ? String(Math.ceil(skill.cd)) : 'SKILL', r, dim: skill.cd > 0, gold: true, ...arc(240) },
-      { id: 'hit', key: 'Mouse2', label: 'HIT', r, ...arc(267) },
-      { id: 'reload', key: 'KeyR', label: 'RELOAD', r, ...arc(294) },
+      // the right thumb: the fight
+      { id: 'jump', key: 'Space', label: 'JUMP', gold: false, ...at(ax, ay, 1, 180, 0, rb) },
+      { id: 'roll', key: 'ShiftLeft', label: 'ROLL', ...at(ax, ay, 1, 228, 0, r) },
+      ...(skill.has ? [{ id: 'skill', key: 'KeyQ', label: skill.cd > 0 ? String(Math.ceil(skill.cd)) : 'SKILL', dim: skill.cd > 0, gold: true, ...at(ax, ay, 1, 272, 0, r) }] : []),
+      { id: 'hit', key: 'Mouse2', label: 'HIT', ...at(ax, ay, 1, 222, 1, r) },
+      // the left: the rest
+      { id: 'reload', key: 'KeyR', label: 'RELOAD', ...at(mx, my, 1, -90, 0, rs) },
+      { id: 'use', key: 'KeyE', label: 'USE', ...at(mx, my, 1, -45, 0, rs) },
+      { id: 'swap', key: null, label: 'SWAP', ...at(mx, my, 1, 0, 0, rs) },
+      { id: 'nade', key: 'KeyF', label: 'NADE', ...at(mx, my, 1, -70, 1, rs) },
+      { id: 'throw', key: 'KeyG', label: 'THROW', ...at(mx, my, 1, -26, 1, rs) },
     ];
-    if (!skill.has) list.splice(2, 1);
-    const s = r * 0.72, gap = s * 2.3, top = s + 8;
-    [['menu', 'Escape', 'MENU'], ['tab', 'Tab', 'TAB'], ['use', 'KeyE', 'USE'], ['swap', null, 'SWAP'], ['throw', 'KeyG', 'THROW'], ['nade', 'KeyF', 'NADE']].forEach(([id, key, label], i) => list.push({ id, key, label, r: s, x: W - m - s - gap * i, y: top }));
-    return { list, ax, ay, r };
+    [['menu', 'Escape', 'MENU'], ['tab', 'Tab', 'TAB']].forEach(([id, key, label], i) => list.push({ id, key, label, r: rs, x: W - m - rs - i * (rs * 2 + 10), y: m + rs }));
+    return { list, ax, ay, mx, my, R };
   }
   buttonAt(x, y) {
     let best = null, bd = Infinity;
@@ -112,7 +118,7 @@ export class TouchControls {
     }
     return best;
   }
-  escAt(x, y) { return this.how.showEsc() && Math.hypot(x - (innerWidth - 34), y - 28) < 30; }
+  escAt(x, y) { return this.how.showEsc() && Math.hypot(x - (innerWidth - 40), y - 34) < 34; }
 
   // ---------- fingers ----------
   down(e) {
@@ -125,7 +131,12 @@ export class TouchControls {
         this.held.set(e.pointerId, b);
         if (b.id === 'swap') I.wheel = 1;
         else { I.keys.add(b.key); I.pressed.add(b.key); }
-      } else if (x < innerWidth * 0.42) { if (!this.move.on) this.move.start(e); } else if (!this.aim.on) this.aim.start(e);
+      } else {
+        // (a thumb near a stick takes it, from wherever it lands - the stick itself stays put)
+        const L = this.layout(), near = (cx, cy) => Math.hypot(x - cx, y - cy) < L.R * 2.4;
+        if (x < innerWidth / 2) { if (!this.move.on && near(L.mx, L.my)) this.move.start(e, L.mx, L.my, L.R); }
+        else if (!this.aim.on && near(L.ax, L.ay)) this.aim.start(e, L.ax, L.ay, L.R);
+      }
       return true;
     }
     if (this.escAt(x, y)) { I.pressed.add('Escape'); return true; }
@@ -224,7 +235,7 @@ export class TouchControls {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (this.blocked) this.drawGate(ctx, dpr);
     else if (this.how.combat()) this.drawControls(ctx, dpr);
-    else if (this.how.showEsc()) this.button(ctx, dpr, { x: innerWidth - 34, y: 28, r: 20, label: 'MENU' }, false);
+    else if (this.how.showEsc()) this.button(ctx, dpr, { x: innerWidth - 40, y: 34, r: 26, label: 'MENU' }, false);
     ctx.restore();
   }
   button(ctx, dpr, b, on) {
@@ -234,17 +245,17 @@ export class TouchControls {
     drawText(ctx, b.label, Math.round(b.x * dpr - w / 2), Math.round(b.y * dpr - 3 * size), size, b.dim ? 'rgba(220, 235, 225, 0.45)' : on ? '#ffffff' : 'rgba(235, 245, 235, 0.85)');
   }
   drawControls(ctx, dpr) {
-    const { list, ax, ay } = this.layout(), p = Math.max(1, Math.round(dpr)), down = new Set([...this.held.values()].map((b) => b.id));
+    const { list, ax, ay, mx, my, R: SR } = this.layout(), p = Math.max(1, Math.round(dpr)), down = new Set([...this.held.values()].map((b) => b.id));
     for (const b of list) this.button(ctx, dpr, b, down.has(b.id));
-    const stick = (s, hx, hy, ring) => {
-      const on = s.on, bx = on ? s.ox : hx, by = on ? s.oy : hy, R = Math.round(STICK_R * dpr / p) * p;
+    const stick = (s, bx, by, ring, label) => {
+      const on = s.on, R = Math.round(SR * dpr / p) * p, v = s.vec;
       disc(ctx, bx * dpr, by * dpr, R, p, 'rgba(8, 14, 12, 0.22)', on ? 'rgba(220, 235, 225, 0.6)' : 'rgba(220, 235, 225, 0.28)');
-      if (ring) disc(ctx, bx * dpr, by * dpr, Math.round(R * ring / p) * p, p, null, 'rgba(255, 106, 90, 0.4)');
-      const v = s.vec;
-      disc(ctx, (bx + v.x * STICK_R) * dpr, (by + v.y * STICK_R) * dpr, Math.round(R * 0.42 / p) * p, p, on ? 'rgba(235, 245, 235, 0.55)' : 'rgba(235, 245, 235, 0.25)', null);
+      if (ring) disc(ctx, bx * dpr, by * dpr, Math.round(R * ring / p) * p, p, null, v.m > ring ? 'rgba(255, 106, 90, 0.85)' : 'rgba(255, 106, 90, 0.4)');
+      disc(ctx, (bx + v.x * SR) * dpr, (by + v.y * SR) * dpr, Math.round(R * 0.42 / p) * p, p, on ? 'rgba(235, 245, 235, 0.55)' : 'rgba(235, 245, 235, 0.25)', null);
+      if (!on) { const w = textWidth(label) * p; drawText(ctx, label, Math.round(bx * dpr - w / 2), Math.round((by + SR * 0.66) * dpr), p, 'rgba(235, 245, 235, 0.4)'); }
     };
-    stick(this.move, 14 + STICK_R + 16, innerHeight - 14 - STICK_R - 16);
-    stick(this.aim, ax, ay, FIRE_AT);
+    stick(this.move, mx, my, 0, 'MOVE');
+    stick(this.aim, ax, ay, FIRE_AT, 'AIM - FIRE');
   }
   drawGate(ctx, dpr) {
     const W = ctx.canvas.width, H = ctx.canvas.height, u = Math.max(1, Math.round(Math.min(W, H) / 170));

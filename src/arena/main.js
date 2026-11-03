@@ -2845,7 +2845,7 @@ function drawHudUnder() {
   if (!online.watching) drawHurt(ctx, W, H, player);
   if (uiHidden && !locker && !paused) return;   // (\ : the fight on its own; a panel opened still shows)
   const cardsBottom = drawCards(ctx, u, W);
-  if (!locker && !paused && state !== 'match') drawSkillBox(u, W, H, player);
+  if (!locker && !paused && state !== 'match' && !touch) drawSkillBox(u, W, H, player);   // (a phone: it's on the SKILL button)
   if (state === 'training') {
     if (!locker && (online.toast || online.busyText)) kit.text(online.busyText || online.toast, W / 2, H - 30 * u, { color: online.busyText ? KC.teal : KC.gold, align: 'center' });
     if (online.training && !locker) kit.text(`ROOM ${online.trainCode}  -  ${online.trainMembers.length} IN IT  -  TAB: ROOM`, 8 * u, H - 12 * u, { small: true, color: '#8aff9a' });
@@ -4274,7 +4274,7 @@ function lockerInput(dt) {
   if (L.fresh) { L.fresh = false; return; }   // (the frame it opened: that E isn't a close)
   if (trainEdit) { trainTyping(); return; }   // (typing a room's code: the keys are for that)
   if (L.tabs[L.tab]?.custom) trainTabInput(L.tabs[L.tab].custom);
-  if (input.wasPressed('KeyE', 'Mouse2', 'Tab') || (L.use === 'shop' && input.wasPressed('KeyB'))) { locker = null; trainEdit = null; return; }
+  if (input.wasPressed('KeyE', 'Mouse2', 'Tab') || (L.use === 'shop' && input.wasPressed('KeyB')) || kit.click === 'lk:close') { locker = null; trainEdit = null; return; }
   const setTab = (i) => { if (i === L.tab) return; L.tab = i; L.sel = 0; L.scroll = 0; };
   for (let i = 0; i < Math.min(9, L.tabs.length); i++) if (input.wasPressed('Digit' + (i + 1))) setTab(i);
   const items = L.tabs[L.tab].items, n = items.length;
@@ -4286,14 +4286,16 @@ function lockerInput(dt) {
   if (input.wheel) L.scroll = Math.max(0, Math.min(rowsAll - L.rows, L.scroll + Math.sign(input.wheel)));
   let take = input.wasPressed('Enter', 'Space');
   if (input.mouse.active) {
-    const mx = input.mouse.x * renderer.dpr, my = input.mouse.y * renderer.dpr, inside = (r) => mx >= r.x0 && mx < r.x1 && my >= r.y0 && my < r.y1;
+    const mx = input.mouse.x * renderer.dpr, my = input.mouse.y * renderer.dpr, sl = touch ? TAP_SLACK * renderer.dpr : 0;
+    const inside = (r, k = sl) => mx >= r.x0 - k && mx < r.x1 + k && my >= r.y0 - k && my < r.y1 + k;
+    if (touch && input.wasPressed('Mouse0') && L.panel && !inside(L.panel, 0) && !kit.hover) { locker = null; trainEdit = null; return; }   // (a phone: a tap outside it)
     const moved = input.mouse.x !== lockerInput.lx || input.mouse.y !== lockerInput.ly;
     lockerInput.lx = input.mouse.x;
     lockerInput.ly = input.mouse.y;
-    const cell = L.cellRects.find(inside);
+    const cell = L.cellRects.find((r) => inside(r, 0)) ?? L.cellRects.find((r) => inside(r));
     if (cell && moved) L.sel = cell.i;
     if (input.wasPressed('Mouse0')) {
-      const tab = L.tabRects.find(inside);
+      const tab = L.tabRects.find((r) => inside(r, 0)) ?? L.tabRects.find((r) => inside(r));
       if (tab) setTab(tab.i);
       else if (cell) { L.sel = cell.i; take = true; }
     }
@@ -4308,7 +4310,12 @@ function lockerInput(dt) {
 
 // The panel: the cabinet's name, its tabs, a grid of what's in the open one
 // (icon and name; yours marked green), and what the picked one is.
-function drawLocker(ctx, u, W, H) {
+function drawLocker(ctx, hu, W, H) {
+  const u = touch ? Math.max(hu, Math.floor(Math.min(W / 440, H / 236))) : hu, ku = kit.u;
+  kit.u = u;
+  try { drawLockerAt(ctx, u, W, H); } finally { kit.u = ku; }
+}
+function drawLockerAt(ctx, u, W, H) {
   const L = locker, def = LOCKERS[L.use];
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x * u), Math.round(y * u), Math.round(w * u), Math.round(h * u)); };
   const text = (t, x, y, c, size = 1) => drawText(ctx, String(t), Math.round(x * u), Math.round(y * u), u * size, c);
@@ -4322,8 +4329,12 @@ function drawLocker(ctx, u, W, H) {
   px(x0, y0, pw, 1, '#c9a83a');
   text(def.name, x0 + 8, y0 + 6, '#ffd25a', 2);
   if (L.use === 'shop') text(`$ ${player.money ?? 0}`, x0 + 14 + textWidth(def.name) * 2, y0 + 6, '#8aff9a', 2);
-  const close = def.close ?? 'ESC / E - CLOSE';
-  text(close, x0 + pw - 8 - textWidth(close), y0 + 9, '#6f7a62');
+  L.panel = rectOf(x0, y0, pw, ph);
+  if (touch) kit.button('lk:close', Math.round((x0 + pw - 30) * u), Math.round((y0 + 3) * u), 26 * u, 16 * u, 'X', { kind: 'danger' });   // (a phone: no keys to close it with)
+  else {
+    const close = def.close ?? 'ESC / E - CLOSE';
+    text(close, x0 + pw - 8 - textWidth(close), y0 + 9, '#6f7a62');
+  }
   // the tabs
   let tx = x0 + 8, ty = y0 + 24;
   L.tabRects = [];
@@ -4400,7 +4411,7 @@ function drawCabinetPrompt(ctx) {
 function drawMeter(ctx, u, W) {
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x * u), Math.round(y * u), Math.round(w * u), Math.round(h * u)); };
   const text = (t, x, y, c, size = 1) => drawText(ctx, String(t), Math.round(x * u), Math.round(y * u), u * size, c);
-  const s = stats, w = 80, x = W / u - w - 6, y = 52, rows = s.hits ? [
+  const s = stats, w = 80, x = W / u - w - 6, y = touch ? Math.round(84 * renderer.dpr / u) : 52, rows = s.hits ? [
     ['DAMAGE', Math.round(s.burst)],
     ['TIME', `${s.time.toFixed(1)} S`],
     ['PEAK/S', Math.round(s.peak)],
@@ -4644,7 +4655,7 @@ const touchCombat = () => ['intro', 'fight', 'end', 'training'].includes(state) 
 const touch = isPhone ? new TouchControls(input, {
   combat: touchCombat,
   scroll: () => !!locker,
-  showEsc: () => !!locker || (['fight', 'end', 'training'].includes(state) && !player.alive && !paused && !online.menuOpen),
+  showEsc: () => (['fight', 'end', 'training'].includes(state) && !player.alive && !paused && !online.menuOpen),
   skill: () => ({ has: !!player.skill, cd: skillShown() }),
   pin: () => (player?.card?.pick && cardPin ? { ...cardPin, k: renderer.scale / renderer.dpr } : null),   // (the cards fanned out: the aim stick leans toward one, from their middle)
   aimFrom: () => {
@@ -4652,6 +4663,7 @@ const touch = isPhone ? new TouchControls(input, {
     return { x: (s.x - renderer.left) * k, y: (s.y - renderer.top) * k, k };
   },
 }) : null;
+const TAP_SLACK = 12;   // css px: on a phone, how far off a button a tap can land and still be for it
 const skillShown = () => (player.skillCD > 0 && !(player.game.noCooldown?.(player)) ? player.skillCD / game.cdRate() : 0);
 function drawFrame() {
   drawWorld();
@@ -4669,6 +4681,7 @@ function tick(realDt, draw = true) {
   const zoomNow = fightOn ? zoomSteps : 0;
   if (renderer.zoom !== zoomNow) renderer.setZoom(zoomNow);
   if (touch?.blocked && !online.active && (state === 'fight' || state === 'training')) paused = true;   // (out of full screen, or turned upright: it waits for you)
+  kit.slack = touch ? TAP_SLACK * renderer.dpr : 0;
   kit.pointer(input, renderer.dpr);   // (what the mouse is over on the menus, what's clicked)
   // menus (a pick list open over one takes the keys and clicks)
   if (!soundPanel && !picker && !paused) nextSkillInput();
@@ -4689,8 +4702,9 @@ function tick(realDt, draw = true) {
   }
   // \ (ฃ / ฅ on a Thai layout): the HUD and everything over the fight off, and on again
   if (input.wasPressed('Backslash', 'IntlBackslash') && !onMenu() && !online.isScreen(state) && !trainEdit) uiHidden = !uiHidden;
-  if (online.isClient && locker) lockerInput(realDt);   // (in someone else's game: the shop's, the armory's, still ours to look through)
-  else if (input.wasPressed('Escape')) { if (locker) locker = null; else paused = !paused; }
+  if (locker && !trainEdit && input.wasPressed('Escape')) locker = null;
+  else if (online.isClient && locker) lockerInput(realDt);   // (in someone else's game: the shop's, the armory's, still ours to look through)
+  else if (!locker && input.wasPressed('Escape')) paused = !paused;
   else if (paused) pauseInput();
 
   if (onMenu()) {
@@ -4777,7 +4791,7 @@ requestAnimationFrame(frame);
 // for testing from the console: arena.step(seconds) runs the game without the browser's frame clock
 let testControl = null, frozen = false;
 window.arena = {
-  game, renderer, startMatch, startTraining, settings, loadMap, online, touch,
+  game, renderer, startMatch, startTraining, settings, loadMap, online, touch, kit,
   get level() { return level; },
   get player() { return player; }, get state() { return state; }, set state(v) { state = v; }, get bots() { return bots; },
   set control(c) { testControl = c; },
