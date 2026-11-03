@@ -340,3 +340,75 @@ export function drawSpaceCrack(ctx, x, y, ax, ay, k, t, seed) {
   // fire blooming round the rift, dying down
   if (k < 0.6) drawFlame(ctx, x, y, 6 * (1 - k / 0.6), t, seed, -ax * 0.3, -1, 1.6);
 }
+
+// Where it lands, at (x, y), k 0..1, R across: the blue shield's burst, in fire and grander - a white flash and a
+// fireball at the heart, gone quickly; a thick ring of fire going out, white at its edge, a second inside it; tongues of
+// flame licking out round the ring; shards of ember (little hexes) flung out turning, falling; glitter all round, and
+// embers raining down after.
+const hexPts = (r) => Array.from({ length: 6 }, (_, i) => [Math.cos((i / 6) * Math.PI * 2) * r, Math.sin((i / 6) * Math.PI * 2) * r]);
+export function drawFireBurst(ctx, x, y, k, t, seed, R = 84) {
+  if (k >= 1) return;
+  const e = 1 - Math.pow(1 - k, 3), flash = Math.max(0, 1 - k / 0.3), fade = 1 - k;
+  glowAt(ctx, x, y, R * 1.3, [[0, `rgba(255, 245, 210, ${0.85 * flash})`], [0.4, `rgba(255, 140, 40, ${0.45 * fade})`], [1, 'rgba(255, 60, 0, 0)']]);
+  drawPixels(ctx, x, y, Math.ceil(R * 2.7), FIRE, (g) => {
+    // the fireball at the heart
+    if (k < 0.35) {
+      const fr = 6 + 22 * Math.min(1, k * 5), q = 1 - k / 0.35;
+      const gr = g.createRadialGradient(0, 0, 0, 0, 0, fr);
+      gr.addColorStop(0, `rgba(255, 255, 255, ${q})`);
+      gr.addColorStop(0.35, `rgba(255, 226, 122, ${q})`);
+      gr.addColorStop(0.7, `rgba(242, 102, 26, ${0.8 * q})`);
+      gr.addColorStop(1, 'rgba(122, 28, 18, 0)');
+      g.fillStyle = gr;
+      g.beginPath(); g.arc(0, 0, fr, 0, Math.PI * 2); g.fill();
+    }
+    // the rings
+    const r1 = 10 + e * (R - 10), r2 = Math.max(1, 4 + e * (R - 30));
+    g.globalAlpha = fade;
+    g.strokeStyle = '#ffc04a'; g.lineWidth = 5 * fade + 1;
+    g.beginPath(); g.arc(0, 0, r1, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = '#fff4dc'; g.lineWidth = 1.6 * fade + 0.5;
+    g.beginPath(); g.arc(0, 0, r1 + 1.5, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = '#f2661a'; g.lineWidth = 2;
+    g.beginPath(); g.arc(0, 0, r2, 0, Math.PI * 2); g.stroke();
+    // tongues of flame licking out round the ring
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2 + hash(i, 1, seed) * 0.3, L = (6 + 10 * hash(i, 2, seed)) * fade * (0.6 + 0.4 * Math.sin(t * 20 + i));
+      g.strokeStyle = i % 3 ? '#ffa52a' : '#ffe27a'; g.lineWidth = 2 * fade + 0.5;
+      g.beginPath(); g.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+      g.quadraticCurveTo(Math.cos(a + 0.15) * (r1 + L * 0.6), Math.sin(a + 0.15) * (r1 + L * 0.6), Math.cos(a + 0.05) * (r1 + L), Math.sin(a + 0.05) * (r1 + L));
+      g.stroke();
+    }
+    // shards of ember flung out, turning, falling
+    for (let i = 0; i < 22; i++) {
+      const a = hash(i, 3, seed) * 6.28, d = 8 + e * (R * 0.45 + hash(i, 4, seed) * R * 0.6), r = (2 + hash(i, 5, seed) * 2.8) * (1 - k * 0.6);
+      g.save();
+      g.translate(Math.cos(a) * d, Math.sin(a) * d + e * e * 14);
+      g.rotate(t * 7 + i);
+      g.fillStyle = i % 4 === 0 ? '#ffffff' : i % 2 ? '#ffe27a' : '#ffa52a';
+      g.beginPath(); hexPts(r).forEach(([px, py], j) => (j ? g.lineTo(px, py) : g.moveTo(px, py))); g.closePath(); g.fill();
+      g.restore();
+    }
+    g.globalAlpha = 1;
+  });
+  lit(ctx, () => {
+    // glitter all round, twinkling
+    for (let i = 0; i < 34; i++) {
+      const a = hash(i, 6, seed) * Math.PI * 2, d = R * (0.2 + 0.95 * hash(i, 7, seed)) * (0.4 + 0.6 * e), tw = Math.sin(t * (14 + 9 * hash(i, 8, seed)) + i * 2);
+      if (tw < 0.15) continue;
+      const px = Math.round(x + Math.cos(a) * d), py = Math.round(y + Math.sin(a) * d), L = tw > 0.8 ? 2 : 1;
+      ctx.globalAlpha = fade * tw;
+      ctx.fillStyle = i % 3 ? '#fff4dc' : '#ffe066';
+      ctx.fillRect(px - L, py, L * 2 + 1, 1);
+      ctx.fillRect(px, py - L, 1, L * 2 + 1);
+    }
+    // embers raining down after
+    for (let i = 0; i < 24; i++) {
+      const a = -Math.PI / 2 + (hash(i, 9, seed) - 0.5) * 3.2, sp = 60 + 140 * hash(i, 10, seed), T = k * 0.7;
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = i % 2 ? '#ffd27a' : '#ff8a2a';
+      ctx.fillRect(Math.round(x + Math.cos(a) * sp * T), Math.round(y + Math.sin(a) * sp * T + 160 * T * T), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  });
+}

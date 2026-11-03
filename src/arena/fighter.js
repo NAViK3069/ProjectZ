@@ -1675,7 +1675,7 @@ export class Fighter {
       v.hitHow = 'FLAME FIST';
       // (caught firing - the gun in their hands, a shot just gone: it's knocked out of them)
       const firing = v.slot === 2 && v.gun && !v.gun.def.skillGun && (v.lastFireT ?? 9) < 0.4;
-      v.hurt(BLAZE_DMG, this, ux * 520, -220 + uy * 160);
+      v.hurt(BLAZE_DMG, this, ux * 720, -300 + uy * 200);   // (sent flying)
       if (firing && v.alive) this.game.disarm?.(v, Math.sign(ux) || this.facing);
     }
     // knocked back off it
@@ -3914,8 +3914,8 @@ export class Fighter {
     // the dragon flying with the dash: its head out in front of you, its body back along the way you came; at the end
     // of the dash it flies on a little, and is gone
     if (dm && (dm.phase === 'dash' || dm.phase === 'finish') && dm.trail?.length) {
-      const fin = dm.phase === 'finish' ? 1 - dm.t / DEFLECT_FINISH : 0, ux = Math.cos(dm.a), uy = Math.sin(dm.a), go = 12 + fin * 26;
-      drawDragon(ctx, this.x + ux * go, this.y - 15 + uy * go, dm.a, [{ x: this.x + ux * (go - 8), y: this.y - 15 + uy * (go - 8) }, ...dm.trail], t, dm.phase === 'dash' ? 1 : 1 - fin, dm.seed ?? 3);
+      const fin = dm.phase === 'finish' ? 1 - dm.t / DEFLECT_FINISH : 0, ux = Math.cos(dm.a), uy = Math.sin(dm.a), go = 34 + fin * 30;
+      drawDragon(ctx, this.x + ux * go, this.y - 15 + uy * go, dm.a, [{ x: this.x + ux * (go - 22), y: this.y - 15 + uy * (go - 22) }, ...dm.trail], t, dm.phase === 'dash' ? 1 : 1 - fin, dm.seed ?? 3);
     }
     if (this.powered) drawPowered(ctx, this.x + this.facing * 8, this.y - 14, t, 1);
     if (this.hackCast) drawHackCast(ctx, this.x + this.facing * 5, this.y - 22, Math.min(1, this.hackCast.t / HACK_CAST), t);

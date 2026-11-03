@@ -22,7 +22,7 @@ import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier } from './ai.js';
 import { drawBolts, drawVoidHole, drawVoidGlitter } from './void.js';
-import { drawBlast, drawSpaceCrack, drawFireGo } from './flame.js';
+import { drawBlast, drawFireBurst, drawFireGo } from './flame.js';
 import { drawCircle, drawHole, drawBoom, drawHoleShine } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
 import { drawLockBeam, drawLockMark, drawMissile, drawMissileBoom } from './visor.js';
@@ -1426,7 +1426,7 @@ function drawVoids(ctx) {
 const FIST_SPLASH = 45, FIST_R = 44, FIST_LIFE = 0.6;
 function flameFist(f, x, y, a, v) {
   const fx = game.fx, ux = Math.cos(a), uy = Math.sin(a);
-  game.bursts.push({ kind: 'crack', x, y, ax: ux, ay: uy, t: 0, seed: Math.random() * 100 });   // (its look: flame.js, drawSpaceCrack)
+  game.bursts.push({ kind: 'fireburst', x, y, t: 0, seed: Math.random() * 100 });   // (its look: flame.js, drawFireBurst)
   for (const o of game.fighters) {
     if (o === f || o === v || !o.alive || o.vanish || !game.foes(f, o)) continue;
     const dx = o.x - x, dy = o.y - 14 - y, d = Math.hypot(dx, dy);
@@ -1434,7 +1434,7 @@ function flameFist(f, x, y, a, v) {
     const k = 1 - d / FIST_R, n = d || 1;
     o.hitHow = 'FLAME FIST';
     o.blast = true;
-    o.hurt(FIST_SPLASH * (0.4 + 0.6 * k), f, (dx / n) * 320 * k, -160 * k);
+    o.hurt(FIST_SPLASH * (0.4 + 0.6 * k), f, (dx / n) * 440 * k, -220 * k);   // (thrown well clear)
     o.blast = false;
   }
   for (const p of game.props) {
@@ -2356,7 +2356,7 @@ function drawBursts(ctx) {
     else if (b.kind === 'fang') drawFangFlash(ctx, b.x, b.y, b.a, b.t / 0.25);
     else if (b.kind === 'fangcut') drawFangCut(ctx, b.x, b.y, b.a, k, b.seed);
     else if (b.kind === 'missile') drawMissileBoom(ctx, b.x, b.y, k, b.seed);
-    else if (b.kind === 'crack') drawSpaceCrack(ctx, b.x, b.y, b.ax, b.ay, k, game.time, b.seed);
+    else if (b.kind === 'fireburst') drawFireBurst(ctx, b.x, b.y, k, game.time, b.seed);
     else if (b.kind === 'blazego') drawFireGo(ctx, b.x, b.y, b.a, Math.min(1, k * 2.5));
     else if (b.kind === 'vmuzzle') drawVioletMuzzle(ctx, b.x, b.y, b.a, k, game.time, b.seed);
     else if (b.kind === 'vtrace') drawVioletTrace(ctx, b.x0, b.y0, b.x, b.y, k, game.time, b.seed);
