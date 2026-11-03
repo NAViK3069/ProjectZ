@@ -180,6 +180,7 @@ export const CARDS = {
   green: { name: 'REGENERATION', a: '#5aff8a', b: '#0e5a2c', rgb: '80, 255, 130' },
   blue: { name: 'SWIFT', a: '#5ac8ff', b: '#103c7a', rgb: '80, 190, 255' },
   purple: { name: 'PHANTOM', a: '#c88aff', b: '#3c1470', rgb: '180, 110, 255' },
+  joker: { name: 'JOKER', a: '#ffd25a', b: '#2a1a40', rgb: '255, 210, 90' },
 };
 function cardFace(ctx, kind, x, y) {
   const c = CARDS[kind], r = (cx, cy, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(x + cx, y + cy, w, h); };
@@ -189,6 +190,10 @@ function cardFace(ctx, kind, x, y) {
   if (kind === 'red') { r(-1, -6, 2, 2, '#fff'); r(-2, -4, 4, 2, '#ffd25a'); r(-3, -2, 6, 3, c.a); r(-2, 1, 4, 2, c.a); r(-1, 3, 2, 1, '#fff'); }   // a flame
   else if (kind === 'green') { r(-1, -5, 2, 10, '#fff'); r(-4, -1, 8, 2, '#fff'); r(-1, -5, 1, 10, c.a); r(-4, -1, 8, 1, c.a); }   // a cross
   else if (kind === 'blue') { for (let i = 0; i < 2; i++) for (let j = 0; j < 4; j++) { r(-4 + i * 4 + j, -4 + j, 2, 1, i ? '#fff' : c.a); r(-4 + i * 4 + j, 3 - j, 2, 1, i ? '#fff' : c.a); } }   // chevrons
+  else if (kind === 'joker') {   // a gold star, a pip of each of the others round it
+    r(-1, -5, 2, 10, c.a); r(-5, -1, 10, 2, c.a); r(-2, -2, 4, 4, c.a); r(-1, -1, 2, 2, '#fff');
+    r(-4, -7, 2, 2, CARDS.red.a); r(3, -7, 2, 2, CARDS.blue.a); r(-4, 5, 2, 2, CARDS.green.a); r(3, 5, 2, 2, CARDS.purple.a);
+  }
   else { r(-4, -1, 8, 2, c.a); r(-3, -3, 6, 1, c.a); r(-3, 2, 6, 1, c.a); r(-1, -1, 2, 2, '#fff'); r(-5, 0, 1, 1, c.a); r(4, 0, 1, 1, c.a); }   // an eye
 }
 function cardBack(ctx, x, y, t) {
@@ -206,9 +211,9 @@ export const CARD_LEAN = 6, CARD_PICK = 20;   // how far (world px) the mouse le
 export const cardToward = (dx, dy) => (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'blue' : 'purple') : dy < 0 ? 'red' : 'green');
 // The fan, round (x, y): a ring of light turning, the cards dealt out of the middle one after another and turning face up,
 // a dotted line out to each; the one the mouse leans toward lifts out, lit in its colour, its name over it. k: seconds open.
-export function drawCardFan(ctx, x, y, k, hover, t, mine) {
-  const X = Math.round(x), Y = Math.round(y), open = ease(k / 0.2);
-  glowAt(ctx, X, Y, 52 * open, [[0, `rgba(${hover ? CARDS[hover].rgb : '255, 220, 120'}, 0.3)`], [1, 'rgba(0, 0, 0, 0)']]);
+export function drawCardFan(ctx, x, y, k, hover, t, mine, joker = null) {
+  const X = Math.round(x), Y = Math.round(y), open = ease(k / 0.2), face = (slot) => (slot === joker ? 'joker' : slot);
+  glowAt(ctx, X, Y, 52 * open, [[0, `rgba(${hover ? CARDS[face(hover)].rgb : '255, 220, 120'}, 0.3)`], [1, 'rgba(0, 0, 0, 0)']]);
   lit(ctx, () => {
     // the rings: an outer one of dashes turning one way, ticks going the other, a bright core
     ctx.fillStyle = '#ffe08a';
@@ -231,7 +236,7 @@ export function drawCardFan(ctx, x, y, k, hover, t, mine) {
     // a line of dots out to each card, running outward; the one being leant toward, bright and solid
     for (const [kind, [ox, oy]] of Object.entries(CARD_SPOT)) {
       const on = kind === hover, d = Math.hypot(ox, oy), ux = ox / d, uy = oy / d;
-      ctx.fillStyle = CARDS[kind].a;
+      ctx.fillStyle = CARDS[face(kind)].a;
       for (let q = 7; q < d - 10; q += on ? 1 : 3) {
         ctx.globalAlpha = open * (on ? 0.95 : 0.35 + 0.35 * (((q - t * 30) % 6 + 6) % 6 < 2 ? 1 : 0));
         ctx.fillRect(Math.round(X + ux * q), Math.round(Y + uy * q), 1, 1);
@@ -239,10 +244,23 @@ export function drawCardFan(ctx, x, y, k, hover, t, mine) {
     }
   });
   // the cards, dealt out one after another
-  Object.entries(CARD_SPOT).forEach(([kind, [ox, oy]], i) => {
+  Object.entries(CARD_SPOT).forEach(([slot, [ox, oy]], i) => {
     const deal = ease((k - i * 0.05) / 0.2);
     if (deal <= 0) return;
-    const on = kind === hover, lift = on ? 4 : 0, d = Math.hypot(ox, oy);
+    const kind = face(slot), on = slot === hover, lift = on ? 4 : 0, d = Math.hypot(ox, oy);
+    // the joker: gold, glittering, before it's even leant toward
+    if (kind === 'joker') {
+      glowAt(ctx, Math.round(X + ox * deal), Math.round(Y + oy * deal), 20, [[0, `rgba(255, 210, 90, ${0.3 + 0.15 * Math.sin(t * 8)})`], [1, 'rgba(0, 0, 0, 0)']]);
+      lit(ctx, () => {
+        for (let j = 0; j < 6; j++) {
+          const ph = (t * 1.5 + j / 6) % 1, a = j * 2.1 + t, rr = 9 + ph * 8;
+          ctx.globalAlpha = Math.sin(ph * Math.PI) * deal;
+          ctx.fillStyle = ['#ffffff', CARDS.red.a, CARDS.blue.a, CARDS.green.a, CARDS.purple.a, '#ffd25a'][j];
+          const sx = Math.round(X + ox * deal + Math.cos(a) * rr), sy = Math.round(Y + oy * deal + Math.sin(a) * rr * 1.2);
+          ctx.fillRect(sx - 1, sy, 3, 1); ctx.fillRect(sx, sy - 1, 1, 3);
+        }
+      });
+    }
     const cx = Math.round(X + ox * deal + (ox / d) * lift), cy = Math.round(Y + oy * deal + (oy / d) * lift + (on ? 0 : Math.sin(t * 3 + i) * 1));
     if (on) {
       glowAt(ctx, cx, cy, 26, [[0, `rgba(${CARDS[kind].rgb}, 0.55)`], [1, 'rgba(0, 0, 0, 0)']]);
@@ -268,13 +286,18 @@ export function drawCardFan(ctx, x, y, k, hover, t, mine) {
       const nm = CARDS[kind].name, ty = oy > 0 ? cy + 13 : cy - 19;
       drawText(ctx, nm, Math.round(cx - textWidth(nm) / 2), ty, 1, CARDS[kind].a, '#08080c');
     }
+    if (kind === 'joker' && !on && deal >= 1) {
+      // (and what it is, always, under it)
+      const nm = 'JOKER', ty = oy > 0 ? cy + 13 : cy - 19;
+      if (Math.sin(t * 6) > -0.5) drawText(ctx, nm, Math.round(cx - textWidth(nm) / 2), ty, 1, '#ffd25a', '#08080c');
+    }
   });
   if (mine && !hover && k > 0.3) drawText(ctx, 'DRAG TO A CARD', Math.round(X - textWidth('DRAG TO A CARD') / 2), Y + 44, 1, '#ffe08a', '#08080c');
 }
 // The one picked, flying from the fan up over the head (x1, y1) and turning as it goes, its colour streaming behind it;
 // the other three going to pieces where they were. (x, y): the fan's middle; k: 0 .. 1 of the flight.
-export function drawCardFly(ctx, x, y, kind, x1, y1, k, t, seed) {
-  const [ox, oy] = CARD_SPOT[kind], x0 = x + ox, y0 = y + oy, e = ease(k), c = CARDS[kind];
+export function drawCardFly(ctx, x, y, kind, x1, y1, k, t, seed, slot = kind, joker = null) {
+  const [ox, oy] = CARD_SPOT[slot], x0 = x + ox, y0 = y + oy, e = ease(k), c = CARDS[kind];
   const at = (q) => ({ x: x0 + (x1 - x0) * q, y: y0 + (y1 - y0) * q - Math.sin(q * Math.PI) * 18 });
   lit(ctx, () => {
     for (let i = 1; i <= 12; i++) {
@@ -285,11 +308,11 @@ export function drawCardFly(ctx, x, y, kind, x1, y1, k, t, seed) {
     }
     // the rest, coming apart
     for (const [other, [px, py]] of Object.entries(CARD_SPOT)) {
-      if (other === kind) continue;
+      if (other === slot) continue;
       for (let i = 0; i < 10; i++) {
         const a = hash(i, other.length, seed) * 6.28, d = 2 + e * (8 + hash(i, 2, seed) * 16);
         ctx.globalAlpha = 1 - e;
-        ctx.fillStyle = i % 3 ? CARDS[other].a : '#ece6d4';
+        ctx.fillStyle = i % 3 ? CARDS[other === joker ? 'joker' : other].a : '#ece6d4';
         ctx.fillRect(Math.round(x + px + Math.cos(a) * d), Math.round(y + py + Math.sin(a) * d + e * e * 8), 2, 1);
       }
     }
@@ -318,12 +341,25 @@ export function drawCard(ctx, x, bottom, kind, phase, flipAt, flipEnd, t, buffK 
   if (shown) cardFace(ctx, kind, 0, 0); else cardBack(ctx, 0, 0, t);
   ctx.restore();
   if (burst > 0) lit(ctx, () => {
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * 6.28 + 0.3, d = 8 + (1 - burst) * 22;
+    const cols = kind === 'joker' ? [CARDS.red.a, CARDS.blue.a, CARDS.green.a, '#ffd25a'] : [c.a];
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * 6.28 + 0.3, d = 8 + (1 - burst) * 30;
       ctx.globalAlpha = burst;
-      ctx.fillStyle = i % 2 ? '#fff' : c.a;
+      ctx.fillStyle = i % 2 ? '#fff' : cols[i % cols.length];
       ctx.fillRect(Math.round(cx + Math.cos(a) * d), Math.round(cy + Math.sin(a) * d), 2, 2);
     }
+    // two rings going out, and four long rays
+    for (let j = 0; j < 2; j++) {
+      ctx.globalAlpha = burst * (j ? 0.5 : 0.9);
+      ctx.fillStyle = j ? '#ffffff' : cols[0];
+      const rr = 6 + (1 - burst) * (40 - j * 14);
+      pixArc(ctx, cx, cy, rr, rr * 0.8, 0, 0, Math.PI * 2);
+    }
+    ctx.globalAlpha = burst;
+    ctx.fillStyle = '#ffffff';
+    const L = Math.round(6 + 20 * burst);
+    ctx.fillRect(cx - L, cy, L * 2 + 1, 1);
+    ctx.fillRect(cx, cy - L, 1, L * 2 + 1);
   });
   if (kind && shown && phase < flipEnd + hold) drawText(ctx, c.name, Math.round(cx - textWidth(c.name) / 2), cy - 18, 1, c.a, '#08080c');
   // what's left of it, a thin bar under the card
@@ -395,6 +431,18 @@ export function drawCardAura(ctx, x, y, kind, t, seed = 0, vx = 0, face = 1) {
         const a = t * spin * 0.8 + (i / 12) * Math.PI * 2;
         ctx.globalAlpha = (i % 2 ? 0.55 : 0.28) * (Math.sin(a) > 0 ? 1 : 0.4);
         ctx.fillRect(Math.round(x + Math.cos(a) * 12), Math.round(y - 1 + Math.sin(a) * 2), 1, 1);
+      }
+    });
+  } else if (kind === 'joker') {
+    glowAt(ctx, x, y - 12, 28, [[0, `rgba(255, 210, 90, ${0.22 + Math.sin(t * 7) * 0.06})`], [1, 'rgba(255, 170, 40, 0)']]);
+    lit(ctx, () => {
+      for (let i = 0; i < 14; i++) {
+        const ph = (t * 0.9 + i / 14) % 1, a = t * 5 + i * 0.9, r = 9 + Math.sin(ph * Math.PI) * 5;
+        ctx.globalAlpha = Math.sin(ph * Math.PI) * (Math.sin(a) > 0 ? 1 : 0.4);
+        ctx.fillStyle = [CARDS.red.a, '#ffd25a', CARDS.green.a, '#ffffff', CARDS.blue.a][i % 5];
+        const sx = Math.round(x + Math.cos(a) * r), sy = Math.round(y - 2 - ph * 32);
+        ctx.fillRect(sx, sy, 1, 1);
+        if (i % 4 === 0) { ctx.fillRect(sx - 1, sy, 3, 1); ctx.fillRect(sx, sy - 1, 1, 3); }
       }
     });
   } else if (kind === 'purple') {

@@ -107,6 +107,7 @@ export const online = {
   get tabOpen() { return N.mode === 'host' && A.input.down('Tab') && ['intro', 'fight', 'end'].includes(A.state); },
   tabButtons,
   drawCrown,
+  sendBuy: (kind, key) => N.room?.send({ t: 'buy', kind, key }, N.room.hostId),   // (in the shop: the host does the buying)
   sendPick: (key) => N.room?.send({ t: 'pick', skill: key }),   // (dead, PICK WHEN YOU DIE: the next life's skill, to the host)
   get hostId() { return N.room?.hostId ?? null; },
   isScreen: (state) => state === 'net-servers' || state === 'net-lobby' || state === 'net-room',
@@ -296,7 +297,7 @@ function handDelta(f, out) {
   N.sent.set(f, last);
 }
 // Lists sent whole, while there's anything in them and it's changed (things few and short-lived)
-const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets'], ['ba', 'bats'], ['bo', 'bloods'], ['ri', 'rifts'], ['fa', 'fangs']];
+const LISTS = [['gr', 'grenades'], ['th', 'thrown'], ['ar', 'arrows'], ['vo', 'voids'], ['ga', 'galaxies'], ['de', 'swordSets'], ['ba', 'bats'], ['bo', 'bloods'], ['ri', 'rifts'], ['fa', 'fangs'], ['tg', 'tags']];
 // Things that happen once and run their course on each screen: sent the once
 const ONCE = [['nu', 'numbers'], ['bl', 'blasts'], ['pu', 'punches'], ['bu', 'bursts'], ['fi', 'fists'], ['fe', 'feed']];
 const LIFE = { numbers: 0.9, blasts: 0.35, punches: 0.45, bursts: 0.7, fists: 0.6 };
@@ -307,7 +308,7 @@ function snapshot() {
   N.snapN++;
   const s = { t: Math.round(g.time * 1000) / 1000, rt: Math.round(performance.now()) / 1000 };
   // how the round stands: what's changed
-  const hd = { st: A.state, sT: Math.round(A.stateT * 10) / 10, rd: A.round, rT: Math.round(A.roundT * 2) / 2, ot: A.overtime, sl: A.slow, tk: g.timeK ?? 1, wi: ser(A.winner), ch: ser(A.champion), bk: A.banner?.text ?? null, la: g.lights.lamps.map((l) => (l.on ? 1 : 0)).join('') };
+  const hd = { st: A.state, sT: Math.round(A.stateT * 10) / 10, rd: A.round, rT: Math.round(A.roundT * 2) / 2, ot: A.overtime, sl: A.slow, tk: g.timeK ?? 1, wi: ser(A.winner), ch: ser(A.champion), bk: A.banner?.text ?? null, la: g.lights.lamps.map((l) => (l.on ? 1 : 0)).join(''), ob: ser(g.obj) };
   const h = {};
   for (const k in hd) { const j = JSON.stringify(hd[k]); if (N.hdrSent[k] !== j) { h[k] = hd[k]; N.hdrSent[k] = j; } }
   if ('bk' in h) h.bn = ser(A.banner);
@@ -484,7 +485,7 @@ function applyHeader(h) {
     N.later = [];
     N.pickups.clear();
     N.trk.clear();
-    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'numbers', 'blasts', 'punches', 'bursts', 'fists', 'feed', 'fangs']) g[name] = [];
+    for (const name of ['bullets', 'grenades', 'pickups', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'numbers', 'blasts', 'punches', 'bursts', 'fists', 'feed', 'fangs', 'tags']) g[name] = [];
   }
   if ('st' in h) A.state = h.st;
   if ('sT' in h) A.stateT = h.sT;
@@ -496,6 +497,7 @@ function applyHeader(h) {
   if ('wi' in h) A.winner = rev(h.wi);
   if ('ch' in h) A.champion = rev(h.ch);
   if ('tk' in h) g.timeK = h.tk;
+  if ('ob' in h) g.obj = rev(h.ob);   // (the mode's: points, flags)
   if ('la' in h) [...h.la].forEach((c, i) => { const l = g.lights.lamps[i]; if (l) l.on = c === '1'; });
 }
 function askResync() {
@@ -1083,7 +1085,7 @@ function resetOwn() {
 // What a screen that was only drawing the game has in the air: it isn't the real thing, and can't be run as if it was
 function clearAir() {
   const g = A.game;
-  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'blasts', 'punches', 'bursts', 'fists', 'numbers', 'fangs']) g[name] = [];
+  for (const name of ['bullets', 'grenades', 'thrown', 'arrows', 'voids', 'galaxies', 'swordSets', 'bats', 'bloods', 'rifts', 'blasts', 'punches', 'bursts', 'fists', 'numbers', 'fangs', 'tags']) g[name] = [];
   N.shots = [];
   N.local = [];
   N.later = [];
@@ -1463,6 +1465,9 @@ function hostMsg(m, from) {
     // back to the room in the middle of the match: their fighter drops out of it
     x.out = true;
     retire(from);
+  } else if (m.t === 'buy') {
+    const f = A.game.fighters.find((o) => o.peer === from);
+    if (f && typeof m.kind === 'string') A.applyBuy(f, m.kind, typeof m.key === 'string' ? m.key : null);
   } else if (m.t === 'pick') {
     const f = A.game.fighters.find((o) => o.peer === from);
     if (f) A.game.pickNext(f, typeof m.skill === 'string' ? m.skill : null);
@@ -1552,7 +1557,7 @@ function joinNextRound(id) {
   if (seatOf(id) < 0) {
     const open = N.slots.map((x, i) => (x.k === 'open' ? i : -1)).filter((i) => i >= 0);
     const count = (t) => N.slots.filter((x, i) => teamOf(i) === t && (x.k === 'p' || x.k === 'bot')).length;
-    const best = A.settings.mode === 'teams' ? [...open].sort((a, b) => count(teamOf(a)) - count(teamOf(b)))[0] : open[0];
+    const best = A.isTeams(A.settings.mode) ? [...open].sort((a, b) => count(teamOf(a)) - count(teamOf(b)))[0] : open[0];
     if (best === undefined || !moveTo(id, best)) return;
   }
   N.joiners.add(id);
@@ -1567,7 +1572,7 @@ function letJoinersIn() {
     if (had) had._goneAt = 0;
     else if (old) { N.benched.delete(id); A.game.fighters.push(old); }
     else {
-      const teams = A.settings.mode === 'teams', r = { name: m.name, ...(teams ? TEAM_LOOKS[teamOf(i)] : LOOKS[i]), skill: m.skill, peer: id, team: teams ? teamOf(i) : i };
+      const teams = A.isTeams(A.settings.mode), r = { name: m.name, ...(teams ? TEAM_LOOKS[teamOf(i)] : LOOKS[i]), skill: m.skill, peer: id, team: teams ? teamOf(i) : i };
       N.match.roster.push(r);
       A.addNetFighter(r, N.match.roster.length);
     }
@@ -1583,14 +1588,14 @@ function startGame() {
   const s = A.settings, roster = [];
   let bots = 0;
   N.slots.forEach((x, i) => {
-    const team = s.mode === 'teams' ? teamOf(i) : i, look = s.mode === 'teams' ? TEAM_LOOKS[team] : LOOKS[i];
+    const team = A.isTeams(s.mode) ? teamOf(i) : i, look = A.isTeams(s.mode) ? TEAM_LOOKS[team] : LOOKS[i];
     if (x.k === 'p') {
       const m = N.members.find((y) => y.id === x.id);
       if (m) roster.push({ name: m.name, ...look, skill: m.skill, peer: m.id, team });
     } else if (x.k === 'bot') roster.push({ name: BOT_NAMES[bots++], ...look, bot: true, team, skill: A.botSkill() });
   });
   if (roster.length < 2) return say('NEED SOMEONE TO FIGHT - A PLAYER OR A BOT', 2.5);
-  if (s.mode === 'teams' && new Set(roster.map((r) => r.team)).size < 2) return say('TEAMS NEEDS SOMEONE ON EACH SIDE', 2.5);
+  if (A.isTeams(s.mode) && new Set(roster.map((r) => r.team)).size < 2) return say('TEAMS NEEDS SOMEONE ON EACH SIDE', 2.5);
   const map = s.map === 'random' ? A.pick(A.MAP_KEYS) : s.map;
   N.playing = true;
   N.sendT = 0;

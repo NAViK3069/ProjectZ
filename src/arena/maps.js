@@ -390,6 +390,153 @@ export const MAPS = {
     },
   },
 
+  // ---------- made for the modes ----------
+
+  // 1 V 1: a small round pit dug in rock - a raised step at each end with a ladder up it and a ledge over it, a catwalk
+  // across the middle and a low block to fight round. Nowhere to hide for long.
+  pit: {
+    name: 'THE PIT', w: 64, h: 26, theme: 'mine', desc: 'SMALL AND SYMMETRICAL - MADE FOR 1 V 1',
+    build(L) {
+      L.shell();
+      L.fill(1, 23, 62, 24, SOLID);                                                // the floor
+      L.fill(1, 18, 9, 22, SOLID); L.fill(54, 18, 62, 22, SOLID);                  // the steps at the ends
+      L.ladder(10, 18, 22); L.ladder(53, 18, 22);
+      L.row(12, 1, 7, PLAT); L.row(12, 56, 62, PLAT); L.ladder(5, 12, 17); L.ladder(58, 12, 17);   // ledges over them
+      L.row(20, 14, 20, PLAT); L.row(20, 43, 49, PLAT);                            // a catwalk each side, a jump up
+      L.row(17, 24, 39, PLAT);                                                     // and the one across the middle
+      L.row(13, 28, 35, PLAT);
+      L.fill(30, 21, 33, 22, SOLID);                                               // a block to fight round
+      for (const [x, y] of [[4, 13], [59, 13], [31, 14], [17, 21], [46, 21], [12, 1], [51, 1]]) L.lamp(x, y);
+      L.deco.push({ kind: 'sign', x: 27, y: 9, text: 'THE PIT' }, { kind: 'pipes', y: 3 });
+      for (const [k, x, y] of [['wcrate', 2, 18], ['barrel', 7, 18], ['wcrate', 61, 18], ['barrel', 56, 18], ['crate', 22, 23], ['crate', 41, 23]]) L.prop(k, x, y);
+      L.spawn(4, 18); L.spawn(3, 12); L.spawn(15, 23); L.spawn(17, 20);
+      L.spawn(59, 18); L.spawn(60, 12); L.spawn(48, 23); L.spawn(46, 20);
+    },
+  },
+
+  // CAPTURE THE FLAG: a long canyon at sunset, a flag on a plateau at each end. Three ways across: the ground, past rocks
+  // and over the mesa in the middle; the rope bridges high up, over all of it; and the old mine tunnel under the ground.
+  canyon: {
+    name: 'CANYON', w: 150, h: 38, theme: 'sand', desc: 'OUTDOORS - LONG, THREE WAYS ACROSS - FOR THE FLAG',
+    build(L) {
+      L.fill(0, 31, 149, 37, SOLID);                                               // the ground
+      L.fill(0, 0, 0, 30, SOLID); L.fill(149, 0, 149, 30, SOLID);
+      L.fill(23, 33, 126, 35, EMPTY);                                              // the tunnel under it
+      L.ladder(23, 31, 35); L.ladder(126, 31, 35);
+      L.fill(60, 35, 61, 35, SOLID); L.fill(88, 35, 89, 35, SOLID);                // (something to duck behind down there)
+      for (const [a, b] of [[1, 16], [133, 148]]) L.fill(a, 22, b, 30, SOLID);     // the plateaus
+      L.fill(17, 25, 18, 30, SOLID); L.fill(19, 28, 21, 30, SOLID);                // steps up to them
+      L.fill(131, 25, 132, 30, SOLID); L.fill(128, 28, 130, 30, SOLID);
+      L.fill(40, 28, 45, 30, SOLID); L.fill(104, 28, 109, 30, SOLID);              // rocks
+      L.fill(66, 24, 83, 30, SOLID); L.ladder(65, 24, 30); L.ladder(84, 24, 30);   // the mesa
+      L.row(27, 59, 63, PLAT); L.row(27, 86, 90, PLAT);
+      L.row(15, 10, 52, PLAT); L.row(15, 97, 139, PLAT); L.row(17, 56, 93, PLAT);  // the rope bridges, the deck over the mesa
+      L.ladder(12, 15, 21); L.ladder(137, 15, 21); L.ladder(74, 17, 23);
+      L.ladder(50, 15, 30); L.ladder(99, 15, 30);
+      L.fill(33, 13, 34, 14, SOLID); L.fill(115, 13, 116, 14, SOLID);              // a post to hide behind up there
+      L.pad(57, 31); L.pad(92, 31);
+      for (const [x, y] of [[3, 21], [14, 21], [135, 21], [146, 21], [30, 30], [55, 30], [94, 30], [119, 30], [74, 23], [30, 14], [119, 14], [74, 16]]) L.lamp(x, y, true);
+      L.deco.push({ kind: 'sign', x: 3, y: 18, text: 'BLUE CAMP' }, { kind: 'sign', x: 138, y: 18, text: 'RED CAMP' }, { kind: 'sign', x: 26, y: 29, text: 'OLD MINE' }, { kind: 'cones', x: 46, y: 30 }, { kind: 'cones', x: 101, y: 30 });
+      for (const [k, x, y] of [['sandbags', 10, 22], ['wcrate', 15, 22], ['sandbags', 139, 22], ['wcrate', 134, 22], ['barrel', 30, 31], ['barrel', 119, 31], ['wcrate', 52, 31], ['wcrate', 97, 31],
+        ['sandbags', 70, 24], ['sandbags', 79, 24], ['barrel', 74, 17], ['wcrate', 40, 15], ['wcrate', 109, 15], ['barrel', 75, 36], ['crate', 45, 36], ['crate', 104, 36]]) L.prop(k, x, y);
+      L.flag(0, 6, 22); L.flag(1, 143, 22);
+      L.spawn(3, 22); L.spawn(10, 22); L.spawn(14, 22); L.spawn(26, 31);
+      L.spawn(146, 22); L.spawn(139, 22); L.spawn(135, 22); L.spawn(123, 31);
+    },
+  },
+
+  // CAPTURE THE FLAG / BUY & FIGHT: two forts facing each other over a field, three storeys each, the flag in the
+  // ground floor. Across: the field (a bunker in the middle of it), a catwalk from the second storeys, the bridge
+  // between the roofs - long and in the open.
+  forts: {
+    name: 'TWIN FORTS', w: 136, h: 36, theme: 'site', desc: 'OUTDOORS - TWO FORTS, A FIELD, A BRIDGE OVER IT',
+    build(L) {
+      L.fill(0, 33, 135, 35, SOLID);
+      L.fill(0, 0, 0, 32, SOLID); L.fill(135, 0, 135, 32, SOLID);
+      for (const [a, b, inner] of [[1, 30, 30], [105, 134, 105]]) {
+        L.wall(a, 12, b, 32);
+        L.row(26, a, b); L.row(19, a, b); L.row(12, a, b);
+        L.fill(inner, 20, inner, 23, SOLID); L.fill(inner, 13, inner, 16, SOLID);   // its inner wall: a doorway on each storey
+      }
+      for (const x of [8, 22]) { L.ladder(x, 26, 32); L.ladder(135 - x, 26, 32); }
+      for (const x of [5, 25]) { L.ladder(x, 19, 25); L.ladder(135 - x, 19, 25); }
+      L.ladder(14, 12, 18); L.ladder(121, 12, 18);
+      L.row(19, 31, 58, PLAT); L.row(19, 77, 104, PLAT); L.row(21, 61, 74, PLAT);  // the catwalk across
+      L.ladder(42, 19, 32); L.ladder(93, 19, 32);
+      L.row(12, 31, 104, PLAT);                                                    // the bridge between the roofs
+      L.ladder(54, 12, 18); L.ladder(81, 12, 18);
+      L.fill(48, 10, 49, 11, SOLID); L.fill(86, 10, 87, 11, SOLID); L.fill(67, 10, 68, 11, SOLID);
+      L.fill(61, 29, 74, 32, SOLID); L.ladder(60, 29, 32); L.ladder(75, 29, 32);   // the bunker
+      L.fill(36, 31, 38, 32, SOLID); L.fill(97, 31, 99, 32, SOLID);
+      L.pad(50, 33); L.pad(85, 33);
+      for (const x of [6, 18, 27, 108, 117, 129]) { L.lamp(x, 20); L.lamp(x, 27); }
+      for (const [x, y] of [[40, 32], [56, 32], [79, 32], [95, 32], [44, 11], [67, 9], [91, 11]]) L.lamp(x, y, true);
+      L.deco.push({ kind: 'sign', x: 10, y: 29, text: 'BLUE FORT' }, { kind: 'sign', x: 118, y: 29, text: 'RED FORT' }, { kind: 'crane', x: 67, y: 1, h: 8 }, { kind: 'cones', x: 46, y: 32 }, { kind: 'cones', x: 89, y: 32 });
+      for (const [k, x, y] of [['wcrate', 3, 33], ['sandbags', 16, 33], ['wcrate', 27, 33], ['sandbags', 119, 33], ['wcrate', 132, 33], ['wcrate', 108, 33],
+        ['barrel', 12, 26], ['wcrate', 26, 26], ['barrel', 123, 26], ['wcrate', 109, 26], ['sandbags', 18, 19], ['sandbags', 117, 19],
+        ['sandbags', 63, 29], ['sandbags', 72, 29], ['barrel', 45, 33], ['barrel', 90, 33], ['wcrate', 58, 12], ['wcrate', 77, 12]]) L.prop(k, x, y);
+      L.flag(0, 5, 33); L.flag(1, 130, 33);
+      L.spawn(12, 33); L.spawn(20, 33); L.spawn(10, 26); L.spawn(16, 19);
+      L.spawn(123, 33); L.spawn(115, 33); L.spawn(125, 26); L.spawn(119, 19);
+    },
+  },
+
+  // TEAM DEATHMATCH: a highway at dusk, long and open. The overpass the length of it (cars to hide behind, gantries over
+  // it), the road under it, stairs up at each end and ladders up from the middle.
+  highway: {
+    name: 'HIGHWAY', w: 168, h: 30, theme: 'site', desc: 'OUTDOORS - VERY LONG, AN OVERPASS OVER THE ROAD',
+    build(L) {
+      L.fill(0, 27, 167, 29, SOLID);
+      L.fill(0, 0, 0, 26, SOLID); L.fill(167, 0, 167, 26, SOLID);
+      L.row(18, 20, 147);                                                          // the overpass
+      for (const x of [40, 84, 126]) L.fill(x, 19, x + 1, 22, SOLID);              // (its pillars, the road under them)
+      L.fill(8, 24, 12, 26, SOLID); L.fill(13, 21, 17, 26, SOLID);                 // stairs up at the ends
+      L.fill(155, 24, 159, 26, SOLID); L.fill(150, 21, 154, 26, SOLID);
+      L.ladder(60, 18, 26); L.ladder(107, 18, 26);
+      L.row(11, 50, 70, PLAT); L.row(11, 97, 117, PLAT); L.ladder(52, 11, 17); L.ladder(115, 11, 17);   // the sign gantries
+      for (const x of [30, 74, 92, 136]) L.fill(x, 16, x + 3, 17, SOLID);          // cars up on it
+      for (const x of [24, 66, 98, 138]) L.fill(x, 25, x + 4, 26, SOLID);          // and down on the road
+      for (const [x, y] of [[4, 26], [22, 17], [46, 17], [70, 17], [96, 17], [120, 17], [145, 17], [163, 26], [34, 26], [80, 26], [112, 26], [150, 26]]) L.lamp(x, y, true);
+      L.deco.push({ kind: 'sign', x: 55, y: 7, text: 'EXIT 12' }, { kind: 'sign', x: 102, y: 7, text: 'CITY CENTER' }, { kind: 'cones', x: 46, y: 26 }, { kind: 'cones', x: 118, y: 26 }, { kind: 'crane', x: 84, y: 1, h: 16 });
+      for (const [k, x, y] of [['barrel', 3, 27], ['wcrate', 6, 27], ['sandbags', 50, 27], ['barrel', 78, 27], ['wcrate', 88, 27], ['sandbags', 116, 27], ['barrel', 162, 27], ['wcrate', 164, 27],
+        ['sandbags', 24, 18], ['barrel', 56, 18], ['wcrate', 82, 18], ['barrel', 110, 18], ['sandbags', 142, 18], ['wcrate', 60, 11], ['wcrate', 107, 11]]) L.prop(k, x, y);
+      L.spawn(4, 27); L.spawn(10, 24); L.spawn(15, 21); L.spawn(22, 18);
+      L.spawn(163, 27); L.spawn(157, 24); L.spawn(152, 21); L.spawn(145, 18);
+    },
+  },
+
+  // TEAM DEATHMATCH, DOG TAGS, RANDOM GUNS: a foundry, the same on both sides: a molten pit in the middle with
+  // conveyors over it, a gantry across, floors stepping up each side, a walkway right at the top.
+  foundry: {
+    name: 'FOUNDRY', w: 112, h: 36, theme: 'lab', desc: 'SYMMETRICAL - A PIT, A GANTRY, FLOORS EACH SIDE',
+    build(L) {
+      L.shell();
+      L.fill(1, 33, 110, 34, SOLID); L.fill(46, 33, 65, 33, EMPTY); L.row(34, 46, 65, ACID);   // the floor, the pit
+      L.row(30, 48, 53, PLAT); L.row(30, 58, 63, PLAT); L.row(27, 52, 59, PLAT);   // conveyors over it
+      L.row(26, 1, 30); L.row(26, 81, 110);
+      L.row(19, 1, 22); L.row(19, 89, 110); L.row(19, 34, 77, PLAT); L.row(21, 25, 31, PLAT); L.row(21, 80, 86, PLAT);   // the gantry
+      L.row(12, 1, 40); L.row(12, 71, 110); L.row(12, 48, 63, PLAT); L.row(14, 43, 46, PLAT); L.row(14, 65, 68, PLAT);
+      for (const x of [6, 27]) { L.ladder(x, 26, 32); L.ladder(111 - x, 26, 32); }
+      for (const x of [4, 20]) { L.ladder(x, 19, 25); L.ladder(111 - x, 19, 25); }
+      for (const x of [10, 37]) { L.ladder(x, 12, 18); L.ladder(111 - x, 12, 18); }
+      L.ladder(40, 19, 32); L.ladder(71, 19, 32); L.ladder(55, 12, 18);
+      L.fill(14, 31, 15, 32, SOLID); L.fill(96, 31, 97, 32, SOLID); L.fill(36, 31, 37, 32, SOLID); L.fill(74, 31, 75, 32, SOLID);
+      L.fill(12, 24, 13, 25, SOLID); L.fill(98, 24, 99, 25, SOLID); L.fill(54, 17, 57, 18, SOLID);
+      L.pad(42, 33); L.pad(69, 33);
+      for (const x of [8, 24, 44, 67, 87, 103]) { L.lamp(x, 1); L.lamp(x, 20); }
+      for (const x of [12, 30, 81, 99]) L.lamp(x, 27);
+      L.deco.push(
+        { kind: 'tank', x: 3, y: 7.3 }, { kind: 'tank', x: 104, y: 7.3 }, { kind: 'reactor', x: 52, y: 3 }, { kind: 'sign', x: 50, y: 24, text: 'FOUNDRY 2' },
+        { kind: 'pipes', y: 15 }, { kind: 'vent', x: 30, y: 4 }, { kind: 'vent', x: 80, y: 4 }, { kind: 'monitors', x: 16, y: 14 }, { kind: 'monitors', x: 90, y: 14 },
+      );
+      for (const [k, x, y] of [['barrel', 3, 33], ['wcrate', 20, 33], ['barrel', 30, 33], ['barrel', 81, 33], ['wcrate', 91, 33], ['barrel', 108, 33],
+        ['crate', 2, 26], ['locker', 17, 26], ['crate', 109, 26], ['locker', 94, 26], ['wcrate', 8, 19], ['wcrate', 103, 19], ['barrel', 45, 19], ['barrel', 66, 19],
+        ['crate', 4, 12], ['table', 22, 12], ['crate', 107, 12], ['table', 89, 12]]) L.prop(k, x, y);
+      L.spawn(4, 33); L.spawn(17, 33); L.spawn(8, 26); L.spawn(14, 19);
+      L.spawn(107, 33); L.spawn(94, 33); L.spawn(103, 26); L.spawn(97, 19);
+    },
+  },
+
   // TRAINING: a big test room in four parts - the ARMORY (cabinets: every
   // gun and melee weapon, the skills, medkits and drinks), the FIRING RANGE
   // (dummies near, far, high and walking), the MOVEMENT COURSE upstairs (a low
@@ -491,4 +638,4 @@ export const MAPS = {
   },
 };
 
-export const MAP_KEYS = ['lab', 'warehouse', 'office', 'rooftops', 'site', 'reactor', 'yard', 'metro', 'towers', 'mine', 'colosseum', 'harbor'];
+export const MAP_KEYS = ['lab', 'warehouse', 'office', 'rooftops', 'site', 'reactor', 'yard', 'metro', 'towers', 'mine', 'colosseum', 'harbor', 'pit', 'canyon', 'forts', 'highway', 'foundry'];

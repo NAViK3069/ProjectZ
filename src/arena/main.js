@@ -15,6 +15,7 @@ import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K he
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
+import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
 import { drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot } from './goldfx.js';
 import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST } from './fighter.js';
 import { Fx } from './fx.js';
@@ -72,15 +73,34 @@ const images = await loadImages({
   backLegR: 'assets/player/back_leg_r.png',
 });
 
+// ---------- the modes ----------
+// teams: two sides. respawn: back in every time, the round's won on points (score: what scores) - first to SCORE TO
+// WIN, or ahead when the time's up (level: next point wins). oneLife: one life a round. economy: money for kills and
+// rounds, spent in a shop before each round (BUY_TIME). rounds: rounds to win, whatever the room says. maps: the ones
+// it plays best on (picked when the mode is).
+const MODES = {
+  ffa: { name: 'FREE FOR ALL', desc: 'EVERYONE FOR THEMSELVES - LAST ONE STANDING TAKES THE ROUND' },
+  teams: { name: 'TEAMS', teams: true, desc: 'TWO SIDES - LAST SIDE STANDING TAKES THE ROUND' },
+  duel: { name: '1 V 1', duel: true, desc: 'YOU AND ONE BOT - LAST ONE STANDING TAKES THE ROUND', maps: ['pit'] },
+  tdm: { name: 'TEAM DEATHMATCH', teams: true, respawn: true, score: 'kills', rounds: 1, desc: 'BACK IN EVERY TIME - FIRST SIDE TO THE KILLS WINS', maps: ['highway', 'foundry'] },
+  guns: { name: 'RANDOM GUNS', respawn: true, score: 'kills', rounds: 1, randomGuns: true, desc: 'A RANDOM GUN EACH LIFE, SHUFFLED EVERY 30 S - FIRST TO THE KILLS', maps: ['foundry', 'highway'] },
+  tags: { name: 'DOG TAGS', teams: true, respawn: true, score: 'tags', rounds: 1, desc: 'KILLS COUNT WHEN THEIR TAG IS TAKEN - TAKE YOUR SIDE\'S BACK TO DENY', maps: ['foundry', 'highway'] },
+  ctf: { name: 'CAPTURE THE FLAG', teams: true, respawn: true, score: 'caps', rounds: 1, desc: 'BRING THEIR FLAG BACK TO YOURS - YOURS HAS TO BE HOME', maps: ['canyon', 'forts'] },
+  buy: { name: 'BUY & FIGHT', teams: true, oneLife: true, economy: true, rounds: 5, desc: 'ONE LIFE - BUY GUNS WITH WHAT YOU EARN - FIRST SIDE TO 5 ROUNDS', maps: ['forts', 'canyon', 'foundry'] },
+};
+const MODE_KEYS = Object.keys(MODES);
+const CAPS = { 10: 1, 20: 3, 30: 5, 50: 7 };   // CAPTURE THE FLAG: SCORE TO WIN, as captures
+
 // ---------- the room's settings (Superfighters style), kept between visits ----------
 
 const OPTIONS = [
   ['map', 'MAP', [...MAP_KEYS.map((k) => [k, MAPS[k].name]), ['random', 'RANDOM']]],
-  ['mode', 'MODE', [['ffa', 'FREE FOR ALL'], ['teams', 'TEAMS']]],
+  ['mode', 'MODE', MODE_KEYS.map((k) => [k, MODES[k].name])],
   ['bots', 'BOTS', [[1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6'], [7, '7']]],
   ['skill', 'BOT SKILL', [[0.7, 'EASY'], [1, 'NORMAL'], [1.35, 'HARD']]],
   ['wins', 'ROUNDS TO WIN', [[1, '1'], [3, '3'], [5, '5'], [7, '7']]],
   ['time', 'ROUND TIME', [[60, '1:00'], [90, '1:30'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, 'NO LIMIT']]],
+  ['goal', 'SCORE TO WIN', [[10, '10'], [20, '20'], [30, '30'], [50, '50']]],   // (the modes played on points: kills, tags - or captures, see CAPS)
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
   ['skillmode', 'SKILL MODE', [['set', 'AS PICKED'], ['random', 'RANDOM EVERY LIFE'], ['pick', 'PICK WHEN YOU DIE']]],
   ['cd', 'SKILL COOLDOWN', [[0, 'NONE'], [0.25, '25%'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%'], [2, '200%'], [3, '300%']]],
@@ -96,7 +116,7 @@ const OPTIONS = [
   ['banGuns', 'BANNED GUNS', []],   // (these two: lists, picked in a list of their own - see openBans)
   ['banSkills', 'BANNED SKILLS', []],
 ];
-const DEFAULTS = { map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all', skillmode: 'set', cd: 1, banGuns: [], banSkills: [] };
+const DEFAULTS = { goal: 20, map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all', skillmode: 'set', cd: 1, banGuns: [], banSkills: [] };
 const settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('arena.settings') ?? '{}')); } catch {}
 const saveSettings = () => { try { localStorage.setItem('arena.settings', JSON.stringify(settings)); } catch {} };
@@ -156,7 +176,7 @@ const FIST_ICON = sprite(9, 7, (g) => g.drawImage(HANDS.open.img, 1, 0, HANDS.op
 // ---------- the game ----------
 
 const game = {
-  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [], bursts: [], bats: [], bloods: [], rifts: [], fangs: [],
+  level, weapons: WEAPONS, fighters: [], props: [], bullets: [], grenades: [], pickups: [], feed: [], blasts: [], thrown: [], numbers: [], racks: [], arrows: [], voids: [], fists: [], galaxies: [], swordSets: [], punches: [], bursts: [], bats: [], bloods: [], rifts: [], fangs: [], tags: [], obj: null,
   get gunDamage() { return settings.dmg; },
   get regen() { return !overtime; },   // out of a fight for a while, you heal (not once the lab's venting)
   get viewer() { return player; },
@@ -168,7 +188,7 @@ const game = {
   loose: (f, targets, point) => loose(f, targets, point),
   flameFist: (f, x, y, a, v) => flameFist(f, x, y, a, v),
   summonSwords: (f, seed, n) => summonSwords(f, seed, n),
-  barrierBurst: (f, broken) => barrierBurst(f, broken),
+  barrierBurst: (f, broken, charge) => barrierBurst(f, broken, charge),
   summonBats: (f) => summonBats(f),
   // deflect's dash, over: the cut left hanging in the air behind it
   deflectEnd(f, m) {
@@ -196,6 +216,7 @@ const game = {
     f.hp = Math.min(f.maxHp, f.hp + hp);
     this.numbers.push({ text: `+${Math.round(hp)}`, x: f.x + rand(-6, 6), y: f.y - 34, t: 0, color: '#5aff7a', big: false });
   },
+  objective: (f) => objectiveFor(f),
   throwFangs: (f) => throwFangs(f),
   recallFangs: (f) => recallFangs(f),
   aurumOn: (f) => aurumOn(f),
@@ -267,6 +288,7 @@ const game = {
       if (o === f || !o.alive || o.isDecoy || o.vanish || this.foes(f, o) || Math.hypot(o.x - f.x, o.y - f.y) > CARD_SHARE) continue;
       const left = CARD_LAST[kind] * CARD_ALLY;
       o.allyCard = { kind, left, total: left };
+      o.cardLands?.(kind, CARD_ALLY);
       if (kind === 'purple') o.fade = { t: 0, dur: 0.3, out: true, seed: Math.random() * 100, rgb: '180, 110, 255' };
       this.fx.sparks(o.x, o.y - 18, 8, 0, -1, '#ffe08a');
     }
@@ -294,7 +316,7 @@ const game = {
   foes(a, b) {
     if (a.vanish || b.vanish || (a.dummy && b.dummy)) return false;
     const ra = a.owner ?? a, rb = b.owner ?? b;   // (a shadow clone sides with whoever made it)
-    return ra !== rb && (settings.mode !== 'teams' || ra.team !== rb.team);
+    return ra !== rb && (!teamMode() || ra.team !== rb.team);
   },
   // The shadow clone skill: a double of f, at f's spot, holding what f holds,
   // f's health as a share of a quarter of f's - driven by a slow, sloppy bot.
@@ -423,6 +445,7 @@ const game = {
     if (f.melee && !f.melee.def.fists) this.pickups.push({ kind: 'melee', key: f.melee.def.key, x: f.x, y: f.y - 12, vx: rand(-60, 60), vy: -150, beam: 0, life: 20, bob: 0, ready: false });
     if (killer && killer !== f) killer.kills++;
     if (state === 'fight' || state === 'intro') {
+      modeDeath(f, killer);
       f.deaths = (f.deaths ?? 0) + 1;
       f.lives = Math.max(0, (f.lives ?? 1) - 1);
       if (f.lives > 0 && !overtime) f.respawnT = picking() && !f.bot ? PICK_TIME : RESPAWN_TIME;
@@ -499,7 +522,7 @@ const game = {
       x = (n.cx + 0.5) * T;
       y = (n.cy + 1) * T;
     }
-    const roll = Math.random(), pool = settings.pool, guns = GUN_POOL.filter(gunOK);
+    const roll = Math.random(), pool = settings.pool, guns = mode().randomGuns || mode().economy ? [] : GUN_POOL.filter(gunOK);   // (RANDOM GUNS: the guns are dealt, not found)
     const weapon = () => (!guns.length ? (pool === 'guns' ? 'nades' : 'melee') : pool === 'guns' ? 'gun' : pool === 'melee' ? 'melee' : Math.random() < 0.8 ? 'gun' : 'melee');   // (every gun banned: none)
     let kind = roll < 0.78 ? weapon() : roll < 0.9 ? 'health' : 'nades';
     if (kind === 'health' && overtime) kind = weapon();   // (the lab's venting: no more healing turns up)
@@ -531,7 +554,7 @@ let bots = [];
 const TEAMS = [{ name: 'BLUE', color: '#6ad8ff', look: { hue: 210, sat: 1.2 } }, { name: 'RED', color: '#ff6a5a', look: { hue: 8, sat: 1.7 } }];
 
 function makeFighters() {
-  const teams = settings.mode === 'teams', n = teams ? settings.bots | 1 : settings.bots;   // (teams: even sides, 1 v 1 up to 4 v 4)
+  const M = MODES[settings.mode] ?? MODES.ffa, teams = !!M.teams, n = M.duel ? 1 : teams ? settings.bots | 1 : settings.bots;   // (teams: even sides, 1 v 1 up to 4 v 4; 1 V 1: one bot)
   game.fighters = ROSTER.slice(0, n + 1).map((r, i) => {
     // teams: the first half (you among them) against the rest; otherwise everyone for themselves
     const team = teams ? (i < (n + 1) / 2 ? 0 : 1) : i;
@@ -547,7 +570,13 @@ function makeFighters() {
 // a bot's skill, by the setting: the one picked, or one at random
 const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon', 'lock', 'shield', 'cards', 'hack', 'sande', 'vampire', 'deflect', 'chidori', 'octo', 'steal', 'jumper', 'fang', 'aurum', 'reap'];
 const botSkill = () => (settings.botskill === 'random' ? pick(BOT_SKILLS.filter(skillOK)) ?? null : skillOK(settings.botskill) ? settings.botskill ?? null : null);
-const teamMode = () => settings.mode === 'teams' && state !== 'training';   // (training's just you and the dummies, whatever the room says)
+const teamMode = () => !!MODES[settings.mode]?.teams && state !== 'training';   // (training's just you and the dummies, whatever the room says)
+// the room's mode, and what it makes of the other settings
+const mode = () => (state === 'training' ? MODES.ffa : MODES[settings.mode] ?? MODES.ffa);
+const livesRule = () => (mode().respawn ? 99 : mode().oneLife ? 1 : settings.lives);
+const livesShown = () => state !== 'training' && livesRule() > 1 && livesRule() < 99;
+const roundsRule = () => mode().rounds ?? settings.wins;
+const goalRule = () => (mode().score === 'caps' ? CAPS[settings.goal] ?? 3 : settings.goal);
 const tagColor = (f) => (teamMode() ? TEAMS[f.team]?.color ?? f.color : f.color);
 
 // ---------- rounds ----------
@@ -587,6 +616,11 @@ function startRound() {
   game.props = placeProps(level.props, level);
   clearDecoys();
   game.onRound?.();   // (online: anyone coming into the match comes in now)
+  // (BUY & FIGHT: whoever's still standing keeps their gun)
+  const keep = new Map();
+  if (mode().economy && round > 1) for (const f of game.fighters) if (f.alive && f.gun && !f.gun.def.skillGun) keep.set(f, { key: f.gun.def.key, ammo: f.gun.ammo, reserve: f.gun.reserve, nades: f.grenades, nade: f.nade });
+  game.obj = newObjective();
+  game.tags = [];
   // everyone to a spot of their own, shuffled - in TEAMS, each side on its own half of the map
   const sides = new Map();
   for (const f of game.fighters) {
@@ -599,15 +633,30 @@ function startRound() {
     list.forEach((f, i) => {
       const s = spots[i % spots.length];
       spawnAt(f, s.x + Math.floor(i / spots.length) * 12, s.y);
-      f.lives = settings.lives;
+      f.lives = livesRule();
       f.respawnT = 0;
+      f.score = 0;
+      const k = keep.get(f);
+      if (k && game.weapons[k.key]) { const w = f.give(k.key, k.reserve); if (w) w.ammo = k.ammo; f.grenades = Math.max(f.grenades, k.nades); f.nade = k.nade; f.slot = 2; }
     });
   }
   for (const b of bots) b.reset();
-  if (settings.drops > 0) for (let i = 0; i < Math.round(6 * settings.drops); i++) game.spawnPickup();
+  const M = mode();
+  if (settings.drops > 0 && !M.economy) for (let i = 0; i < Math.round(6 * settings.drops); i++) game.spawnPickup();
   for (const p of game.pickups) p.beam = 0;
   pickupT = 2 / Math.max(0.5, settings.drops);
-  banner = { text: `ROUND ${round}`, sub: game.fighters.map((f) => `${f.name} ${f.wins}`).join('   '), t: 1.4, color: '#e8e2d0' };
+  banner = { text: `ROUND ${round}`, sub: roundScores(), t: 1.4, color: '#e8e2d0' };
+  if (M.score) banner = { text: M.name, sub: M.score === 'caps' ? `FIRST TO ${goalRule()} CAPTURES` : M.score === 'tags' ? `FIRST TO ${goalRule()} TAGS` : `FIRST TO ${goalRule()} KILLS`, t: 2, color: '#ffd25a' };
+  if (M.economy) {
+    for (const b of bots) botBuy(b.f);
+    if (state === 'intro' && player.alive && !online.watching && !online.isClient && !player.bot) openLocker({ use: 'shop' });
+  }
+}
+// The round's score line: BLUE 2 - 1 RED, or everyone's rounds won.
+function roundScores() {
+  if (!teamMode()) return game.fighters.filter((f) => !f.isDecoy).map((f) => `${f.name} ${f.wins}`).join('   ');
+  const [b, r] = [0, 1].map((t) => Math.max(0, ...game.fighters.filter((f) => f.team === t && !f.isDecoy).map((f) => f.wins)));
+  return `BLUE ${b}  -  ${r} RED`;
 }
 
 // Where a side starts and comes back: in TEAMS, BLUE (0) the map's left half and RED (1) its right; otherwise anywhere.
@@ -624,6 +673,8 @@ function spawnAt(f, x, y) {
   f.reset(x, y);
   const L = game.loadout();
   if (L.melee) f.giveMelee(MELEE[L.melee]);
+  // RANDOM GUNS: whatever turns up, plenty for it
+  if (mode().randomGuns && state !== 'title' && !f.dummy) { const k = pick(GUN_POOL.filter(gunOK)); if (k) { f.give(k, WEAPONS[k].magSize * 4); f.slot = 2; } }
   while (f.hits(f.x - 5, f.y - 28, f.x + 5, f.y)) f.y -= 1;   // spawned in a crate: stand on it
   f.hitHow = null;
 }
@@ -700,50 +751,323 @@ function drawShields(ctx) {
   ctx.restore();
 }
 
+// ---------- what the modes play for ----------
+// Points (TEAM DEATHMATCH, RANDOM GUNS, DOG TAGS, CAPTURE THE FLAG), the money and the shop (BUY & FIGHT), the flags
+// and the tags. All of it in game.obj (and game.tags), plain data: online, the host's sent to everyone as it changes
+// (see online.js).
+const START_MONEY = 800, MONEY_MAX = 16000, KILL_MONEY = 300, WIN_MONEY = 3000, LOSE_MONEY = 1900;
+const BUY_TIME = 9;   // the buying before each round (everyone held where they are)
+const GUN_SHUFFLE = 30, TAG_LIFE = 25, FLAG_BACK = 18;   // RANDOM GUNS: how often; DOG TAGS: how long a tag lies; a flag lying about: till it goes home
+let roundWhy = '';   // (how the round was won, under the banner)
+
+// A side's flag stand: the map's, or the spawn furthest its way.
+function flagBase(team) {
+  const set = level.flags.find((b) => b.team === team);
+  if (set) return set;
+  const s = [...level.spawns].sort((a, b) => (team === 0 ? a.x - b.x : b.x - a.x) || b.y - a.y)[0];
+  return { team, x: s.x, y: s.y };
+}
+function newObjective() {
+  const M = mode();
+  if (!M.score) return null;
+  const O = { score: [0, 0] };
+  if (M.score === 'caps') O.flags = [0, 1].map((team) => { const b = flagBase(team); return { team, hx: b.x, hy: b.y, x: b.x, y: b.y, vx: 0, vy: 0, state: 'home', carrier: null, back: 0 }; });
+  if (M.randomGuns) O.shuffle = GUN_SHUFFLE;
+  return O;
+}
+// The round's over: who for (a side, a fighter, nobody), and why.
+function endRound(who, why = '') {
+  if (state !== 'fight') return;
+  state = 'end';
+  stateT = 0;
+  roundWhy = why;
+  banner = null;
+  winner = typeof who === 'number' ? game.fighters.find((f) => f.team === who && !f.isDecoy) ?? null : who;
+  // the whole winning side scores (the dead teammates too)
+  if (winner) for (const f of game.fighters) if (f.team === winner.team) f.wins++;
+  if (mode().economy) for (const f of game.fighters) if (!f.isDecoy) f.money = Math.min(MONEY_MAX, (f.money ?? 0) + (winner && f.team === winner.team ? WIN_MONEY : LOSE_MONEY));
+}
+// on points: whoever's ahead (a side, or a fighter), or nobody if it's level
+function scoreLead() {
+  const O = game.obj;
+  if (teamMode()) return O.score[0] === O.score[1] ? null : O.score[0] > O.score[1] ? 0 : 1;
+  const list = game.fighters.filter((f) => !f.isDecoy).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  return list[0] && (list[0].score ?? 0) > (list[1]?.score ?? -1) ? list[0] : null;
+}
+// BUY & FIGHT, out of time: the side with more left standing (and then more health)
+function aheadAlive() {
+  const n = (t) => game.fighters.filter((f) => f.team === t && f.alive && !f.isDecoy), hp = (t) => n(t).reduce((s, f) => s + f.hp, 0);
+  return n(0).length !== n(1).length ? (n(0).length > n(1).length ? 0 : 1) : hp(0) === hp(1) ? null : hp(0) > hp(1) ? 0 : 1;
+}
+// a point to a side (or a fighter) - and the round, if that's enough (or it's sudden death)
+function addScore(who, why) {
+  const O = game.obj;
+  if (!O || state !== 'fight') return;
+  const n = typeof who === 'number' ? ++O.score[who] : (who.score = (who.score ?? 0) + 1);
+  if (n >= goalRule() || overtime) endRound(who, why);
+}
+// Someone's gone down (game.onDeath, before their lives are counted): what that means for the mode.
+function modeDeath(f, killer) {
+  const M = mode(), O = game.obj;
+  if (f.isDecoy) return;
+  const foe = killer && killer !== f && game.foes(killer, f);
+  if (M.economy && foe) killer.money = Math.min(MONEY_MAX, (killer.money ?? 0) + KILL_MONEY);
+  if (!O || state !== 'fight') return;
+  if (M.score === 'kills' && foe) addScore(teamMode() ? killer.team : killer);
+  if (M.score === 'tags') game.tags.push({ x: f.x, y: f.y - 6, vx: rand(-30, 30), vy: -170, team: f.team, t: 0, seed: Math.random() * 6 });
+  for (const fl of O.flags ?? []) if (fl.carrier === f) Object.assign(fl, { carrier: null, state: 'dropped', x: f.x, y: f.y - 4, vx: 0, vy: -100, back: FLAG_BACK });
+}
+// Something dropped, falling onto what's below (as a pickup does). Into acid or off the map: lost.
+function fallItem(o, dt) {
+  o.vy = Math.min(500, (o.vy ?? 0) + 800 * dt);
+  o.vx = (o.vx ?? 0) * Math.exp(-3 * dt);
+  const nx = o.x + o.vx * dt;
+  if (!level.solidAt(nx, o.y - 3)) o.x = nx;
+  const ny = o.y + o.vy * dt;
+  let top = null;
+  if (o.vy > 0) for (let cy = Math.floor(o.y / T); cy <= Math.floor(ny / T); cy++) {
+    const v = level.get(Math.floor(o.x / T), cy);
+    if ((v === SOLID || v === PLAT) && cy * T >= o.y - 0.5 && cy * T <= ny) { top = cy * T; break; }
+    if (v === ACID && cy * T <= ny) { o.lost = true; break; }
+  }
+  if (top !== null) { o.y = top; o.vy = 0; } else o.y = ny;
+  if (o.y > PH + 40) o.lost = true;
+}
+const touching = (f, x, y, r = 12) => f.alive && !f.isDecoy && !f.phase && !f.jump && !f.wraith && !f.shade && Math.abs(f.x - x) < r && Math.abs(f.y - y) < 20;
+const say = (text, color, sub, t = 1.4) => { banner = { text, sub, t, color }; };
+
+function updateObjectives(dt) {
+  const M = mode(), O = game.obj;
+  if (!O) return;
+  // RANDOM GUNS: every so often, everyone's gun for another
+  if (M.randomGuns && (O.shuffle -= dt) <= 0) {
+    O.shuffle = GUN_SHUFFLE;
+    for (const f of game.fighters) {
+      if (!f.alive || f.isDecoy) continue;
+      const k = pick(GUN_POOL.filter((g) => gunOK(g) && g !== f.gun?.def.key));
+      if (!k) continue;
+      f.give(k, WEAPONS[k].magSize * 4);
+      if (f.slot !== 1) f.slot = 2;
+      game.fx.sparks(f.x, f.y - 14, 10, 0, -1, '#8ff0ff');
+    }
+    say('GUNS SHUFFLED!', '#8ff0ff', null, 1.1);
+  }
+  // DOG TAGS: lying where they fell; theirs picked up scores, yours picked up denies it them
+  if (M.score === 'tags') {
+    for (const g of game.tags) {
+      g.t += dt;
+      fallItem(g, dt);
+      if (g.lost || g.t > TAG_LIFE) { g.gone = true; continue; }
+      if (g.t < 0.3) continue;
+      const f = game.fighters.find((o) => touching(o, g.x, g.y + 4));
+      if (!f) continue;
+      g.gone = true;
+      const theirs = f.team !== g.team;
+      game.numbers.push({ text: theirs ? 'CONFIRMED' : 'DENIED', x: g.x, y: g.y - 20, t: 0, color: theirs ? TEAMS[f.team].color : '#c8d0d4', big: theirs });
+      game.fx.sparks(g.x, g.y - 4, 8, 0, -1, theirs ? '#ffd25a' : '#c8d0d4');
+      if (theirs) addScore(f.team, 'THE TAGS ARE IN');
+    }
+    game.tags = game.tags.filter((g) => !g.gone);
+  }
+  // CAPTURE THE FLAG
+  if (O.flags) for (const fl of O.flags) {
+    const home = () => Object.assign(fl, { state: 'home', carrier: null, x: fl.hx, y: fl.hy, vx: 0, vy: 0 });
+    if (fl.state === 'carried') {
+      const c = fl.carrier;
+      if (!c?.alive) { Object.assign(fl, { state: 'dropped', carrier: null, vy: 0, back: FLAG_BACK }); continue; }
+      fl.x = c.x;
+      fl.y = c.y;
+      // home with it - theirs has to be at home too
+      const mine = O.flags.find((q) => q.team === c.team);
+      if (mine.state === 'home' && Math.abs(c.x - mine.hx) < 18 && Math.abs(c.y - mine.hy) < 22) {
+        home();
+        game.fx.sparks(mine.hx, mine.hy - 16, 24, 0, -1, TEAMS[c.team].color);
+        game.lights.flash(mine.hx, mine.hy - 16, 160, '255, 220, 120', 0.3);
+        say(`${TEAMS[c.team].name} CAPTURES!`, TEAMS[c.team].color, `${c.name === 'YOU' ? 'YOU' : c.name} BROUGHT IT HOME`);
+        addScore(c.team, 'FLAGS CAPTURED');
+      }
+      continue;
+    }
+    if (fl.state === 'dropped') {
+      fallItem(fl, dt);
+      if (fl.lost || (fl.back -= dt) <= 0) { home(); say(`${TEAMS[fl.team].name} FLAG RETURNED`, TEAMS[fl.team].color, null, 1.1); continue; }
+    }
+    for (const f of game.fighters) {
+      if (!touching(f, fl.x, fl.y)) continue;
+      if (f.team !== fl.team) {
+        if (O.flags.some((q) => q.carrier === f)) continue;
+        Object.assign(fl, { state: 'carried', carrier: f });
+        say(`${TEAMS[f.team].name} HAS THE ${TEAMS[fl.team].name} FLAG`, TEAMS[f.team].color, null, 1.1);
+        break;
+      } else if (fl.state === 'dropped') {
+        home();
+        say(`${TEAMS[fl.team].name} FLAG RETURNED`, TEAMS[fl.team].color, null, 1.1);
+        break;
+      }
+    }
+  }
+}
+
+// ---------- the shop (BUY & FIGHT) ----------
+// What can be had, and for how much: the guns that turn up and a few pistols - by the sort of gun - and grenades, ammo.
+const SHOP_GUNS = () => [...new Set(['m9', 'glock', 'usp', 'p99', 'deagle', 'revolver', ...GUN_POOL])].filter((k) => WEAPONS[k] && gunOK(k)).map((k) => WEAPONS[k]);
+const CLASS_PRICE = { pistol: 400, smg: 1250, shotgun: 1500, rifle: 2700, sniper: 3800, lmg: 4200 };
+const priceOf = (d) => (d.key === 'm9' ? 200 : (CLASS_PRICE[d.cls] ?? 1000) + (d.cls === 'pistol' && d.damage > 60 ? 300 : 0) + (d.cls === 'sniper' && d.damage > 180 ? 900 : 0));
+const shopTabs = () => [
+  ...WEAPON_CLASSES.map((c) => ({ label: c.label, items: SHOP_GUNS().filter((d) => d.cls === c.cls).map((d) => ({ ...gunItem(d), price: priceOf(d) })) })).filter((t) => t.items.length),
+  { label: 'GEAR', items: [
+    { kind: 'nades', key: 'frag', name: 'FRAG GRENADE', img: NADES, price: 300, desc: 'ONE MORE - YOU CAN CARRY 3' },
+    { kind: 'nades', key: 'impact', name: 'IMPACT GRENADE', img: IMPACT_PAIR, price: 400, desc: 'ONE MORE - YOU CAN CARRY 3' },
+    { kind: 'ammo', name: 'AMMO', img: AMMO, price: 200, desc: 'THE MAG FULL, AND FOUR MORE' },
+  ] },
+];
+const canBuy = (f) => mode().economy && state === 'intro' && !!f?.alive;
+// (online, a player's buy comes to the host as a message: see online.js)
+function applyBuy(f, kind, key) {
+  const it = shopTabs().flatMap((t) => t.items).find((q) => q.kind === kind && (q.key ?? null) === (key ?? null));
+  if (!it || !canBuy(f) || (f.money ?? 0) < it.price) return false;
+  if (kind === 'gun') { if (f.gun?.def.key === key) return false; f.give(key, WEAPONS[key].magSize * 4); f.slot = 2; }
+  else if (kind === 'nades') { if (f.nade === key && f.grenades >= 3) return false; if (f.nade !== key) { f.nade = key; f.grenades = 1; } else f.grenades++; }
+  else if (kind === 'ammo') { const w = f.gun; if (!w || w.def.skillGun) return false; w.ammo = w.def.magSize; w.ammoSource.give(w.def.caliber, Math.max(0, w.def.magSize * 4 - w.reserve)); }
+  else return false;
+  f.money -= it.price;
+  return true;
+}
+function buyItem(it) {
+  if (!canBuy(player) || (player.money ?? 0) < (it.price ?? 0)) return false;
+  if (online.isClient) { online.sendBuy(it.kind, it.key ?? null); return true; }
+  return applyBuy(player, it.kind, it.key ?? null);
+}
+// A bot's shopping: the best gun it can afford over what it's got (saving up, now and then, when it's short), a grenade.
+function botBuy(f) {
+  const have = f.gun ? gunTier(f.gun.def) : 0, money = f.money ?? 0;
+  const want = SHOP_GUNS().filter((d) => priceOf(d) <= money && gunTier(d) > have + 0.3).sort((a, b) => priceOf(b) - priceOf(a))[0];
+  if (want && (money >= 2500 || Math.random() < 0.55)) applyBuy(f, 'gun', want.key);
+  if ((f.money ?? 0) >= 700 && f.grenades < 2 && Math.random() < 0.5) applyBuy(f, 'nades', f.nade ?? 'frag');
+}
+
+// ---------- what a bot should be doing for the mode ----------
+// { x, y: where; r: near enough; urgent: before anything but its life; hunt: someone to go after }
+function objectiveFor(f) {
+  const M = mode(), O = game.obj;
+  if (!O || state !== 'fight' || !f.alive || f.isDecoy) return null;
+  // (its part on its side, among the bots: the players do as they like)
+  const mates = game.fighters.filter((o) => o.team === f.team && !o.isDecoy && o.bot), role = Math.max(0, mates.indexOf(f));
+  if (M.score === 'tags') {
+    let best = null, bd = 380;
+    for (const g of game.tags) { const d = Math.hypot(g.x - f.x, g.y - f.y); if (d < bd) { bd = d; best = g; } }
+    return best ? { x: best.x, y: best.y, r: 6, urgent: bd < 160 } : null;
+  }
+  if (O.flags) {
+    const mine = O.flags[f.team], theirs = O.flags[1 - f.team];
+    if (theirs.carrier === f) return { x: mine.hx, y: mine.hy, r: 6, urgent: true };
+    if (mine.state === 'dropped') return { x: mine.x, y: mine.y, r: 6, urgent: true };
+    if (mine.state === 'carried') return { x: mine.carrier.x, y: mine.carrier.y, r: 24, urgent: true, hunt: mine.carrier };
+    if (theirs.state === 'carried') return { x: theirs.carrier.x, y: theirs.carrier.y, r: 48 };
+    if (role % 2 === 0 || mates.length < 2) return { x: theirs.x, y: theirs.y, r: 6, urgent: true };
+    return { x: mine.hx + (f.team === 0 ? 1 : -1) * 40, y: mine.hy, r: 48 };
+  }
+  return null;
+}
+
+// ---------- the modes' things, drawn ----------
+// In the world, before the fighters: the flag stands and flags, the tags.
+function drawObjectives(ctx) {
+  const M = mode(), O = game.obj, t = game.time;
+  if (!O) return;
+  for (const fl of O.flags ?? []) {
+    const col = TEAMS[fl.team].color;
+    drawFlagBase(ctx, fl.hx, fl.hy, col, t, fl.state === 'home');
+    if (fl.state === 'carried' && fl.carrier) { const c = fl.carrier; if (!c.hidden || c.seesThrough) drawFlag(ctx, c.x - c.facing * 4, c.y - 6, col, t, -c.facing, 20); }
+    else drawFlag(ctx, fl.x, fl.y - (fl.state === 'home' ? 5 : 0), col, t, fl.team === 0 ? 1 : -1, fl.state === 'home' ? 24 : 16);
+  }
+  for (const g of game.tags ?? []) drawTag(ctx, g.x, g.y - 2, TEAMS[g.team]?.color ?? '#c8d0d4', t, g.seed ?? 0);
+}
+// After the lighting: the flags' glow.
+function drawObjectivesLit(ctx) {
+  const O = game.obj;
+  for (const fl of O?.flags ?? []) { const c = fl.state === 'carried' ? fl.carrier : null; drawFlagGlow(ctx, c ? c.x : fl.x, c ? c.y : fl.y, fl.team === 0 ? '110, 200, 255' : '255, 110, 100', c ? 0.6 : 1); }
+}
+// On the HUD, under the round's line: the points, the flags, the money.
+function drawModeHud(u, W, H, ty) {
+  const M = mode(), O = game.obj;
+  if (O && M.score) {
+    const goal = goalRule();
+    if (teamMode()) {
+      const parts = [[`BLUE ${O.score[0]}`, TEAMS[0].color], ['  -  ', '#9aa49c'], [`${O.score[1]} RED`, TEAMS[1].color], [`   TO ${goal}`, '#9aa49c']];
+      let x = W / 2 - kit.width(parts.map((p) => p[0]).join('')) / 2;
+      for (const [txt, c] of parts) x += kit.text(txt, x, ty, { color: c });
+    } else {
+      const top = game.fighters.filter((f) => !f.isDecoy).sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
+      kit.text(`${top ? `${top.name} ${top.score ?? 0}` : ''}   -   YOU ${player.score ?? 0}   TO ${goal}`, W / 2, ty, { color: '#e8e2d0', align: 'center' });
+    }
+    ty += 11 * u;
+    if (O.flags) {
+      const said = (fl) => (fl.state === 'home' ? 'HOME' : fl.state === 'dropped' ? `DROPPED ${Math.ceil(fl.back)}` : fl.carrier === player ? 'YOU HAVE IT!' : `TAKEN BY ${fl.carrier?.name ?? '?'}`);
+      kit.text(`BLUE FLAG: ${said(O.flags[0])}     RED FLAG: ${said(O.flags[1])}`, W / 2, ty, { small: true, color: '#c8d0c4', align: 'center' });
+      ty += 9 * u;
+    }
+    if (M.randomGuns) { kit.text(`GUNS SHUFFLE IN ${Math.ceil(O.shuffle)}`, W / 2, ty, { small: true, color: '#8ff0ff', align: 'center' }); ty += 9 * u; }
+  }
+  if (M.economy && player) {
+    drawText(kit.ctx, `$ ${player.money ?? 0}`, Math.round(8 * u), Math.round(H - 18 * u), u * 2, '#8aff9a', '#08080c');
+    if (canBuy(player) && !locker) kit.text('B - SHOP', 8 * u, H - 26 * u, { small: true, color: '#ffd25a' });
+  }
+}
+
 function startMatch() {
   loadMap(settings.map === 'random' ? pick(MAP_KEYS) : settings.map);
   makeFighters();
-  round = 0;
-  for (const f of game.fighters) { f.wins = 0; f.kills = 0; f.deaths = 0; }
-  champion = null;
+  matchSetup();
   startRound();
+}
+// what everyone starts a match with, whatever the mode
+function matchSetup() {
+  round = 0;
+  for (const f of game.fighters) { f.wins = 0; f.kills = 0; f.deaths = 0; f.money = START_MONEY; f.score = 0; }
+  champion = null;
 }
 
 function updateRounds(dt, realDt) {
   stateT += realDt;
   if (state === 'training') { slow = 1; return; }   // (not still in the slow-motion of a round that ended)
-  if (state === 'intro' && stateT > 1.6) {
+  if (state === 'intro' && stateT > (mode().economy ? BUY_TIME : 1.6)) {
     state = 'fight';
     banner = { text: 'FIGHT!', t: 0.8, color: '#ffd25a' };
+    if (locker?.use === 'shop') locker = null;   // (the buying's over)
   }
   if (state === 'fight') {
     roundT += dt;
+    const M = mode();
     if (settings.time && roundT > settings.time && !overtime) {
       overtime = true;
-      banner = { text: 'OVERTIME', sub: settings.lives > 1 ? 'THE LAB IS VENTING - NO MORE COMING BACK' : 'THE LAB IS VENTING - EVERYONE IS LOSING HP', t: 2, color: '#ff6a5a' };
+      if (M.score) {
+        // on points: ahead when the time's up wins; level, the next point does
+        const lead = scoreLead();
+        if (lead) endRound(lead, 'TIME UP');
+        else banner = { text: 'SUDDEN DEATH', sub: 'THE NEXT POINT WINS', t: 2, color: '#ff6a5a' };
+      } else if (M.economy) endRound(aheadAlive(), 'TIME UP');
+      else banner = { text: 'OVERTIME', sub: settings.lives > 1 ? 'THE LAB IS VENTING - NO MORE COMING BACK' : 'THE LAB IS VENTING - EVERYONE IS LOSING HP', t: 2, color: '#ff6a5a' };
     }
-    if (overtime) for (const f of game.fighters) if (f.alive) {
+    if (overtime && !M.score && !M.economy) for (const f of game.fighters) if (f.alive) {
       f.hp -= 9 * dt;
       if (f.hp <= 0) f.die(null, 'GAS', 0, 0);
     }
     updateRespawns(dt);
-    const alive = game.fighters.filter((f) => (f.alive || f.respawnT > 0) && !f.isDecoy), sides = new Set(alive.map((f) => f.team));
-    if (sides.size <= 1) {
-      state = 'end';
-      stateT = 0;
-      winner = alive.find((f) => f.alive) ?? alive[0] ?? null;
-      // the whole winning side scores (the dead teammates too)
-      if (winner) for (const f of game.fighters) if (f.team === winner.team) f.wins++;
+    if (state === 'fight') updateObjectives(dt);
+    if (state === 'fight' && !M.respawn) {
+      const alive = game.fighters.filter((f) => (f.alive || f.respawnT > 0) && !f.isDecoy), sides = new Set(alive.map((f) => f.team));
+      if (sides.size <= 1) endRound(alive.find((f) => f.alive) ?? alive[0] ?? null);
     }
   }
   if (state === 'end') {
     slow = stateT < 1.1 ? 0.3 : 1;
     if (stateT > 1.1 && !banner) {
-      const text = !winner ? 'DRAW' : teamMode() ? `${TEAMS[winner.team].name} TEAM WINS THE ROUND` : `${winner.name === 'YOU' ? 'YOU WIN' : winner.name + ' WINS'} THE ROUND`;
-      banner = { text, sub: game.fighters.map((f) => `${f.name} ${f.wins}`).join('   '), t: 2.2, color: winner ? tagColor(winner) : '#e8e2d0' };
+      const text = !winner ? 'DRAW' : teamMode() ? `${TEAMS[winner.team].name} TEAM WINS${mode().score ? '' : ' THE ROUND'}` : `${winner.name === 'YOU' ? 'YOU WIN' : winner.name + ' WINS'}${mode().score ? '' : ' THE ROUND'}`;
+      banner = { text, sub: (roundWhy ? roundWhy + '  -  ' : '') + roundScores(), t: 2.2, color: winner ? tagColor(winner) : '#e8e2d0' };
     }
     if (stateT > 3.6) {
-      champion = game.fighters.find((f) => f.wins >= settings.wins) ?? null;
+      champion = game.fighters.find((f) => f.wins >= roundsRule()) ?? null;
       if (champion) { state = 'match'; stateT = 0; banner = null; }
       else startRound();
     }
@@ -1495,8 +1819,9 @@ function riftOut(f, r) {
   game.fx.sparks(end.x, end.y - 14, 12, out, -0.5, '#d0a8ff');
   game.lights.flash(end.x, end.y - 14, 80, '170, 90, 255', 0.15);
 }
-function updateRifts(dt) {
-  for (const f of game.fighters) f.riftCool = Math.max(0, (f.riftCool ?? 0) - dt);
+// (own: a fighter's own time - a Sandevistan going, theirs runs on while the world's all but stopped)
+function updateRifts(dt, own = () => dt) {
+  for (const f of game.fighters) f.riftCool = Math.max(0, (f.riftCool ?? 0) - own(f));
   for (const r of game.rifts) {
     r.t += dt;
     if (!r.open) {
@@ -1539,7 +1864,7 @@ function updateRifts(dt) {
     const r = game.rifts.find((q) => q.id === f.jump.ri);
     if (!r?.open) { f.jump = null; continue; }
     const total = r.lens?.length === r.path.length ? r.lens[r.lens.length - 1] : riftLen(r);
-    f.jump.d += RIFT_SPEED * dt;
+    f.jump.d += RIFT_SPEED * own(f);
     if (f.jump.d >= total || !f.alive) { riftOut(f, r); continue; }
     const p = riftAt(r, f.jump.dir > 0 ? f.jump.d : total - f.jump.d);
     f.x = p.x;
@@ -1574,24 +1899,28 @@ function drawRifts(ctx) {
 const CHIDORI_DMG = 120;   // what chidori does, driven through someone
 const STEAL_HACK = 1.5;   // how long the skill thief's hack cuts them off for
 const CARD_SHARE = 110;   // how near a teammate has to be to get a share of a buff card
+const CARD_SHOT = 0.15;   // the red card: shots this much harder too
 const SHIELD_BLAST = 26, SHIELD_REACH = 68, BURST_LIFE = 0.7, HACK_REACH = 170;
-function barrierBurst(f, broken) {
-  const x = f.x, y = f.y - 14;
-  game.bursts.push({ kind: 'shield', x, y, t: 0, seed: Math.random() * 100, r: SHIELD_REACH });
-  game.lights.flash(x, y, 110, '120, 200, 255', 0.2);
-  if (Math.hypot(player.x - x, player.y - y) < 180) renderer.kick(rand(-3, 3), rand(-3, 3));
-  // a shove and a little hurt, no more - a bit less if it only ran out of time
+// The shield going off. charge: what it took, of all it could (0 .. 1, a little over if the blow that broke it was
+// big): nothing taken, a shove and a scratch; all of it, a real blast, twice as wide - harder and wider the more.
+function barrierBurst(f, broken, charge = broken ? 1 : 0) {
+  const x = f.x, y = f.y - 14, reach = SHIELD_REACH * (0.8 + 0.6 * Math.min(1.2, charge)), dmg = SHIELD_BLAST * (0.5 + 1.8 * charge);
+  game.bursts.push({ kind: 'shield', x, y, t: 0, seed: Math.random() * 100, r: reach });
+  game.lights.flash(x, y, 110 + 90 * charge, '120, 200, 255', 0.2 + 0.2 * Math.min(1, charge));
+  const near = Math.max(0, 1 - Math.hypot(player.x - x, player.y - y) / (180 + 120 * charge));
+  if (near > 0) renderer.kick(rand(-1, 1) * (3 + 7 * charge) * near, rand(-1, 1) * (3 + 6 * charge) * near);
+  if (charge > 0.5) game.fx.sparks(x, y, Math.round(10 + 20 * charge), 0, 0, '#bfefff');
   for (const o of game.fighters) {
     if (o === f || !o.alive || o.vanish || !game.foes(f, o)) continue;
     const dx = o.x - x, dy = o.y - 14 - y, d = Math.hypot(dx, dy) || 1;
-    if (d > SHIELD_REACH || !game.los(x, y, o.x, o.y - 14)) continue;
-    const k = 1 - d / SHIELD_REACH;
+    if (d > reach || !game.los(x, y, o.x, o.y - 14)) continue;
+    const k = 1 - d / reach, push = 1 + 0.8 * charge;
     o.blast = true;
     o.hitHow = 'BLUE SHIELD';
-    o.hurt(SHIELD_BLAST * (broken ? 1 : 0.7) * (0.4 + 0.6 * k), f, (dx / d) * 300 * (0.4 + k), -120 - 120 * k);
+    o.hurt(dmg * (0.4 + 0.6 * k), f, (dx / d) * 300 * (0.4 + k) * push, (-120 - 120 * k) * push);
     o.blast = false;
   }
-  for (const p of game.props) if (!p.dead && Math.hypot(p.x - x, p.y - p.h / 2 - y) < SHIELD_REACH) game.damageProp(p, 20, f, Math.sign(p.x - x) * 120, -60);
+  for (const p of game.props) if (!p.dead && Math.hypot(p.x - x, p.y - p.h / 2 - y) < reach) game.damageProp(p, 20 + 40 * charge, f, Math.sign(p.x - x) * 120, -60);
 }
 function hackBurst(f) {
   const x = f.x, y = f.y - 18, links = [];
@@ -1902,7 +2231,7 @@ function updateBullets(dt) {
         const head = part === 'head', shielded = !!o.barrier;
         o.hitHow = null;
         // weaker the further it's come: full to a third of its range, down to its gun's `far` at the end, the shove with it
-        const spent = b.travelled / Math.max(1, b.travelled + b.left), hit = b.dmg * (spent < 0.33 ? 1 : 1 + ((b.far ?? 1) - 1) * ((spent - 0.33) / 0.67));
+        const spent = b.travelled / Math.max(1, b.travelled + b.left), hit = b.dmg * (spent < 0.33 ? 1 : 1 + ((b.far ?? 1) - 1) * ((spent - 0.33) / 0.67)) * (1 + CARD_SHOT * (b.owner?.cardPower?.('red') ?? 0));
         if (!o.hurt(hit, b.owner, dx * hit * 2.2, dy * hit * 1.2 - 15, head)) continue;   // rolled under it
         if (!shielded) fx.blood(b.x, b.y, head ? 10 : 6, dx, dy);
         if (o === player) renderer.kick(dx * 3, dy * 3);
@@ -2091,7 +2420,7 @@ function drawNumbers(ctx) {
 function updatePickups(dt) {
   if (state === 'fight') {
     pickupT -= dt;
-    if (pickupT <= 0 && settings.drops > 0 && game.pickups.length < Math.round(12 * settings.drops)) {
+    if (pickupT <= 0 && settings.drops > 0 && !mode().economy && game.pickups.length < Math.round(12 * settings.drops)) {
       game.spawnPickup();
       pickupT = rand(1.8, 3.5) / settings.drops;
     }
@@ -2237,6 +2566,7 @@ function drawWorld() {
   for (const p of game.props) p.draw(ctx);
   drawThrown(ctx);
   drawPickups(ctx);
+  drawObjectives(ctx);
   ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
   const seen = (f) => !f.hidden || f === player;
   for (const f of game.fighters) if (f.alive && f.onGround && seen(f)) ctx.fillRect(Math.round(f.x) - 5, Math.round(f.y) - 1, 11, 1);
@@ -2307,6 +2637,7 @@ function drawWorld() {
   drawRifts(ctx);
   drawSwordsOnTop(ctx);
   drawFangs(ctx);
+  drawObjectivesLit(ctx);
   drawLocks(ctx);
   drawBursts(ctx);
   for (const b of game.bullets) drawBullet(ctx, b);
@@ -2523,9 +2854,9 @@ function drawHudUnder() {
   // the round and the clock, under the cards
   if (state === 'fight' || state === 'end' || state === 'intro') {
     const left = Math.max(0, settings.time - roundT), clock = !settings.time ? '' : overtime ? '  OVERTIME' : `  ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
-    const t = `ROUND ${Math.max(1, round)}${clock}`;
+    const t = mode().score ? clock.trim() || mode().name : `ROUND ${Math.max(1, round)}${clock}`;
     let ty = cardsBottom + 4 * u;
-    if (teamMode()) {
+    if (teamMode() && !mode().score) {
       // BLUE 1 - 0 RED, each side in its colour
       const [b, r] = [0, 1].map((t) => Math.max(0, ...game.fighters.filter((f) => f.team === t && !f.isDecoy).map((f) => f.wins)));
       const parts = [[`BLUE ${b}`, TEAMS[0].color], ['  -  ', '#9aa49c'], [`${r} RED`, TEAMS[1].color]];
@@ -2534,6 +2865,7 @@ function drawHudUnder() {
       ty += 11 * u;
     }
     kit.text(t, W / 2, ty, { color: overtime ? '#ff6a5a' : '#c8d0c4', align: 'center' });
+    drawModeHud(u, W, H, ty + 11 * u);
   }
 
   // kill feed, top right under the cards
@@ -2552,7 +2884,8 @@ function drawHudUnder() {
   }
 
   drawBanner(ctx, u, H);
-  if (state === 'intro' && stateT > 0.5) kit.text(String(Math.max(1, 3 - Math.floor((stateT - 0.5) / 0.37))), W / 2, H * 0.34 + 36 * u, { size: 3, color: KC.gold, align: 'center' });
+  if (state === 'intro' && mode().economy) { if (!locker) kit.text(`BUY - ${Math.max(1, Math.ceil(BUY_TIME - stateT))}`, W / 2, H * 0.34 + 36 * u, { size: 3, color: KC.gold, align: 'center' }); }
+  else if (state === 'intro' && stateT > 0.5) kit.text(String(Math.max(1, 3 - Math.floor((stateT - 0.5) / 0.37))), W / 2, H * 0.34 + 36 * u, { size: 3, color: KC.gold, align: 'center' });
   if (!player.alive && state === 'fight' && !online.watching && !paused && picking()) drawNextSkill(u, W, H);
   if (!player.alive && state === 'fight' && !online.watching) {
     if (player.respawnT > 0) kit.text(`BACK IN ${player.respawnT.toFixed(1)}`, W / 2, H - 48 * u, { size: 2, color: KC.teal, align: 'center' });
@@ -2561,6 +2894,7 @@ function drawHudUnder() {
 
   if (input.down('Tab') && (state === 'intro' || state === 'fight' || state === 'end') && !paused) drawScores(ctx, u, W, H);
   if (state === 'match') drawMatch(ctx, u, W, H);
+  if (locker?.use === 'shop') drawLocker(ctx, u, W, H);
   if (paused) drawPause(ctx, u, W, H);
   drawCrosshair(ctx, u);
   if (online.active) drawNetOverlay(ctx, u, W, H);
@@ -2688,7 +3022,7 @@ function drawCards(ctx, u, W) {
       text('Q', x + 19, y + 19, on ? '#d8c8ff' : ready ? '#8ff0ff' : '#4a5a5c');
     }
     // lives left: a heart and a number in the portrait's top corner
-    if (state !== 'training' && settings.lives > 1) {
+    if (livesShown()) {
       const n = f.lives ?? 0;
       px(x + 3, y + 4, 12, 7, 'rgba(8, 10, 9, 0.8)');
       for (const [i, j, w] of [[1, 0, 2], [4, 0, 2], [0, 1, 7], [1, 2, 5], [2, 3, 3], [3, 4, 1]]) px(x + 4 + i, y + 5 + j, w, 1, n > 0 ? '#ff4a5a' : '#4a2a2e');
@@ -2790,7 +3124,7 @@ function drawSkillBox(u, W, H, f) {
       kit.rect(px + u, y + 18 * u, 3 * u * k, 3 * u, info.color);
     }
   } else if (hacked) kit.text(`HACKED  -  ${f.hackedT.toFixed(1)} S${f.jamT > 0 ? '  -  GUN DEAD' : ''}`, x + 31 * u, y + 17 * u, { small: true, color: '#3aff8a' });
-  else if (on) kit.text(f.fang ? (f.fang.back ? 'COMING HOME...' : `Q: CALL THEM BACK  -  ${Math.max(0, SKILL_TIME.fang - f.fang.t).toFixed(1)} S`) : f.aurum ? (f.aurum.t < AURUM_CAST ? 'BUILDING...' : `${f.gun?.def.skillGun ? f.gun.ammo : 0} SHOTS  -  Q: PUT AWAY  -  ${Math.max(0, SKILL_TIME.aurum - f.aurum.t).toFixed(1)} S`) : f.reap ? 'SHADOW KILL!' : f.phase ? `THE OTHER PLACE  -  Q: OPEN THE WAY BACK  -  ${f.phase.t.toFixed(1)} S` : f.steal ? `HACKING ${Math.round(Math.min(1, f.steal.t / SKILL_TIME.steal) * 100)}%` : f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.octo ? (f.octo.gone >= 0 ? 'ARMS IN' : f.octo.on ? `HOLD TO FIRE  -  Q: PUT AWAY  -  ${f.octo.left.toFixed(1)} S` : 'GRABBING...') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.ceil(f.barrier.hp)}  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  else if (on) kit.text(f.fang ? (f.fang.back ? 'COMING HOME...' : `Q: CALL THEM BACK  -  ${Math.max(0, SKILL_TIME.fang - f.fang.t).toFixed(1)} S`) : f.aurum ? (f.aurum.t < AURUM_CAST ? 'BUILDING...' : `${f.gun?.def.skillGun ? f.gun.ammo : 0} SHOTS  -  Q: PUT AWAY  -  ${Math.max(0, SKILL_TIME.aurum - f.aurum.t).toFixed(1)} S`) : f.reap ? 'SHADOW KILL!' : f.phase ? `THE OTHER PLACE  -  Q: OPEN THE WAY BACK  -  ${f.phase.t.toFixed(1)} S` : f.steal ? `HACKING ${Math.round(Math.min(1, f.steal.t / SKILL_TIME.steal) * 100)}%` : f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.octo ? (f.octo.gone >= 0 ? 'ARMS IN' : f.octo.on ? `HOLD TO FIRE  -  Q: PUT AWAY  -  ${f.octo.left.toFixed(1)} S` : 'GRABBING...') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.max(0, Math.ceil(f.barrier.hp))}  -  BLAST ${Math.round(Math.max(0, 1 - f.barrier.hp / f.barrier.max) * 100)}%  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
   else if (puffed && cd <= 0) kit.text('NOT ENOUGH STAMINA', x + 31 * u, y + 17 * u, { small: true, color: '#ffa080' });
   else {
     // the wait: a bar filling back up, the seconds left beside it
@@ -2851,7 +3185,7 @@ function drawScores(ctx, u, W, H) {
   const list = game.fighters.filter((f) => !f.isDecoy && !f.dummy);
   const order = (a, b) => b.wins - a.wins || b.kills - a.kills || (a.deaths ?? 0) - (b.deaths ?? 0);
   const groups = teamMode() ? [0, 1].map((t) => list.filter((f) => f.team === t).sort(order)) : [list.sort(order)];
-  const rowH = 12 * u, lives = settings.lives > 1, watching = online.active ? online.watcherRows : [];
+  const rowH = 12 * u, lives = livesShown(), watching = online.active ? online.watcherRows : [];
   const pw = Math.min(W - 16 * u, 340 * u), ph = 26 * u + 12 * u + groups.reduce((h, g) => h + g.length * rowH + (teamMode() ? 16 * u : 0), 0) + (watching.length ? 12 * u + watching.length * rowH : 0) + 4 * u;
   const px = Math.round(W / 2 - pw / 2), py = Math.max(8 * u, Math.round(H / 2 - ph / 2));
   ctx.fillStyle = 'rgba(5, 8, 7, 0.45)';
@@ -2960,7 +3294,12 @@ function drawTitle(ctx, u, W, H) {
   OPTIONS.forEach(([k, label, vals], i) => {
     const c = Math.floor(i / rows), r = i % rows;
     let shown = vals.find(([v]) => v === settings[k])?.[1] ?? '?';
-    if (k === 'bots' && teamMode()) { const n = settings.bots | 1; shown = `${n} (${(n + 1) / 2} V ${(n + 1) / 2})`; }
+    const M = MODES[settings.mode] ?? MODES.ffa;
+    if (k === 'bots' && M.duel) shown = '1 (1 V 1)';
+    else if (k === 'bots' && teamMode()) { const n = settings.bots | 1; shown = `${n} (${(n + 1) / 2} V ${(n + 1) / 2})`; }
+    if (k === 'goal') shown = !M.score ? 'NOT USED' : M.score === 'caps' ? `${CAPS[settings.goal]} CAPTURES` : `${settings.goal} ${M.score === 'tags' ? 'TAGS' : 'KILLS'}`;
+    if (k === 'wins' && M.rounds) shown = M.score ? 'ONE GAME' : `${M.rounds} (MODE)`;
+    if (k === 'lives' && (M.respawn || M.oneLife)) shown = M.respawn ? 'ENDLESS' : '1 (MODE)';
     const ox = px + 6 * u + c * (colW + 6 * u), oy = cy + r * rowH;
     if (k === 'myskill' || k === 'botskill') {
       if (menuSel === i) kit.rect(ox, oy, colW, rowH - u, KC.row);
@@ -2973,7 +3312,9 @@ function drawTitle(ctx, u, W, H) {
       kit.select(`ban:${k}`, ox, oy, colW, rowH - u, label, banShown(settings[k]));
     } else kit.stepper(`opt:${i}`, ox, oy, colW, rowH - u, label, shown, { selected: menuSel === i });
   });
-  y += ph + 8 * u;
+  y += ph + 4 * u;
+  kit.text((MODES[settings.mode] ?? MODES.ffa).desc, W / 2, y, { small: true, color: KC.gold, align: 'center' });
+  y += 8 * u;
   // the controls, if there's room
   const ch = 26 * u + CONTROLS.length * 9 * u;
   if (y + ch + 40 * u < H) {
@@ -3035,7 +3376,8 @@ function changeSetting(i, dir) {
   const at = vals.findIndex(([v]) => v === settings[k]);
   settings[k] = vals[(at + dir + vals.length) % vals.length][0];
   saveSettings();
-  if (k === 'map') loadMap(settings.map === 'random' ? 'lab' : settings.map);   // the backdrop shows the map picked
+  if (k === 'mode' && MODES[settings.mode]?.maps) settings.map = MODES[settings.mode].maps[0];   // (each mode: to the map it plays best on)
+  if (k === 'map' || k === 'mode') loadMap(settings.map === 'random' ? 'lab' : settings.map);   // the backdrop shows the map picked
   makeFighters();
   startRound();   // everyone placed again for the backdrop
   round = 0;
@@ -3148,6 +3490,8 @@ const stats = {
 function startTraining() {
   loadMap('training');
   state = 'training';
+  game.obj = null;   // (nothing of a match's mode in here)
+  game.tags = [];
   stateT = 0;
   slow = 1;
   paused = false;
@@ -3460,8 +3804,8 @@ const SKILL_INFO = [
   { key: 'galaxy', name: 'GALAXY', img: GALAXY_ICON, color: '#7af0ff', desc: 'A BLACK HOLE WHERE YOU AIM: DRAGS THEM IN, THEN GOES OFF' },
   { key: 'demon', name: 'FLYING SWORDS', img: SWORDS_ICON, color: '#8fe0ff', desc: 'TAKES ALL YOUR STAMINA: A SWORD FOR EVERY 20%, THEY FLY AT WHOEVER COMES NEAR' },
   { key: 'lock', name: 'TARGET LOCK', img: LOCK_ICON, color: '#8fe8ff', desc: '3 S: YOUR SHOTS GO FOR THE FOE NEAREST THE MOUSE, WITH LESS KICK. THEY SEE IT' },
-  { key: 'shield', name: 'BLUE SHIELD', img: SHIELD_ICON, color: '#6ad8ff', desc: 'TAKES 110 DAMAGE FOR 4 S, THEN GOES OFF: UNTOUCHABLE FOR 0.5 S. SLOWER, WEAKER SHOTS' },
-  { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'FOUR CARDS ROUND THE MOUSE, DRAG TO ONE: RED FIRE RATE, GREEN HEAL, BLUE SPEED, PURPLE UNSEEN. TEAMMATES NEAR SHARE IT' },
+  { key: 'shield', name: 'BLUE SHIELD', img: SHIELD_ICON, color: '#6ad8ff', desc: 'TAKES 110 DAMAGE FOR 4 S, THEN GOES OFF - THE MORE IT TOOK, THE HARDER AND WIDER THE BLAST. UNTOUCHABLE 0.5 S AFTER. SLOWER, WEAKER SHOTS' },
+  { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'DRAG TO A CARD: RED FULL MAG + FIRE RATE + HARDER SHOTS, GREEN HEAL + SHAKES OFF HACKS, BLUE FULL STAMINA + SPEED, PURPLE UNSEEN THEN A X1.8 HIT. SOMETIMES A JOKER: RED, GREEN AND BLUE AT ONCE. TEAMMATES NEAR SHARE IT' },
   { key: 'vampire', name: 'VAMPIRE', img: VAMPIRE_ICON, color: '#ff5a6a', desc: 'BATS DRAW BLOOD FOR YOU, AND YOU TURN TO SMOKE: UNTOUCHABLE, FAST, UNTIL YOU ATTACK OR ROLL' },
   { key: 'deflect', name: 'DEFLECT', img: DEFLECT_ICON, color: '#7affd0', desc: 'KATANA AT THE HIP: A FIELD TURNS SHOTS BACK WHERE YOU AIM, THEN DASH AND CUT' },
   { key: 'chidori', name: 'CHIDORI', img: CHIDORI_ICON, color: '#9fe6ff', desc: 'LIGHTNING IN THE HAND, AND QUICKER FEET: RUN INTO A FOE TO DRIVE IT THROUGH THEM. Q: LUNGE' },
@@ -3560,6 +3904,8 @@ const LOCKERS = {
     { kind: 'heal', name: 'MEDKIT', img: MEDKIT, desc: 'BACK TO FULL HEALTH' },
     { kind: 'drink', name: 'ENERGY DRINK', img: DRINK, desc: 'FULL STAMINA - AND RUNNING COSTS NOTHING FOR 15 S' },
   ] }] },
+  // BUY & FIGHT: before each round
+  shop: { name: 'SHOP', close: 'B / ESC - CLOSE', tabs: () => shopTabs() },
   // TAB, anywhere in training: all three cabinets in one
   all: { name: 'ARMORY', close: 'ESC / TAB - CLOSE', tabs: () => [...LOCKERS.guns.tabs(), ...LOCKERS.skills.tabs(), ...LOCKERS.med.tabs()] },
 };
@@ -3595,6 +3941,7 @@ function owned(it) {
 }
 function takeItem(it) {
   const f = player;
+  if (locker?.use === 'shop') return buyItem(it);
   if (it.kind === 'gun') { f.give(it.key, it.def.magSize * 6); f.select(f.slotFor(it.def)); }
   else if (it.kind === 'melee') { f.giveMelee(MELEE[it.key]); f.select(1); }
   else if (it.kind === 'nades') { f.nade = it.key; f.grenades = 4; }
@@ -3615,11 +3962,11 @@ function takeItem(it) {
 // round the grid (the wheel scrolls it); ENTER, SPACE or a click takes it.
 function lockerInput(dt) {
   const L = locker;
-  if (state !== 'training') { locker = null; return; }
+  if (state !== 'training' && !(L.use === 'shop' && canBuy(player))) { locker = null; return; }
   if (paused) return;
   if (L.flash) L.flash.t -= dt;
   if (L.fresh) { L.fresh = false; return; }   // (the frame it opened: that E isn't a close)
-  if (input.wasPressed('KeyE', 'Mouse2', 'Tab')) { locker = null; return; }
+  if (input.wasPressed('KeyE', 'Mouse2', 'Tab') || (L.use === 'shop' && input.wasPressed('KeyB'))) { locker = null; return; }
   const setTab = (i) => { if (i === L.tab) return; L.tab = i; L.sel = 0; L.scroll = 0; };
   for (let i = 0; i < Math.min(9, L.tabs.length); i++) if (input.wasPressed('Digit' + (i + 1))) setTab(i);
   const items = L.tabs[L.tab].items, n = items.length;
@@ -3666,6 +4013,7 @@ function drawLocker(ctx, u, W, H) {
   px(x0, y0, pw, ph, 'rgba(14, 19, 16, 0.97)');
   px(x0, y0, pw, 1, '#c9a83a');
   text(def.name, x0 + 8, y0 + 6, '#ffd25a', 2);
+  if (L.use === 'shop') text(`$ ${player.money ?? 0}`, x0 + 14 + textWidth(def.name) * 2, y0 + 6, '#8aff9a', 2);
   const close = def.close ?? 'ESC / E - CLOSE';
   text(close, x0 + pw - 8 - textWidth(close), y0 + 9, '#6f7a62');
   // the tabs
@@ -3705,6 +4053,7 @@ function drawLocker(ctx, u, W, H) {
     while (textWidth(name) > cw - 6) name = name.slice(0, -1);
     text(name, cx + Math.floor((cw - textWidth(name)) / 2), cy + 24, soon ? '#4a5450' : on ? '#ffffff' : '#c8cfc9');
     if (owned(it)) { px(cx + cw - 6, cy + 3, 3, 3, '#8aff9a'); }
+    if (it.price !== undefined) text(`$${it.price}`, cx + 3, cy + 3, (player.money ?? 0) >= it.price ? '#ffd25a' : '#a04a3a');
     L.cellRects.push(rectOf(cx, cy, cw, ch, i));
   });
   if (rowsAll > L.rows) {
@@ -3776,7 +4125,7 @@ function drawMeter(ctx, u, W) {
 // first), MULTIPLAYER (online rooms - see online.js) and TRAINING; STORY shows
 // what it'll be. (The gun editor, editor.html, is off the menu.)
 
-const MODES = [
+const MENU_ITEMS = [
   { key: 'story', name: 'STORY', desc: 'FIGHT YOUR WAY OUT OF THE LAB', soon: ['A CAMPAIGN THROUGH THE RESEARCH FACILITY:', 'LEVEL AFTER LEVEL OF GUARDS, BOSSES AND WHAT GOT OUT OF THE TANKS,', 'WITH A STORY TOLD BETWEEN THE FIGHTS'] },
   { key: 'single', name: 'SINGLE PLAYER', desc: 'YOU AGAINST BOTS - SET UP THE ROOM AND FIGHT' },
   { key: 'multi', name: 'MULTIPLAYER', desc: 'ONLINE - PICK A SERVER, MAKE OR JOIN A ROOM WITH FRIENDS' },
@@ -3794,21 +4143,21 @@ function pickMode(m) {
 }
 
 function mainMenuInput() {
-  const n = MODES.length;
+  const n = MENU_ITEMS.length;
   if (input.wasPressed('KeyW', 'ArrowUp')) modeSel = (modeSel + n - 1) % n;
   if (input.wasPressed('KeyS', 'ArrowDown')) modeSel = (modeSel + 1) % n;
   if (kit.hover?.startsWith('mode:') && (input.mouse.x !== mainMenuInput.lx || input.mouse.y !== mainMenuInput.ly)) modeSel = +kit.hover.slice(5);
   mainMenuInput.lx = input.mouse.x;
   mainMenuInput.ly = input.mouse.y;
-  if (kit.click?.startsWith('mode:')) return pickMode(MODES[+kit.click.slice(5)]);
+  if (kit.click?.startsWith('mode:')) return pickMode(MENU_ITEMS[+kit.click.slice(5)]);
   if (kit.click === 'open-sound') { soundPanel = true; return; }
-  if (input.wasPressed('Enter', 'Space')) pickMode(MODES[modeSel]);
+  if (input.wasPressed('Enter', 'Space')) pickMode(MENU_ITEMS[modeSel]);
 }
 
 function drawMainMenu(ctx, u, W, H) {
   kit.shade(0.5);
   // (the title and the buttons, together in the middle of what's above the hints)
-  let y = Math.max(8 * u, Math.round((H - 13 * u - (78 + MODES.length * 37) * u) / 2));
+  let y = Math.max(8 * u, Math.round((H - 13 * u - (78 + MENU_ITEMS.length * 37) * u) / 2));
   kit.text('PROJECT Z', W / 2, y, { size: 5, color: KC.gold, align: 'center' });
   y += 40 * u;
   kit.hazard(W / 2 - 112 * u, y, 224 * u, 4 * u);
@@ -3816,7 +4165,7 @@ function drawMainMenu(ctx, u, W, H) {
   kit.text('LAB BRAWL', W / 2, y, { size: 2, color: KC.teal, align: 'center' });
   y += 28 * u;
   const bw = Math.min(W - 24 * u, 300 * u), bh = 32 * u, x = Math.round(W / 2 - bw / 2);
-  MODES.forEach((m, i) => {
+  MENU_ITEMS.forEach((m, i) => {
     kit.button(`mode:${i}`, x, y, bw, bh, m.name, { size: 2, sub: m.soon ? 'COMING SOON' : m.desc, selected: modeSel === i });
     y += bh + 5 * u;
   });
@@ -3852,8 +4201,7 @@ function startNetMatch(roster, mapKey, me, host) {
   for (const f of game.fighters) { f.deaths = 0; if (!skillOK(f.skill)) f.skill = null; }
   if (!settings.skills) for (const f of game.fighters) f.skill = null;
   bots = host ? game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.9 + i * 0.04) * settings.skill)) : [];
-  round = 0;
-  champion = null;
+  matchSetup();
   game.walkover = false;
   game.leftMatch = [];
   locker = null;
@@ -3881,6 +4229,7 @@ initOnline({
   game, settings, OPTIONS, input, renderer, images, IDLE, MAP_KEYS, pick, weapons: WEAPONS, iconOf,
   drawText, textWidth, centerText, panel, playerControl, startNetMatch, addNetFighter, changeNetSetting, kit, tagColor,
   skillItems, skillName, openPicker, pickMap, openBans, banShown, openSound() { soundPanel = true; }, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
+  isTeams: (k) => !!MODES[k]?.teams, applyBuy: (f, kind, key) => applyBuy(f, kind, key),
   get state() { return state; }, set state(v) { state = v; },
   get player() { return player; }, set player(v) { player = v; },
   get stateT() { return stateT; }, set stateT(v) { stateT = v; },
@@ -3994,6 +4343,8 @@ function tick(realDt, draw = true) {
   else if (online.isScreen(state)) netScreenInput();
   else if (online.active) netGameInput();   // (online, ESC doesn't pause: it's a menu over the game, which goes on)
   else if (state === 'match') matchInput();
+  if (state === 'intro' && !locker && !paused && canBuy(player) && !online.watching && input.wasPressed('KeyB')) openLocker({ use: 'shop' });
+  if (online.isClient && locker?.use === 'shop') lockerInput(realDt);   // (in someone else's game: the shop's still ours to look through)
   else if (input.wasPressed('Escape')) { if (locker) locker = null; else paused = !paused; }
   else if (paused) pauseInput();
 
@@ -4045,7 +4396,7 @@ function tick(realDt, draw = true) {
     updateFangs(wdt);
     updateAurums();
     updateBats(wdt);
-    updateRifts(wdt);
+    updateRifts(wdt, own);
     updateBursts(wdt);
     updatePickups(wdt);
     updateTraining(wdt);

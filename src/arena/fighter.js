@@ -100,8 +100,10 @@ const SUM_CAST = 0.6, SUM_CD = 15;
 // behind it - and it goes off when it goes, not hard, at whoever's crowding you.
 const BARRIER_HP = 110, BARRIER_TIME = 4, BARRIER_CD = 16, BARRIER_SLOW = 0.85, BARRIER_GUN = 0.75, BARRIER_GUARD = 0.5;   // (the moment after it goes: nothing can touch you)
 // the buff cards (skill, Q): up over the head, turned over; how long each lasts; the wait after
-const CARD_UP = 0.5, CARD_TURN = 0.35, CARD_CD = 18, CARD_WAIT = 4, CARD_FLY = 0.24;   // (the fan: open at most this long; the pick flying up)
-export const CARD_LAST = { red: 5, green: 6, blue: 7, purple: 2 };
+const CARD_UP = 0.5, CARD_TURN = 0.35, CARD_CD = 15, CARD_WAIT = 4, CARD_FLY = 0.24;   // (the fan: open at most this long; the pick flying up)
+export const CARD_LAST = { red: 5, green: 6, blue: 7, purple: 2.5, joker: 5 };
+const CARD_JOKER = 0.15;   // the chance, each time they're dealt, that one of the four is the joker: red, green and blue at once
+const CARD_PATCH = 0.12;   // green, as it lands: this much of full health back at once (and a hack shaken off)
 export const CARD_ALLY = 0.7;   // a teammate near by when the card's turned: this much of its effect, for this much of its time
 const CARD_FIRE = 0.6, CARD_MELEE = 0.3, CARD_HEAL = 0.045, CARD_SPEED = 1.3, CARD_DRAIN = 0.4;   // red: guns recover this much faster; green: of full health a second; blue: feet, what running costs
 // the shadow clone's charge: the next hit counts this much, for this long once the clone's gone
@@ -555,6 +557,9 @@ export class Fighter {
       this.roll = null;
       this.wall = null;
       this.skillCD -= dt * (this.game.cdRate?.() ?? 1);
+      // (a Sandevistan going: it runs on in there - the trip through is in its own time, and it ends when it ends,
+      // not held while the world waits: see main.js, updateRifts)
+      if (this.sande) this.updateSande(dt, { skill: false });
       return;
     }
     if (this.beamT !== undefined) this.beamT += dt;
@@ -1194,7 +1199,30 @@ export class Fighter {
   }
   // How much of a card's effect this one has: all of it, drawn themselves; a teammate's share of it.
   cardPower(kind) {
-    return this.card?.on && this.card.kind === kind ? 1 : this.allyCard?.kind === kind ? CARD_ALLY : 0;
+    const is = (k) => k === kind || (k === 'joker' && kind !== 'purple');   // (the joker: all of them but the phantom)
+    return this.card?.on && is(this.card.kind) ? 1 : this.allyCard && is(this.allyCard.kind) ? CARD_ALLY : 0;
+  }
+  // A card's turned (yours, or a teammate's share, k of it): what it does there and then, before the buff itself.
+  // Red: the gun's magazine filled from what's spare. Green: some health back at once, and a hack shaken off. Blue: a
+  // full bar of stamina, and the roll ready. (The joker: all three.)
+  cardLands(kind, k = 1) {
+    const is = (q) => q === kind || kind === 'joker';
+    const w = this.gun;
+    if (is('red') && w && !w.def.skillGun) {
+      const need = w.def.magSize - w.ammo, got = need > 0 ? w.ammoSource?.take?.(w.def.caliber, Math.ceil(need * k)) ?? 0 : 0;
+      if (got > 0) { if (w.reloading) w.cancelReload(); w.ammo += got; }
+    }
+    if (is('green')) {
+      if (this.game.regen !== false) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * CARD_PATCH * k);
+      this.hackedT = 0;
+      this.jamT = 0;
+    }
+    if (is('blue')) {
+      this.stamina = MAX_STAMINA;
+      this.winded = false;
+      this.rollCool = 0;
+      this.airRoll = true;
+    }
   }
   // Whoever's looking at the screen isn't fooled by this one being unseen: it's them, or someone on their side.
   get seesThrough() {
@@ -1847,7 +1875,8 @@ export class Fighter {
 
   // ---------- blue shield (skill, Q) ----------
   // Q: a sphere of blue plates round you. It takes what's thrown at you till it's taken BARRIER_HP or its time's up -
-  // then it goes off, a light shove and a little hurt to whoever's close (see main.js). See BARRIER_HP for what it costs.
+  // then it goes off at whoever's close (see main.js) - the more it took, the harder and the wider. See BARRIER_HP for
+  // what it costs.
   updateBarrier(dt, c) {
     const b = this.barrier;
     if (!b) {
@@ -1864,11 +1893,12 @@ export class Fighter {
   // It's gone: it goes off, and the wait starts. (Hacked away: it just goes out.)
   breakBarrier(broken, quiet = false) {
     if (!this.barrier) return;
+    const b = this.barrier, charge = Math.max(0, Math.min(1.5, (b.max - b.hp) / b.max));   // (what it took, of what it could: a blow past breaking it counts a little more)
     this.barrier = null;
     this.skillCD = BARRIER_CD;
     if (quiet) return;
     this.guardT = BARRIER_GUARD;
-    this.game.barrierBurst?.(this, broken);
+    this.game.barrierBurst?.(this, broken, charge);
   }
 
   // ---------- buff cards (skill, Q) ----------
@@ -1883,7 +1913,8 @@ export class Fighter {
     if (!m) {
       if (c.skill && this.skillCD <= 0 && this.alive) {
         const at = c.target ?? { x: this.x + Math.cos(this.aim) * 60, y: this.y - 14 + Math.sin(this.aim) * 60 };
-        this.card = { t: 0, kind: null, on: false, left: 0, total: 1, pick: { x: at.x - this.x, y: at.y - this.y, t: 0, hover: null }, fly: null, seed: Math.random() * 100 };
+        const joker = Math.random() < CARD_JOKER ? ['red', 'blue', 'green', 'purple'][Math.floor(Math.random() * 4)] : null;   // (where the joker is, if it's been dealt)
+        this.card = { t: 0, kind: null, slot: null, joker, on: false, left: 0, total: 1, pick: { x: at.x - this.x, y: at.y - this.y, t: 0, hover: null }, fly: null, seed: Math.random() * 100 };
         this.game.fx.sparks(at.x, at.y, 10, 0, -1, '#ffe08a');
       }
       return;
@@ -1892,14 +1923,15 @@ export class Fighter {
     if (p) {
       p.t += dt;
       let take = null;
-      if (this.bot) take = p.t > 0.35 ? this.botCard() : null;
+      if (this.bot) take = p.t > 0.35 ? m.joker ?? this.botCard() : null;
       else {
         p.hover = c.cardHover ?? null;
         if (c.cardPick && p.t > 0.12) take = c.cardPick;
       }
       if (!take && ((c.skill && p.t > 0.2) || p.t > CARD_WAIT)) { this.card = null; return; }   // put away
       if (take) {
-        m.kind = take;
+        m.slot = take;
+        m.kind = take === m.joker ? 'joker' : take;
         m.pick = null;
         m.fly = { x: p.x, y: p.y, t: 0 };
         const [ox, oy] = CARD_SPOT[take], at = this.game.cardPin?.(this) ?? { x: this.x + p.x, y: this.y + p.y };
@@ -1914,6 +1946,7 @@ export class Fighter {
       m.on = true;
       m.left = m.total = CARD_LAST[m.kind];
       if (m.kind === 'purple') this.fade = { t: 0, dur: 0.3, out: true, seed: Math.random() * 100, rgb: '180, 110, 255' };
+      this.cardLands(m.kind);
       this.game.shareCard?.(this, m.kind);
       return;
     }
@@ -1922,7 +1955,8 @@ export class Fighter {
     // (the phantom: over the moment you attack - nobody gets to shoot from where they can't be touched)
     const ends = (m.left -= dt) <= 0 || (m.kind === 'purple' && (c.fire || c.melee || c.grenade));
     if (ends) {
-      if (m.kind === 'purple') this.fade = { t: 0, dur: 0.25, out: false, seed: Math.random() * 100, rgb: '180, 110, 255' };
+      // out of the phantom: the next blow, a moment after, counts as a shadow clone's charge does - from nowhere
+      if (m.kind === 'purple') { this.fade = { t: 0, dur: 0.25, out: false, seed: Math.random() * 100, rgb: '180, 110, 255' }; this.powered = { hit: -1, after: POWER_AFTER }; }
       this.card = null;
       this.skillCD = CARD_CD;
     }
@@ -3364,8 +3398,8 @@ export class Fighter {
     if (this.hackedT > 0) drawHacked(ctx, this.x, this.y, this.hackedT, HACK_LOCK, t, 1, this.labelY(HACKED_H));
     const m = this.card;
     const pin = (m?.pick || m?.fly) && this.game.cardPin?.(this);   // (your own: where it was put on the screen)
-    if (m?.pick) drawCardFan(ctx, pin ? pin.x : this.x + m.pick.x, pin ? pin.y : this.y + m.pick.y, m.pick.t, m.pick.hover, t, mine);
-    else if (m?.fly) drawCardFly(ctx, pin ? pin.x : this.x + m.fly.x, pin ? pin.y : this.y + m.fly.y, m.kind, this.x, this.labelY(34) + 21, m.fly.t / CARD_FLY, t, m.seed);
+    if (m?.pick) drawCardFan(ctx, pin ? pin.x : this.x + m.pick.x, pin ? pin.y : this.y + m.pick.y, m.pick.t, m.pick.hover, t, mine, m.joker);
+    else if (m?.fly) drawCardFly(ctx, pin ? pin.x : this.x + m.fly.x, pin ? pin.y : this.y + m.fly.y, m.kind, this.x, this.labelY(34) + 21, m.fly.t / CARD_FLY, t, m.seed, m.slot ?? m.kind, m.joker);
     else if (m) {
       if (m.on) drawCardAura(ctx, this.x, this.y, m.kind, t, 1, this.vx, this.facing);
       if (!(m.on && m.kind === 'purple' && !mine)) {

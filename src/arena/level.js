@@ -57,6 +57,7 @@ export class Level {
     this.dummies = [];    // training: target dummies { x, y, patrol }
     this.signs = [];      // training: tips painted on the wall { x, y, text }
     this.pads = [];       // jump pads: { cx, cy } (the cell standing on it)
+    this.flags = [];      // CAPTURE THE FLAG: each side's base { team, x, y } (feet, px)
     map.build(this);
     this.padTop(map.pad ?? HEADROOM);
     this.render();
@@ -86,6 +87,7 @@ export class Level {
     for (const p of this.props) p.y += pad * T;
     for (const s of this.spawns) s.y += pad * T;
     for (const p of this.pads) p.cy += pad;
+    for (const f of this.flags) f.y += pad * T;
   }
 
   get(x, y) {
@@ -125,6 +127,7 @@ export class Level {
   prop(kind, cx, floor, dx = 0, lift = 0) { this.props.push({ kind, x: (cx + 0.5) * T + dx, y: floor * T - lift }); }
   spawn(cx, floor) { this.spawns.push({ x: (cx + 0.5) * T, y: floor * T }); }
   pad(cx, floor) { this.pads.push({ cx, cy: floor - 1 }); }
+  flag(team, cx, floor) { this.flags.push({ team, x: (cx + 0.5) * T, y: floor * T }); }
   // is someone with their feet at (px, py) standing on a jump pad?
   padAt(px, py) {
     const cx = Math.floor(px / T), cy = Math.floor((py - 1) / T);

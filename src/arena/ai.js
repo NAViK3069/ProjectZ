@@ -391,7 +391,19 @@ export class Bot {
       const n = nav.nodeAt(t.x, t.y, t.onLadder) ?? nav.nodeBelow(t.x, t.y);
       if (n) { goal = n; key = t; fight = false; sprint = true; this.mode = 'close'; }
     }
-    if (!goal && !fight) {
+    // the mode's: a flag to take or bring home, a tag - urgent, before anything but a fight
+    // it's in the middle of and losing; otherwise when there's nobody to shoot at
+    const obj = G.objective?.(f), held = this.mode === 'retreat' || (this.mode === 'heal' && !!healthP);
+    let onObj = false;
+    this.obj = obj;
+    if (obj && !held && (obj.urgent || (!fight && !(vis && armed) && this.mode !== 'loot'))) {
+      if (obj.hunt?.alive) this.known.set(obj.hunt, { x: obj.hunt.x, y: obj.hunt.y, t: G.time });
+      const there = Math.abs(obj.x - f.x) <= obj.r && Math.abs(obj.y - f.y) < 20;
+      const n = there ? null : nav.nodeAt(obj.x, obj.y - 2) ?? nav.nodeBelow(obj.x, obj.y - 4);
+      if (n) { goal = n; key = 'obj'; fight = false; sprint = obj.urgent || Math.hypot(obj.x - f.x, obj.y - f.y) > 160; this.mode = 'obj'; onObj = true; }
+      else if (there) { goal = nav.nodeAt(f.x, f.y, f.onLadder) ?? nav.nodeBelow(f.x, f.y - 4); key = 'obj'; this.mode = 'obj'; onObj = true; }   // (there: it stays, and fights from there)
+    }
+    if (!goal && !fight && !onObj) {
       // nothing to go on: roam - round where someone vanished, if someone did, otherwise
       // anywhere - pausing a moment to look about
       if (this.mode !== 'search' || !this.wander || this.wanderReached() || this.gaveUp > 0) {
@@ -647,10 +659,11 @@ export class Bot {
       c.aim = Math.atan2(Math.max(b.t + 6, f.y - 22) - (f.y - 14), p.x - f.x);
       c.target = null;
       this.aim = c.aim;
-      if (this.punchT <= 0 && gap < 16) {
-        c.melee = true;
-        this.punchT = 0.28;
-      }
+      // out with the melee weapon (or fists) and keep at it till it's broken - not the quick melee off the gun: that put
+      // the gun straight back after every blow, and out came the melee again a moment later, the arms flickering
+      c.slot = f.slot !== 1 ? 1 : 0;
+      c.melee = false;
+      if (f.slot === 1 && gap < 16) c.fire = true;
       return;
     }
     if (!c.jump && f.onGround) {
