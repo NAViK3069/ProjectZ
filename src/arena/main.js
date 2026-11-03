@@ -3781,7 +3781,16 @@ function trainTabInput(kind) {
   if (!c?.startsWith('tm:')) return;
   const [, what, arg, arg2] = c.split(':');
   const admin = isAdmin(myRole());
-  if (what === 'code') { trainEdit = { draft: '' }; if (input.touchOn) { const v = prompt('ROOM CODE', ''); trainEdit = null; if (v) online.joinTrainRoom(v); } return; }
+  if (what === 'code') {
+    trainEdit = { draft: '' };
+    if (input.touchOn) {
+      const v = prompt('ROOM CODE', '');
+      trainEdit = null;
+      touch?.clear();   // (the finger's lift went to the box, not to us: nothing's held now)
+      if (v) online.joinTrainRoom(v);
+    }
+    return;
+  }
   if (what === 'join') { const v = trainEdit?.draft ?? ''; trainEdit = null; online.joinTrainRoom(v); return; }
   if (what === 'srv') { const n = online.servers.length; trainServer = (trainServer + +arg + n) % n; return; }
   if (what === 'open') return online.openTrainRoom(online.servers[trainServer].key);

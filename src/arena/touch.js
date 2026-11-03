@@ -140,10 +140,12 @@ export class TouchControls {
       return true;
     }
     if (this.escAt(x, y)) { I.pressed.add('Escape'); return true; }
-    if (this.tap) return true;
+    // (a finger already down: a second one's ignored - unless the first's lift never came, which a dialog over the page
+    // (the room code's box) can swallow, and then it'd be every tap from then on)
+    if (this.tap && this.tap.id !== e.pointerId && performance.now() - this.tap.at < 1500) return true;
     // on a menu: the mouse
     const late = this.how.scroll();
-    this.tap = { id: e.pointerId, y, moved: false, late };
+    this.tap = { id: e.pointerId, y, moved: false, late, at: performance.now() };
     I.mouse.x = x;
     I.mouse.y = y;
     I.mouse.active = true;
