@@ -723,7 +723,7 @@ export class Bot {
     const f = this.f, G = this.game, k = f.usingSkill;   // (its own, or one it's taken)
     if (f.hackedT > 0) return;   // (Q does nothing, and it knows it)
     if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.wraith || f.chidori || f.octo || f.steal || f.phase || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect || f.fang || f.aurum || f.reap || f.ea) return;
+    if (f.wraith || f.chidori || f.octo || f.steal || f.phase || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect || f.fang || f.aurum || f.reap || f.ea || f.xc) return;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
     const aimed = vis && Math.abs(this.aimErr) < 0.2;
     const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
@@ -757,6 +757,9 @@ export class Bot {
         break;
       case 'aurum':      // someone in sight, far enough off that a sniper's the thing
         go = aimed && dist > 110 && dist < 640;
+        break;
+      case 'excal':      // the same: someone in sight, in line, and it not hurting too much to stand there a moment
+        go = aimed && dist > 90 && dist < 650 && hpK > 0.3;
         break;
       case 'ea':         // someone in sight and not too close: the charge leaves it standing there, so not when it's hurting
         go = aimed && dist > 90 && dist < 600 && hpK > 0.3;
