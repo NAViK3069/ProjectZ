@@ -1423,7 +1423,7 @@ function drawVoids(ctx) {
 // (see flame.js) - a flash, a fireball, a ring of fire, tongues of flame - with
 // sparks, smoke, a scorch on whatever it hit and the screen shaking.
 
-const FIST_SPLASH = 45, FIST_R = 44, FIST_LIFE = 0.6;
+const FIST_SPLASH = 45, FIST_R = 72, FIST_LIFE = 0.6;   // (FIST_R: how far the blast reaches - the fire's ring goes out to about there)
 function flameFist(f, x, y, a, v) {
   const fx = game.fx, ux = Math.cos(a), uy = Math.sin(a);
   game.bursts.push({ kind: 'fireburst', x, y, t: 0, seed: Math.random() * 100 });   // (its look: flame.js, drawFireBurst)
