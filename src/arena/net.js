@@ -12,9 +12,12 @@
 // src/vendor (it loads when you first go online).
 
 const SDK = new URL('../vendor/photon-realtime.js', import.meta.url).href;
-const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-27';   // (players on different versions don't meet)
-const PROPS = ['n', 'm', 'mp', 's', 'mx', 'w', 'p', 'l', 'md', 'h'];   // a room's properties the lobby sees (name, mode, map, seated, max, watchers, playing, locked, made, host)
-const EV = { msg: 1, snap: 2, ctl: 3, rtc: 4 };
+const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-28';   // (players on different versions don't meet)
+const PROPS = ['n', 'm', 'mp', 's', 'mx', 'w', 'p', 'l', 'md', 'h', 'c', 't'];   // a room's properties the lobby sees (name, mode, map, seated, max, watchers, playing, locked, made, host; a training room: its code, and that it is one)
+const EV = { msg: 1, snap: 2, ctl: 3, rtc: 4, part: 5 };
+// (Photon takes a message of up to 50 000 bytes: anything bigger - the whole of a busy training room, sent the first
+// time - goes in pieces this long, put back together at the other end)
+const PART = 28000, BIG = 40000;
 const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];   // (only to find our own address: nothing of the game goes through these)
 
 // For testing a bad connection: `?lag=80&jitter=30` on the address holds everything this page sends
@@ -74,6 +77,8 @@ class Conn {
     this.held = [];          // (netSim) what's being held back: [when, code, text, target]
     this.heldTill = 0;
     this.stat = { outN: 0, outB: 0, inN: 0, inB: 0 };   // messages and bytes, both ways (see online.js)
+    this.partId = 0;
+    this.parts = new Map();   // a big message coming in pieces: sender:id -> { n, got, s: [] }
     this.lbc.onStateChange = (st) => {
       for (const w of [...this.waits]) if (w[0].includes(st)) { this.waits.splice(this.waits.indexOf(w), 1); w[1](); }
       if (st === this.S.Error || st === this.S.Disconnected) {
@@ -96,6 +101,7 @@ class Conn {
       this.stat.inN++;
       if (typeof content === 'string') this.stat.inB += content.length;
       if (typeof content === 'string') { try { data = JSON.parse(content); } catch { return; } }
+      if (code === EV.part) return this.piece(data, from);
       this.room._event(code, data, from);
     };
     this.lbc.onActorJoin = (actor) => { if (this.room && actor.userId !== UID) this.room._join(actor.userId); };
@@ -157,7 +163,29 @@ class Conn {
     }
     this.stat.outN += opt.targetActors?.length ?? 1;
     this.stat.outB += text.length;
-    try { this.lbc.raiseEvent(code, text, opt); } catch { /* the connection's on its way out: _lost hears of it */ }
+    try {
+      if (text.length <= BIG) this.lbc.raiseEvent(code, text, opt);
+      else {
+        const id = ++this.partId, n = Math.ceil(text.length / PART);
+        for (let i = 0; i < n; i++) this.lbc.raiseEvent(EV.part, JSON.stringify({ id, i, n, c: code, s: text.slice(i * PART, (i + 1) * PART) }), opt);
+      }
+    } catch { /* the connection's on its way out: _lost hears of it */ }
+  }
+  // a piece of a big message: kept till the lot's in, then it's dealt with as the message it was
+  piece(p, from) {
+    if (!p || typeof p.s !== 'string' || !(p.n > 0) || p.n > 64) return;
+    const key = `${from}:${p.id}`;
+    let e = this.parts.get(key);
+    if (!e) { e = { n: p.n, got: 0, s: [], at: performance.now() }; this.parts.set(key, e); }
+    if (e.s[p.i] === undefined) { e.s[p.i] = p.s; e.got++; }
+    if (e.got < e.n) {
+      for (const [k, v] of this.parts) if (performance.now() - v.at > 10000) this.parts.delete(k);   // (one that never finished)
+      return;
+    }
+    this.parts.delete(key);
+    let data;
+    try { data = JSON.parse(e.s.join('')); } catch { return; }
+    this.room?._event(p.c, data, from);
   }
   // (netSim) what's been held back long enough, out
   pump() {
@@ -232,11 +260,18 @@ export class Lobby {
   }
   // the rooms listed (oldest first, so their numbers stay put)
   get list() {
+    return this.rooms.filter((r) => !r.training);
+  }
+  // a training room, by its code (they aren't in the list: they're found by code)
+  byCode(code) {
+    return this.rooms.find((r) => r.training && r.code === code) ?? null;
+  }
+  get rooms() {
     return this.c.lbc.availableRooms()
       .filter((r) => !r.removed && r.playerCount > 0 && r.getCustomProperty('h'))
       .map((r) => {
         const p = (k) => r.getCustomProperty(k);
-        return { name: p('n') ?? r.name, mode: p('m'), map: p('mp'), n: p('s') ?? r.playerCount, max: p('mx') ?? 8, w: p('w') ?? 0, playing: !!p('p'), lock: !!p('l'), made: p('md') ?? 0, host: p('h'), rid: r.name };
+        return { name: p('n') ?? r.name, mode: p('m'), map: p('mp'), n: p('s') ?? r.playerCount, max: p('mx') ?? 8, w: p('w') ?? 0, playing: !!p('p'), lock: !!p('l'), made: p('md') ?? 0, host: p('h'), rid: r.name, code: p('c') ?? null, training: !!p('t') };
       })
       .sort((a, b) => a.made - b.made);
   }
@@ -249,7 +284,7 @@ export class Lobby {
     const room = this.c.lbc.isJoinedToRoom() ? this.c.lbc.myRoom() : null;
     if (!ad || !room) return;
     if (this.sentIn !== room.name) { this.sent = {}; this.sentIn = room.name; }
-    const want = { n: ad.name, m: ad.mode, mp: ad.map, s: ad.n, mx: ad.max, w: ad.w, p: ad.playing ? 1 : 0, l: ad.lock ? 1 : 0, md: ad.made, h: UID };
+    const want = { n: ad.name, m: ad.mode, mp: ad.map, s: ad.n, mx: ad.max, w: ad.w, p: ad.playing ? 1 : 0, l: ad.lock ? 1 : 0, md: ad.made, h: UID, c: ad.code ?? '', t: ad.training ? 1 : 0 };
     const out = {};
     for (const k of PROPS) if (this.sent[k] !== want[k]) { out[k] = want[k]; this.sent[k] = want[k]; }
     if (Object.keys(out).length) { try { room.setCustomProperties(out); } catch { /* (the connection's going) */ } }

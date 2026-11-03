@@ -544,10 +544,13 @@ export const MAPS = {
   // and the GRAPPLE SHAFT - tall, with ledges to swing between and a yard of
   // crates to break at the bottom (they come back). Room left for more.
   training: {
-    name: 'TRAINING', w: 138, h: 30, theme: 'range', training: true,
+    name: 'TRAINING', w: 138, h: 64, theme: 'range', training: true,
+    // where TAB, SPAWN takes you straight to: [name, cell column, floor row]
+    areas: [['ARMORY', 14, 27], ['FIRING RANGE', 27, 27], ['MOVEMENT COURSE', 24, 14], ['GRAPPLE SHAFT', 66, 27], ['LIVE FIRE', 104, 27], ['THE LAB', 60, 36],
+      ['LAB: ACID RUN', 3, 46], ['LAB: WALL CLIMB', 31, 62], ['LAB: BOT ARENA', 64, 62], ['LAB: TARGETS', 85, 62], ['LAB: VENTS', 115, 42]],
     build(L) {
       L.shell();
-      L.fill(1, 27, 136, 28, SOLID);                              // the ground floor
+      L.fill(1, 27, 136, 29, SOLID);                              // the ground floor (the lab under it)
       L.row(14, 1, 62);                                           // the course's floor (the ceiling of the armory and range)
       L.fill(63, 1, 63, 23, SOLID);                              // the shaft's wall (a way in at the bottom; the course drops in over the top)
       L.fill(63, 1, 63, 13, EMPTY);
@@ -634,6 +637,71 @@ export const MAPS = {
       );
       for (const x of [105, 117, 130]) L.lamp(x, 1);
       for (const x of [105, 117, 130]) L.lamp(x, 16);
+
+      // THE LAB (underground, rows 30-62): down a ladder from the armory or from the live fire bays, a corridor the
+      // length of it, and under that five rooms to try things in - each down a ladder from the corridor.
+      L.ladder(2, 27, 35); L.ladder(98, 27, 35);
+      L.fill(1, 36, 136, 37, SOLID);                              // the corridor's floor
+      for (const x of [27, 47, 81, 111]) L.fill(x, 38, x, 61, SOLID);   // the rooms' walls
+      L.deco.push(
+        { kind: 'sign', x: 52, y: 31, text: 'SUBLEVEL B1 - THE LAB' }, { kind: 'monitors', x: 10, y: 31.5 }, { kind: 'monitors', x: 88, y: 31.5 }, { kind: 'monitors', x: 120, y: 31.5 },
+        { kind: 'server', x: 20, y: 32.4 }, { kind: 'server', x: 42, y: 32.4 }, { kind: 'server', x: 106, y: 32.4 }, { kind: 'server', x: 130, y: 32.4 }, { kind: 'reactor', x: 66, y: 30.2 },
+        { kind: 'tank', x: 30, y: 31.5 }, { kind: 'tank', x: 76, y: 31.5 }, { kind: 'pipes', y: 30 }, { kind: 'vent', x: 46, y: 39 }, { kind: 'vent', x: 96, y: 39 },
+      );
+      for (const x of [6, 18, 32, 46, 60, 74, 88, 102, 116, 130]) L.lamp(x, 30);
+      L.signs.push({ x: 3.5, y: 33, text: 'B1 - THE LAB' }, { x: 94, y: 33, text: 'B1 - THE LAB' });
+
+      // ACID RUN (cols 1-26): blocks to jump between over an acid bath - fall in and you're back at your spawn
+      L.fill(1, 50, 26, 61, SOLID); L.row(50, 6, 22, ACID);
+      L.fill(1, 46, 5, 49, SOLID); L.fill(23, 46, 26, 49, SOLID);
+      for (const [x, y] of [[8, 46], [12, 44], [16, 47], [20, 45]]) L.fill(x, y, x + 1, y, SOLID);
+      L.ladder(3, 36, 45); L.ladder(25, 36, 45);
+      L.signs.push({ x: 8, y: 40, text: 'ACID RUN' }, { x: 7, y: 41.5, text: 'SAVE YOUR SPAWN FIRST' });
+      for (const x of [6, 20]) L.lamp(x, 38);
+
+      // WALL CLIMB (cols 28-46): a shaft to climb by jumping off its walls, out at the top through the corridor's
+      // grating; a way out at the bottom, back to the ladder
+      L.fill(34, 40, 35, 59, SOLID); L.fill(40, 40, 41, 59, SOLID);
+      L.fill(36, 36, 39, 37, EMPTY); L.row(36, 36, 39, PLAT);
+      L.fill(36, 52, 36, 52, SOLID); L.fill(39, 46, 39, 46, SOLID);
+      L.ladder(29, 36, 61);
+      L.signs.push({ x: 36, y: 33.5, text: 'WALL CLIMB' }, { x: 29.5, y: 39, text: 'JUMP OFF THE WALLS' });
+      L.lamp(37, 38); L.lamp(44, 54);
+      L.dummies.push({ x: 44, y: 62 });
+
+      // BOT ARENA (cols 48-80): an open pit with floors to fight across - TAB, BOTS puts them in
+      L.row(56, 52, 58, PLAT); L.row(56, 70, 76, PLAT); L.row(51, 60, 68, PLAT); L.row(46, 52, 56, PLAT); L.row(46, 72, 76, PLAT);
+      L.fill(58, 60, 59, 61, SOLID); L.fill(69, 60, 70, 61, SOLID);
+      L.ladder(50, 36, 61); L.ladder(78, 36, 61);
+      L.pad(64, 62);
+      L.signs.push({ x: 57, y: 40, text: 'BOT ARENA' }, { x: 54.5, y: 41.5, text: 'TAB - BOTS - ADD A BOT' });
+      for (const x of [54, 64, 74]) L.lamp(x, 38);
+      for (const [k, x, y] of [['wcrate', 49, 62], ['barrel', 66, 62], ['wcrate', 79, 62], ['crate', 54, 46], ['crate', 74, 46]]) L.prop(k, x, y);
+
+      // TARGETS (cols 82-110): dummies at every height and pace, walking, running, up on the floors
+      L.row(56, 86, 92, PLAT); L.row(50, 96, 102, PLAT); L.row(44, 88, 94, PLAT); L.row(56, 100, 108, PLAT);
+      L.ladder(83, 36, 61);
+      L.dummies.push({ x: 90, y: 62, patrol: [86, 108] }, { x: 89, y: 56 }, { x: 99, y: 50, patrol: [96, 102] }, { x: 91, y: 44 }, { x: 104, y: 56, patrol: [100, 108], fast: true }, { x: 108, y: 62 });
+      L.signs.push({ x: 92, y: 40, text: 'TARGETS' }, { x: 84.5, y: 59, text: 'FROM HERE' });
+      for (const x of [90, 104]) L.lamp(x, 38);
+      L.deco.push({ kind: 'target', x: 109, y: 58 });
+
+      // VENTS (cols 112-136): ducts to crawl along, dropping from one to the next, to a room at the bottom - and a
+      // ladder up the far wall, back to the corridor
+      L.fill(112, 43, 135, 61, SOLID);
+      L.row(42, 112, 118);
+      L.fill(112, 44, 133, 45, EMPTY); L.row(44, 112, 133, LOW);   // the first duct: crouch (or roll) through
+      L.fill(119, 43, 120, 44, EMPTY);                             // (in, off the end of the ledge)
+      L.fill(134, 44, 135, 47, EMPTY);
+      L.fill(115, 48, 135, 49, EMPTY); L.row(48, 115, 133, LOW);
+      L.fill(115, 50, 116, 51, EMPTY);
+      L.fill(115, 52, 134, 53, EMPTY); L.row(52, 117, 134, LOW);
+      L.fill(133, 54, 134, 55, EMPTY);
+      L.fill(113, 56, 135, 61, EMPTY);                             // the room at the bottom
+      L.ladder(113, 36, 41); L.ladder(136, 36, 61);
+      L.signs.push({ x: 113.5, y: 39.5, text: 'VENTS' }, { x: 118, y: 57.5, text: 'YOU MADE IT' });
+      L.lamp(124, 56);
+      L.dummies.push({ x: 120, y: 62 }, { x: 128, y: 62 });
     },
   },
 };

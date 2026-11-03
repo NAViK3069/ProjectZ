@@ -181,7 +181,7 @@ const game = {
   get regen() { return !overtime; },   // out of a fight for a while, you heal (not once the lab's venting)
   get viewer() { return player; },
   // training: your skill has no wait between uses, unless the skill bay turns cooldowns on
-  noCooldown: (f) => (state === 'training' ? f === player && !skillCooldowns : settings.cd === 0),
+  noCooldown: (f) => (state === 'training' ? isTrainee(f) && !trainCfg.cooldowns : settings.cd === 0),
   // how fast the skills' waits run down: the room's SKILL COOLDOWN (50%: twice as fast)
   cdRate: () => (state === 'training' || !settings.cd ? 1 : 1 / settings.cd),
   kick: (dx, dy) => renderer.kick(dx, dy),
@@ -316,6 +316,7 @@ const game = {
   foes(a, b) {
     if (a.vanish || b.vanish || (a.dummy && b.dummy)) return false;
     const ra = a.owner ?? a, rb = b.owner ?? b;   // (a shadow clone sides with whoever made it)
+    if (state === 'training' && !trainCfg.pvp && isTrainee(ra) && isTrainee(rb)) return false;   // (training: PLAYERS HURT EACH OTHER off)
     return ra !== rb && (!teamMode() || ra.team !== rb.team);
   },
   // The shadow clone skill: a double of f, at f's spot, holding what f holds,
@@ -583,6 +584,7 @@ const tagColor = (f) => (teamMode() ? TEAMS[f.team]?.color ?? f.color : f.color)
 
 let state = 'menu';   // menu (the main menu) | soon (a mode not built yet) | title (room setup) | intro | fight | end | match
 let paused = false;
+let uiHidden = false;   // \ : no HUD, no names or numbers over the fight (see drawHudUnder)
 let round = 0, roundT = 0, stateT = 0, slow = 1, banner = null, overtime = false;
 let winner = null, champion = null, pickupT = 0;
 
@@ -2642,6 +2644,7 @@ function drawWorld() {
   drawBursts(ctx);
   for (const b of game.bullets) drawBullet(ctx, b);
   for (const f of game.fighters) f.drawFlash(ctx);
+  if (uiHidden) return;   // (\ : no numbers, names or prompts over the fight - for filming it)
   drawNumbers(ctx);
 
   // name tags, health and stamina over heads (at a fixed height: they don't
@@ -2820,7 +2823,7 @@ function drawSoundPanel(u, W, H) {
 function drawHud() {
   drawHudUnder();
   const u = hudScale(), W = renderer.width, H = renderer.height;
-  drawSpectating(u, W, H);
+  if (!uiHidden || onMenu()) drawSpectating(u, W, H);
   if (soundPanel) drawSoundPanel(u, W, H);
   sound.watch(game, player, renderer.camera, !onMenu() && (game.timeK ?? 1) < 1, kit.click);
 }
@@ -2840,9 +2843,12 @@ function drawHudUnder() {
 
   // everyone's card in a row along the top (Superfighters style)
   if (!online.watching) drawHurt(ctx, W, H, player);
+  if (uiHidden && !locker && !paused) return;   // (\ : the fight on its own; a panel opened still shows)
   const cardsBottom = drawCards(ctx, u, W);
   if (!locker && !paused && state !== 'match') drawSkillBox(u, W, H, player);
   if (state === 'training') {
+    if (!locker && (online.toast || online.busyText)) kit.text(online.busyText || online.toast, W / 2, H - 30 * u, { color: online.busyText ? KC.teal : KC.gold, align: 'center' });
+    if (online.training && !locker) kit.text(`ROOM ${online.trainCode}  -  ${online.trainMembers.length} IN IT  -  TAB: ROOM`, 8 * u, H - 12 * u, { small: true, color: '#8aff9a' });
     drawMeter(ctx, u, W);
     if (locker) drawLocker(ctx, u, W, H);
     else drawCrosshair(ctx, u);
@@ -2947,8 +2953,9 @@ const pauseItems = () => [
   ['resume', 'RESUME', 'ESC'],
   ...(canReset() ? [['kill', 'RESET CHARACTER (DIE)', 'K']] : []),
   ['sound', 'SOUND', 'M'],
+  ['hud', 'HIDE THE HUD (FOR VIDEO)', '\\'],
   ...(state === 'training'
-    ? [['shooters', `SHOOTERS: ${shootersOn ? 'ON' : 'OFF'}`, 'N'], ['spar', `SPARRING BOT: ${bots.length ? 'ON' : 'OFF'}`, 'B'], ['cool', `SKILL WAIT: ${skillCooldowns ? 'ON' : 'OFF'}`, 'C'], ['ammo', `ENDLESS MAG: ${endlessMag ? 'ON' : 'OFF'}`, 'I'], ['clear', 'CLEAR THE DPS', 'T'], ['reset', 'RESET THE RANGE', 'R'], ['menu', 'MAIN MENU', 'Q']]
+    ? [['room', 'ROOM, BOTS, SETTINGS (TAB)', 'TAB'], ['clear', 'CLEAR THE DPS', 'T'], ...(isAdmin(myRole()) ? [['reset', 'RESET THE RANGE', 'R']] : []), ...(online.training ? [['leave', online.isHost ? 'CLOSE THE ROOM' : 'LEAVE THE ROOM', 'L']] : []), ['menu', 'MAIN MENU', 'Q']]
     : [['restart', 'RESTART THE MATCH', 'R'], ['setup', 'ROOM SETUP', 'S'], ['menu', 'MAIN MENU', 'Q']]),
 ];
 function drawPause(ctx, u, W, H) {
@@ -2965,14 +2972,13 @@ function pauseInput() {
   const c = kit.click?.startsWith('pause:') ? kit.click.slice(6) : null;
   if (c === 'resume') paused = false;
   else if (input.wasPressed('KeyM') || c === 'sound') soundPanel = true;
-  else if (state === 'training' && (input.wasPressed('KeyB') || c === 'spar')) toggleSparring();
-  else if (state === 'training' && (input.wasPressed('KeyN') || c === 'shooters')) shootersOn = !shootersOn;
-  else if (state === 'training' && (input.wasPressed('KeyC') || c === 'cool')) { skillCooldowns = !skillCooldowns; player.skillCD = 0; }
-  else if (state === 'training' && (input.wasPressed('KeyI') || c === 'ammo')) endlessMag = !endlessMag;
+  else if (c === 'hud') { paused = false; uiHidden = true; }   // (\ again to have it back)
+  else if (state === 'training' && (input.wasPressed('Tab') || c === 'room')) { paused = false; openLocker({ use: 'all' }); const i = locker.tabs.findIndex((t) => t.custom === 'room'); if (i >= 0) locker.tab = i; }
   else if (state === 'training' && (input.wasPressed('KeyT') || c === 'clear')) stats.reset();
-  else if (canReset() && (input.wasPressed('KeyK') || c === 'kill')) { paused = false; player.die(null, 'RESET', 0, 0); }
-  else if (input.wasPressed('KeyQ') || c === 'menu') { paused = false; state = 'menu'; banner = null; }
-  else if (input.wasPressed('KeyR') || c === 'restart' || c === 'reset') { paused = false; if (state === 'training') startTraining(); else startMatch(); }
+  else if (state === 'training' && online.training && (input.wasPressed('KeyL') || c === 'leave')) { paused = false; online.leaveTrain(); }
+  else if (canReset() && (input.wasPressed('KeyK') || c === 'kill')) { paused = false; if (online.isClient) online.sendAct({ a: 'die' }); else player.die(null, 'RESET', 0, 0); }
+  else if (input.wasPressed('KeyQ') || c === 'menu') { paused = false; if (online.training) online.leaveTrain(); state = 'menu'; banner = null; }
+  else if (input.wasPressed('KeyR') || c === 'restart' || c === 'reset') { paused = false; if (state === 'training') { if (online.training) { if (isAdmin(myRole())) trainDo({ a: 'reset' }); } else startTraining(); } else startMatch(); }
   else if ((input.wasPressed('KeyS') && state !== 'training') || c === 'setup') { paused = false; state = 'title'; banner = null; }
 }
 
@@ -2992,7 +2998,8 @@ function drawHurt(ctx, W, H, f) {
 // (what was just lost trails off in pale) and stamina, and the four slots. You and your team from the left edge going right, everyone
 // else from the right edge going left. Returns where the row ends (device px).
 function drawCards(ctx, u, W) {
-  const list = game.fighters.filter((f) => !f.dummy && !f.isDecoy);
+  // (training: only the real players get a card - not the bots put in, nor the range's own)
+  const list = game.fighters.filter((f) => !f.dummy && !f.isDecoy && (state !== 'training' || f === player || f.peer));
   const px = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x * u), Math.round(y * u), Math.round(w * u), Math.round(h * u)); };
   const text = (t, x, y, c, size = 1) => drawText(ctx, String(t), Math.round(x * u), Math.round(y * u), u * size, c);
   const Wd = W / u, n = list.length;
@@ -3501,7 +3508,7 @@ function startTraining() {
   stats.reset();
   player = new Fighter(game, images, ROSTER[0]);
   player.team = 0;
-  player.immortal = true;
+  player.immortal = trainCfg.immortal;
   player.reset(level.spawns[0].x, level.spawns[0].y);
   player.grenades = 3;
   // the dummies: a crash-test look, they never go down
@@ -3529,6 +3536,7 @@ function startTraining() {
       f.facing = Math.cos(f.fixedAim) < 0 ? -1 : 1;
     }
     f.walk = 1;
+    f.home0 = { x: f.x, y: f.y };
     return f;
   });
   game.fighters = [player, ...dummies];
@@ -3540,20 +3548,20 @@ function startTraining() {
 
 // Training each frame: smashed crates come back, dummies heal up and the walking one walks.
 const AT_EASE = 0.6;   // how far down (rad) a dummy points its gun
-let shootersOn = true, endlessMag = false;
 // What a shooter does. It starts up only with you in its bay. wall: fires at the same place, over and over, whoever's
 // there. aim: fires short bursts at you, its hand not quite steady - and only with a clear line from the gun to all of
 // you for a moment (behind cover, or just come out from it, it holds its fire, the gun lowered). Neither moves.
 function shooterControl(f, dt) {
-  const w = f.gun, here = shootersOn && player.alive && player.x >= f.zone[0] && player.x < f.zone[1];
+  const tgt = nearestTrainee(f.x, f.y, (t) => t.x >= f.zone[0] && t.x < f.zone[1]) ?? player;
+  const w = f.gun, here = trainCfg.shooters && tgt.alive && tgt.x >= f.zone[0] && tgt.x < f.zone[1];
   if (w && w.ammo <= 0) w.ammo = w.magSize;   // (it never runs dry, and never stops to reload)
   f.shootT = (f.shootT ?? rand(0, 1)) + dt;
   const cyc = f.shootT % (f.shooter === 'wall' ? 1.1 : 1.7), on = here && cyc < (f.shooter === 'wall' ? 0.55 : 0.6);
   if (f.shooter === 'wall') return { ...IDLE, aim: f.fixedAim, fire: on };
-  const tx = player.x, ty = player.y - 14, a0 = Math.atan2(ty - (f.y - 14), tx - f.x), gx = f.x + Math.cos(a0) * 16, gy = f.y - 14 + Math.sin(a0) * 16;
-  const sees = here && !player.hidden && [-20, -14, -4].every((up) => game.los(gx, gy, tx, player.y + up));
+  const tx = tgt.x, ty = tgt.y - 14, a0 = Math.atan2(ty - (f.y - 14), tx - f.x), gx = f.x + Math.cos(a0) * 16, gy = f.y - 14 + Math.sin(a0) * 16;
+  const sees = here && !tgt.hidden && [-20, -14, -4].every((up) => game.los(gx, gy, tx, tgt.y + up));
   f.seenT = sees ? (f.seenT ?? 0) + dt : 0;
-  if (!sees) return { ...IDLE, aim: player.x < f.x ? Math.PI - AT_EASE : AT_EASE };
+  if (!sees) return { ...IDLE, aim: tgt.x < f.x ? Math.PI - AT_EASE : AT_EASE };
   return { ...IDLE, aim: a0 + Math.sin(game.time * 2.3 + f.x) * 0.05, fire: on && f.seenT > 0.25 };
 }
 // A bot to practise on that moves and dodges and shoots back (you can't die here, and it can't either).
@@ -3578,7 +3586,25 @@ function toggleSparring() {
 function updateTraining(dt) {
   if (state !== 'training') return;
   stats.update();
-  if (endlessMag && player.gun) { player.gun.ammo = player.gun.magSize; if (player.gun.reloading) player.gun.cancelReload(); }
+  // everyone training (online, all of them): the room's settings on them; down, back in at their spawn
+  for (const t of trainees()) {
+    t.immortal = trainCfg.immortal;
+    if (!t.alive) { if ((t.tDead = (t.tDead ?? 0) + dt) > 2) respawnTrainee(t); continue; }
+    if (trainCfg.endless && t.gun && !t.gun.def.skillGun) { t.gun.ammo = t.gun.magSize; if (t.gun.reloading) t.gun.cancelReload(); }
+    if (t.hurtT > 2.5) t.hp = Math.min(t.maxHp, t.hp + t.maxHp * dt);
+    if (t.grenades < 1 && t.grenadeCD <= 0) t.grenades = 1;   // (endless grenades in here)
+  }
+  // the bots put in: killed, back where they were put a moment later (if they're to be)
+  for (const f of game.fighters) if (f.tbot && !f.alive && f.tbot.death === 'back' && (f.tDead = (f.tDead ?? 0) + dt) > 3) {
+    f.reset(f.home.x, f.home.y);
+    f.immortal = f.tbot.death === 'never';
+    f.give(pick(GUN_POOL), 900);
+    f.slot = 2;
+    f.tDead = 0;
+    f.shield = 1;
+    bots.find((b) => b.f === f)?.reset();
+    game.fx.sparks(f.x, f.y - 14, 12, 0, -1, '#ff8a5a');
+  }
   for (const r of game.racks) {
     if (!r.prop.dead) continue;
     if ((r.t += dt) < 6) continue;
@@ -3601,12 +3627,292 @@ function updateTraining(dt) {
       if (f.x < f.patrol[0]) f.walk = 1;
       if (f.x > f.patrol[1]) f.walk = -1;
       c = { ...IDLE, move: f.walk * (f.quick0 ?? 0.6), aim: ease(f.walk) };
-    } else c = { ...IDLE, aim: ease(player.hidden ? f.facing : player.x < f.x ? -1 : 1) };   // (you cloaked: they don't see you come)
+    } else { const t = nearestTrainee(f.x, f.y); c = { ...IDLE, aim: ease(!t ? f.facing : t.x < f.x ? -1 : 1) }; }   // (you cloaked: they don't see you come)
     f.update(dt, c);
   }
-  if (player.hurtT > 2.5) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * dt);
-  // the player infinite on grenades in here
-  if (player.grenades < 1 && player.grenadeCD <= 0) player.grenades = 1;
+}
+
+// ---------- training: the room (TAB) ----------
+// The room's settings (the host's say, or an admin's: online they come to everyone with the game - see online.js),
+// everyone training in it (you, and online the others), the bots put in it, where each comes back in, where to go.
+const trainCfg = { immortal: true, endless: false, cooldowns: false, shooters: true, pvp: true };
+const isTrainee = (f) => !!f && !f.dummy && !f.bot && !f.isDecoy && (f === player || !!f.peer);
+const trainees = () => game.fighters.filter(isTrainee);
+// (nearest of those training to (x, y), alive - for the dummies to look at, the shooters to shoot at)
+const nearestTrainee = (x, y, ok = () => true) => trainees().filter((t) => t.alive && !t.hidden && ok(t)).sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0] ?? null;
+// the places to go straight to (TAB, SPAWN): [name, cell column, floor row] - the map's own list
+const trainAreas = () => (MAPS.training.areas ?? []).map(([name, cx, floor]) => ({ name, x: (cx + 0.5) * T, y: (floor + (level.pad ?? 0)) * T }));
+const defaultSpawn = () => level.spawns[0];
+function teleport(f, at) {
+  if (!f?.alive || !at) return;
+  f.x = at.x;
+  f.y = at.y;
+  f.vx = f.vy = 0;
+  f.onLadder = false;
+  f.hook = null;
+  while (f.hits(f.x - 5, f.y - 28, f.x + 5, f.y)) f.y -= 1;
+  game.fx.sparks(f.x, f.y - 14, 12, 0, -1, '#8ff0ff');
+  game.lights.flash(f.x, f.y - 14, 80, '120, 230, 255', 0.2);
+}
+// Someone training back in after going down: at their own spawn if they've saved one, otherwise where everyone starts.
+function respawnTrainee(f) {
+  const s = f.saveSpawn ?? defaultSpawn();
+  f.reset(s.x, s.y);
+  f.immortal = trainCfg.immortal;
+  f.grenades = 3;
+  f.shield = 1;
+  f.beamT = 0;
+  f.tDead = 0;
+  while (f.hits(f.x - 5, f.y - 28, f.x + 5, f.y)) f.y -= 1;
+  game.fx.sparks(f.x, f.y - 14, 16, 0, -1, '#8ff0ff');
+}
+
+// ---- the bots ----
+// Each put in with how it's to be: FIGHTS (a bot) or STANDS STILL; its shots and blows hurt, or don't; killed, it
+// comes back where it was put, stays dead, or can't die at all; a skill of its own, or none.
+const BOT_OPTS = { fight: [[true, 'FIGHTS'], [false, 'STANDS STILL']], dmg: [[true, 'ON'], [false, 'OFF']], death: [['back', 'COMES BACK'], ['stay', 'STAYS DEAD'], ['never', "CAN'T DIE"]], skill: [[true, 'RANDOM'], [false, 'NONE']] };
+const trainBotOpts = { fight: true, dmg: true, death: 'back', skill: true };
+let trainBotN = 0;
+function spawnTrainBot(o, by) {
+  if (game.fighters.filter((f) => f.tbot).length >= 12) return;
+  const n = ++trainBotN, f = new Fighter(game, images, { name: `BOT ${n}`, color: '#ff8a5a', hue: (n * 53) % 360, sat: 1.2 });
+  const ox = by ? by.x + (by.facing || 1) * 48 : defaultSpawn().x, oy = by ? by.y : defaultSpawn().y;
+  const at = by && !level.solidAt(ox, oy - 14) ? { x: ox, y: oy } : { x: by?.x ?? ox, y: by?.y ?? oy };
+  f.team = 200 + n;
+  f.bot = true;
+  f.tbot = { fight: !!o.fight, dmg: !!o.dmg, death: ['back', 'stay', 'never'].includes(o.death) ? o.death : 'back', skill: !!o.skill, n };
+  f.home = at;
+  f.reset(at.x, at.y);
+  while (f.hits(f.x - 5, f.y - 28, f.x + 5, f.y)) f.y -= 1;
+  f.immortal = f.tbot.death === 'never';
+  f.noDmg = !f.tbot.dmg;
+  f.still = !f.tbot.fight;
+  f.give(pick(GUN_POOL), 900);
+  f.slot = 2;
+  f.skill = f.tbot.skill ? pick(BOT_SKILLS) : null;
+  f.name = `BOT ${n}${f.skill ? ' - ' + skillName(f.skill) : ''}`;
+  f.facing = by ? -(by.facing || 1) : -1;
+  game.fighters.push(f);
+  bots.push(new Bot(game, f, 0.85));
+  game.fx.sparks(f.x, f.y - 14, 14, 0, -1, '#ff8a5a');
+}
+function removeTrainBots(pred) {
+  const gone = new Set(game.fighters.filter((f) => f.tbot && pred(f)));
+  for (const f of gone) game.fx.mist(f.x, f.y - 12, 10);
+  game.fighters = game.fighters.filter((f) => !gone.has(f));
+  bots = bots.filter((b) => !gone.has(b.f));
+}
+// the range as it started: every crate and drum back, the dummies where they stood, healed
+function resetRange() {
+  for (const r of game.racks) if (r.prop.dead || !game.props.includes(r.prop)) { [r.prop] = placeProps([r.spec], level); r.t = 0; game.props.push(r.prop); }
+  for (const f of game.fighters) if (f.dummy) { f.hp = f.maxHp; if (f.home0) { f.x = f.home0.x; f.y = f.home0.y; } }
+}
+
+// ---- who may do what, and doing it ----
+// (offline it's all yours; online the host's ROOT, admins may change the settings and the bots, kick players; ROOT
+// alone makes admins and a new code)
+const myRole = () => (online.training ? online.myRole : 'root');
+const isAdmin = (role) => role === 'root' || role === 'admin';
+// Something done from the room panel: here if it's our game, sent to the host if not.
+function trainDo(m) {
+  if (online.isClient) online.sendAct(m);
+  else trainAct(player, { id: online.me?.(), role: 'root' }, m);
+}
+function trainAct(f, member, m) {
+  const role = member?.role ?? 'player', admin = isAdmin(role);
+  switch (m?.a) {
+    case 'set': if (admin && m.k in trainCfg) { trainCfg[m.k] = !!m.v; if (m.k === 'cooldowns') for (const t of trainees()) t.skillCD = 0; } break;
+    case 'bot': if (admin && f) spawnTrainBot(m.o ?? {}, f); break;
+    case 'unbot': if (admin) removeTrainBots((b) => b.tbot.n === m.n); break;   // (by the bot's own number: there's no net id offline)
+    case 'unbots': if (admin) removeTrainBots(() => true); break;
+    case 'reset': if (admin) resetRange(); break;
+    case 'spsave': if (f?.alive && f.onGround) { f.saveSpawn = { x: f.x, y: f.y }; game.fx.sparks(f.x, f.y - 2, 10, 0, -1, '#8aff9a'); } break;
+    case 'spclear': if (f) f.saveSpawn = null; break;
+    case 'spgo': teleport(f, f?.saveSpawn ?? defaultSpawn()); break;
+    case 'area': teleport(f, trainAreas()[m.i]); break;
+    case 'goto': { const o = game.fighters.find((q) => q.nid === m.nid && q.alive); if (o && o !== f) teleport(f, { x: o.x - (o.facing || 1) * 16, y: o.y }); break; }
+    case 'die': if (f?.alive) f.die(null, 'RESET', 0, 0); break;
+    case 'kick': if (online.isHost && m.id !== member?.id && (role === 'root' || (admin && online.roleOf(m.id) === 'player'))) online.trainKick(m.id); break;
+    case 'role': if (online.isHost && role === 'root') online.setRole(m.id, m.role); break;
+    case 'code': if (online.isHost && role === 'root') online.renewCode(); break;
+  }
+}
+// (the host) an armory item for a player in the room
+function trainTake(f, kind, key) {
+  if (kind === 'cooldown') return trainAct(f, { role: online.roleOf(f.peer) }, { a: 'set', k: 'cooldowns', v: !trainCfg.cooldowns });
+  const it = LOCKERS.all.tabs().filter((t) => !t.custom).flatMap((t) => t.items).find((q) => q.kind === kind && (q.key ?? null) === (key ?? null));
+  if (it) takeItem(it, f);
+}
+// (the host) someone in with the room's code: a fighter of their own, at the way in
+const TRAIN_LOOKS = ROSTER.map(({ color, hue, sat }) => ({ color, hue, sat }));
+function trainJoin({ id, name, skill, i }) {
+  const f = new Fighter(game, images, { name, ...TRAIN_LOOKS[(i ?? 1) % TRAIN_LOOKS.length] });
+  f.peer = id;
+  f.team = 100 + (i ?? 1);
+  const s = defaultSpawn();
+  f.reset(s.x + ((i ?? 1) % 4) * 14, s.y);
+  f.immortal = trainCfg.immortal;
+  f.grenades = 3;
+  f.skill = SKILL_INFO.some((k) => k.key === skill) ? skill : null;
+  game.fighters.push(f);
+  return f;
+}
+
+// ---- the panel: the room's tabs in the armory (TAB) ----
+let trainEdit = null;   // the code being typed in: { draft }
+let trainServer = 0;    // which server a room's opened on
+let trainSure = null;   // a drastic button pressed once: { id, at } - a second press within 2.5 s does it
+const sureOf = (id) => { if (trainSure?.id === id && performance.now() - trainSure.at < 2500) { trainSure = null; return true; } trainSure = { id, at: performance.now() }; return false; };
+const asked = (id) => trainSure?.id === id && performance.now() - trainSure.at < 2500;
+const TRAIN_TABS = [{ label: 'ROOM', custom: 'room', items: [] }, { label: 'SETTINGS', custom: 'cfg', items: [] }, { label: 'PLAYERS', custom: 'players', items: [] }, { label: 'BOTS', custom: 'bots', items: [] }, { label: 'SPAWN', custom: 'spawn', items: [] }];
+// typing the code: letters and numbers, BACKSPACE, ENTER joins, ESC stops
+function trainTyping() {
+  for (const code of input.pressed) {
+    if (code === 'Enter') { const v = trainEdit.draft; trainEdit = null; online.joinTrainRoom(v); return; }
+    if (code === 'Escape') { trainEdit = null; return; }
+    if (code === 'Backspace') trainEdit.draft = trainEdit.draft.slice(0, -1);
+    else if (trainEdit.draft.length < 5 && code.startsWith('Key')) trainEdit.draft += code.slice(3);
+    else if (trainEdit.draft.length < 5 && code.startsWith('Digit')) trainEdit.draft += code.slice(5);
+  }
+}
+// The clicks on a room tab (the ids its drawing gave its buttons)
+function trainTabInput(kind) {
+  const c = kit.click;
+  if (!c?.startsWith('tm:')) return;
+  const [, what, arg, arg2] = c.split(':');
+  const admin = isAdmin(myRole());
+  if (what === 'code') { trainEdit = { draft: '' }; if (input.touchOn) { const v = prompt('ROOM CODE', ''); trainEdit = null; if (v) online.joinTrainRoom(v); } return; }
+  if (what === 'join') { const v = trainEdit?.draft ?? ''; trainEdit = null; online.joinTrainRoom(v); return; }
+  if (what === 'srv') { const n = online.servers.length; trainServer = (trainServer + +arg + n) % n; return; }
+  if (what === 'open') return online.openTrainRoom(online.servers[trainServer].key);
+  if (what === 'leave') { if (!online.isHost || sureOf(c)) online.leaveTrain(); return; }
+  if (what === 'copy') { try { navigator.clipboard?.writeText(online.trainCode); banner = { text: 'CODE COPIED', t: 1, color: '#8aff9a' }; } catch {} return; }
+  if (what === 'newcode') return trainDo({ a: 'code' });
+  if (what === 'set' && admin) return trainDo({ a: 'set', k: arg, v: !trainCfg[arg] });
+  if (what === 'reset' && admin) return trainDo({ a: 'reset' });
+  if (what === 'dps') return stats.reset();
+  if (what === 'opt') { const vals = BOT_OPTS[arg], i = vals.findIndex(([v]) => v === trainBotOpts[arg]); trainBotOpts[arg] = vals[(i + 1) % vals.length][0]; return; }
+  if (what === 'addbot' && admin) return trainDo({ a: 'bot', o: { ...trainBotOpts } });
+  if (what === 'rmbot' && admin) return trainDo({ a: 'unbot', n: +arg });
+  if (what === 'rmbots' && admin) { if (sureOf(c)) trainDo({ a: 'unbots' }); return; }
+  if (what === 'kick') { if (sureOf(c)) trainDo({ a: 'kick', id: arg }); return; }
+  if (what === 'role') return trainDo({ a: 'role', id: arg, role: arg2 });
+  if (what === 'goto') return trainDo({ a: 'goto', nid: +arg });
+  if (['spsave', 'spclear', 'spgo'].includes(what)) return trainDo({ a: what });
+  if (what === 'area') return trainDo({ a: 'area', i: +arg });
+}
+// One room tab's contents, in the armory's panel: (x, y) its top left, w, h, in the panel's units (u to the pixel).
+function drawTrainTab(kind, ctx, u, x, y, w, h) {
+  const px = (X, Y, W, H, col) => { ctx.fillStyle = col; ctx.fillRect(Math.round(X * u), Math.round(Y * u), Math.round(W * u), Math.round(H * u)); };
+  const text = (t, X, Y, col, size = 1) => drawText(ctx, String(t), Math.round(X * u), Math.round(Y * u), u * size, col);
+  const btn = (id, X, Y, W, H, label, o = {}) => kit.button(id, Math.round(X * u), Math.round(Y * u), Math.round(W * u), Math.round(H * u), label, { small: true, ...o });
+  const admin = isAdmin(myRole()), inRoom = online.training, me = player;
+  const note = (t, X, Y, col = '#6f7a62') => text(t, X, Y, col);
+  const head = (t, X, Y) => { text(t, X, Y, '#ffd25a'); px(X, Y + 8, w - (X - x), 1, '#2a322f'); };
+  const busy = online.busyText, toast = online.toast;
+  if (kind === 'room') {
+    if (!inRoom) {
+      const cw = Math.floor((w - 8) / 2);
+      head('OPEN YOUR OWN ROOM', x, y);
+      note('OTHERS COME IN WITH ITS CODE', x, y + 13);
+      const sv = online.servers[trainServer];
+      btn('tm:srv:-1', x, y + 26, 14, 14, '<');
+      text(sv.name, x + 20, y + 30, '#e8ecd8');
+      btn('tm:srv:1', x + cw - 14, y + 26, 14, 14, '>');
+      btn('tm:open', x, y + 46, cw, 18, busy && !trainEdit ? 'WAIT...' : 'OPEN A ROOM', { kind: 'primary', disabled: !!busy });
+      const jx = x + cw + 8;
+      text('JOIN SOMEONE\'S ROOM', jx, y, '#ffd25a');
+      note('TYPE IN THEIR CODE', jx, y + 13);
+      const editing = !!trainEdit, shown = editing ? trainEdit.draft + (Math.floor(performance.now() / 400) % 2 ? '_' : '') : 'CLICK TO TYPE';
+      px(jx - 1, y + 25, cw + 2, 18, editing ? '#c9a83a' : '#2a322f');
+      px(jx, y + 26, cw, 16, '#0b100e');
+      text(shown, jx + 6, y + 30, editing ? '#ffffff' : '#6f7a62', editing ? 1 : 1);
+      kit.hit('tm:code', Math.round(jx * u), Math.round((y + 25) * u), Math.round(cw * u), Math.round(18 * u));
+      btn('tm:join', jx, y + 46, cw, 18, 'JOIN', { kind: 'primary', disabled: !!busy || !trainEdit || trainEdit.draft.length < 5 });
+      if (busy || toast) text(busy || toast, x, y + 74, busy ? '#8ff0ff' : '#ffb84a');
+      note('A CODE IS 5 LETTERS AND NUMBERS - THE FIRST IS THE SERVER', x, y + 90);
+      note('IN A ROOM: SETTINGS, PLAYERS AND BOTS ARE THE ROOM\'S', x, y + 100);
+      return;
+    }
+    head(online.isHost ? 'YOUR ROOM IS OPEN' : 'IN A ROOM', x, y);
+    note('THE CODE - GIVE IT TO WHOEVER YOU WANT IN', x, y + 13);
+    const code = online.trainCode;
+    text(code, x, y + 26, '#8aff9a', 3);
+    const cx = x + textWidth(code) * 3 + 10;
+    btn('tm:copy', cx, y + 27, 50, 16, 'COPY');
+    if (online.isHost && myRole() === 'root') btn('tm:newcode', cx + 56, y + 27, 70, 16, 'NEW CODE');
+    note(`${online.trainMembers.length} IN THE ROOM  -  YOU ARE ${myRole() === 'root' ? 'ROOT' : myRole() === 'admin' ? 'AN ADMIN' : 'A PLAYER'}`, x, y + 52, '#c8cfc9');
+    btn('tm:leave', x, y + 66, 140, 18, online.isHost ? (asked('tm:leave') ? 'SURE? CLOSE IT' : 'CLOSE THE ROOM') : 'LEAVE THE ROOM', { kind: 'danger' });
+    if (toast) text(toast, x, y + 92, '#ffb84a');
+    return;
+  }
+  if (kind === 'cfg') {
+    head('THE ROOM\'S SETTINGS', x, y);
+    note(admin ? (inRoom ? 'FOR EVERYONE IN THE ROOM' : 'CLICK TO CHANGE') : 'ONLY ROOT AND ADMINS CAN CHANGE THESE', x, y + 13);
+    const rows = [['immortal', 'PLAYERS CAN\'T DIE', 'OFF: YOU GO DOWN, AND COME BACK AT YOUR SPAWN'], ['endless', 'ENDLESS MAG', 'NEVER RELOAD'], ['cooldowns', 'SKILL WAIT', 'OFF: USE A SKILL AS OFTEN AS YOU LIKE'], ['shooters', 'LIVE FIRE', 'THE SHOOTERS IN THE BAYS FIRE BACK'], ['pvp', 'PLAYERS HURT EACH OTHER', 'OFF: SHOTS AT EACH OTHER DO NOTHING']];
+    rows.forEach(([k, label, desc], i) => {
+      const ry = y + 26 + i * 20;
+      text(label, x, ry + 2, '#e8ecd8');
+      note(desc, x, ry + 11);
+      btn(`tm:set:${k}`, x + w - 60, ry, 60, 16, trainCfg[k] ? 'ON' : 'OFF', { kind: trainCfg[k] ? 'primary' : 'normal', disabled: !admin });
+    });
+    const by = y + 26 + rows.length * 20 + 4;
+    btn('tm:reset', x, by, 130, 16, 'RESET THE RANGE', { disabled: !admin });
+    btn('tm:dps', x + 136, by, 110, 16, 'CLEAR THE DPS');
+    return;
+  }
+  if (kind === 'players') {
+    head('WHO\'S IN THE ROOM', x, y);
+    if (!inRoom) { note('JUST YOU - OPEN A ROOM (ROOM TAB) TO TRAIN WITH OTHERS', x, y + 14, '#c8cfc9'); return; }
+    online.trainMembers.slice(0, 8).forEach((m, i) => {
+      const ry = y + 14 + i * 18, f = game.fighters.find((o) => o.peer === m.id), mine = m.id === online.me();
+      const badge = m.role === 'root' ? ['ROOT', '#ffd25a'] : m.role === 'admin' ? ['ADMIN', '#8ff0ff'] : ['PLAYER', '#6f7a62'];
+      px(x, ry, w, 16, mine ? '#1f2a22' : '#161b17');
+      text(badge[0], x + 4, ry + 5, badge[1]);
+      text(m.name + (mine ? ' (YOU)' : ''), x + 44, ry + 5, '#e8ecd8');
+      let bx = x + w - 2;
+      const b = (id, label, bw, o) => { bx -= bw + 3; btn(id, bx, ry + 1, bw, 14, label, o); };
+      if (!mine && f) b(`tm:goto:${f.nid}`, 'GO TO', 44);
+      if (!mine && m.role !== 'root' && (myRole() === 'root' || (myRole() === 'admin' && m.role === 'player'))) b(`tm:kick:${m.id}`, asked(`tm:kick:${m.id}`) ? 'SURE?' : 'KICK', 44, { kind: 'danger' });
+      if (!mine && m.role !== 'root' && myRole() === 'root') b(`tm:role:${m.id}:${m.role === 'admin' ? 'player' : 'admin'}`, m.role === 'admin' ? 'NO ADMIN' : 'MAKE ADMIN', 70);
+    });
+    return;
+  }
+  if (kind === 'bots') {
+    head('BOTS', x, y);
+    note(admin ? 'SET HOW IT IS, THEN ADD IT - IT COMES IN IN FRONT OF YOU' : 'ONLY ROOT AND ADMINS CAN ADD AND REMOVE BOTS', x, y + 13);
+    const opts = [['fight', 'MOVES'], ['dmg', 'DAMAGE'], ['death', 'KILLED'], ['skill', 'SKILL']], ow = Math.floor((w - 9) / 4);
+    opts.forEach(([k, label], i) => {
+      const ox = x + i * (ow + 3);
+      note(label, ox, y + 25);
+      btn(`tm:opt:${k}`, ox, y + 34, ow, 16, BOT_OPTS[k].find(([v]) => v === trainBotOpts[k])?.[1] ?? '?', { disabled: !admin });
+    });
+    btn('tm:addbot', x, y + 56, 120, 18, 'ADD A BOT', { kind: 'primary', disabled: !admin });
+    btn('tm:rmbots', x + 126, y + 56, 110, 18, asked('tm:rmbots') ? 'SURE?' : 'REMOVE ALL', { kind: 'danger', disabled: !admin });
+    const list = game.fighters.filter((f) => f.tbot);
+    if (!list.length) note('NONE YET', x, y + 82);
+    list.slice(0, 6).forEach((f, i) => {
+      const col = i % 2, row = Math.floor(i / 2), bw = Math.floor((w - 4) / 2), bx = x + col * (bw + 4), ry = y + 80 + row * 18, o = f.tbot ?? {};
+      px(bx, ry, bw, 16, '#161b17');
+      text(f.alive ? 'UP' : 'DOWN', bx + 3, ry + 5, f.alive ? '#8aff9a' : '#a04a3a');
+      let nm = `BOT ${o.n ?? ''} ${o.fight ? '' : 'STILL '}${o.dmg ? '' : 'NO DMG '}${o.death === 'never' ? "CAN'T DIE" : o.death === 'stay' ? 'STAYS DEAD' : ''}`;
+      while (textWidth(nm) > bw - 70) nm = nm.slice(0, -1);
+      text(nm, bx + 28, ry + 5, '#e8ecd8');
+      btn(`tm:rmbot:${o.n ?? 0}`, bx + bw - 40, ry + 1, 38, 14, 'X', { kind: 'danger', disabled: !admin });
+    });
+    if (list.length > 6) note(`AND ${list.length - 6} MORE`, x, y + 80 + 3 * 18);
+    return;
+  }
+  if (kind === 'spawn') {
+    head('WHERE YOU COME BACK IN', x, y);
+    note(me?.saveSpawn ? 'YOUR OWN SPAWN IS SAVED' : 'WHERE EVERYONE STARTS (NONE SAVED)', x, y + 13, me?.saveSpawn ? '#8aff9a' : '#6f7a62');
+    btn('tm:spsave', x, y + 25, 130, 16, 'SAVE SPAWN HERE', { kind: 'primary', disabled: !me?.alive || !me.onGround });
+    btn('tm:spgo', x + 136, y + 25, 110, 16, 'GO TO MY SPAWN');
+    btn('tm:spclear', x + 252, y + 25, Math.min(110, w - 252), 16, 'FORGET IT', { disabled: !me?.saveSpawn });
+    head('GO STRAIGHT TO', x, y + 50);
+    const areas = trainAreas(), cols = 3, aw = Math.floor((w - (cols - 1) * 3) / cols);
+    areas.forEach((a, i) => btn(`tm:area:${i}`, x + (i % cols) * (aw + 3), y + 63 + Math.floor(i / cols) * 18, aw, 16, a.name));
+  }
 }
 
 // ---------- training: the cabinets ----------
@@ -3645,7 +3951,6 @@ const CLOCK = (off) => sprite(9, 10, (g) => {
   if (off) for (let i = 0; i < 9; i++) rect(g, '#c83a2a', i, 9 - i, 1, 1);
 });
 const CLOCK_ON = CLOCK(false), CLOCK_OFF = CLOCK(true);
-let skillCooldowns = false;   // training: off to start (use a skill as often as you like)
 const CLONE_ICON = sprite(13, 11, (g) => {
   // two figures, one solid, one a dark shadow beside it, mist at their feet
   const fig = (ox, a, b) => {
@@ -3896,8 +4201,8 @@ const LOCKERS = {
   skills: { name: 'SKILL BAY', tabs: () => [{ label: 'SKILLS', items: [
     ...SKILL_INFO.map((k) => ({ kind: 'skill', key: k.key, name: k.name, img: k.img, desc: `Q - ${k.desc}` })),
     { kind: 'skill', key: null, name: 'NO SKILL', img: NO_SKILL, desc: 'GO WITHOUT ONE' },
-    { kind: 'cooldown', get name() { return skillCooldowns ? 'COOLDOWN ON' : 'COOLDOWN OFF'; }, get img() { return skillCooldowns ? CLOCK_ON : CLOCK_OFF; },
-      get desc() { return skillCooldowns ? 'A WAIT BETWEEN USES, AS IN A FIGHT - TAKE TO TURN IT OFF' : 'NO WAIT BETWEEN USES - TAKE TO TURN IT ON'; } },
+    { kind: 'cooldown', get name() { return trainCfg.cooldowns ? 'COOLDOWN ON' : 'COOLDOWN OFF'; }, get img() { return trainCfg.cooldowns ? CLOCK_ON : CLOCK_OFF; },
+      get desc() { return trainCfg.cooldowns ? 'A WAIT BETWEEN USES, AS IN A FIGHT - TAKE TO TURN IT OFF' : 'NO WAIT BETWEEN USES - TAKE TO TURN IT ON'; } },
     { kind: 'soon', name: 'MORE SOON', desc: 'MORE SKILLS ARE ON THE WAY' },
   ] }] },
   med: { name: 'MED CABINET', tabs: () => [{ label: 'MEDICAL', items: [
@@ -3907,7 +4212,7 @@ const LOCKERS = {
   // BUY & FIGHT: before each round
   shop: { name: 'SHOP', close: 'B / ESC - CLOSE', tabs: () => shopTabs() },
   // TAB, anywhere in training: all three cabinets in one
-  all: { name: 'ARMORY', close: 'ESC / TAB - CLOSE', tabs: () => [...LOCKERS.guns.tabs(), ...LOCKERS.skills.tabs(), ...LOCKERS.med.tabs()] },
+  all: { name: 'ARMORY', close: 'ESC / TAB - CLOSE', tabs: () => [...LOCKERS.guns.tabs(), ...LOCKERS.skills.tabs(), ...LOCKERS.med.tabs(), ...TRAIN_TABS] },
 };
 
 let locker = null;   // the open cabinet: { use, tabs, tab, sel, scroll, flash } (and where it drew things, for the mouse)
@@ -3939,9 +4244,10 @@ function owned(it) {
   if (it.kind === 'nades') return f.nade === it.key && f.grenades > 0;
   return false;
 }
-function takeItem(it) {
-  const f = player;
-  if (locker?.use === 'shop') return buyItem(it);
+function takeItem(it, f = player) {
+  if (f === player && locker?.use === 'shop') return buyItem(it);
+  if (f === player && online.isClient) { online.sendTake(it.kind, it.key ?? null); return true; }
+  if (it.kind === 'cooldown' && f === player && !isAdmin(myRole())) return false;   // (the room's setting: not everyone's to change)
   if (it.kind === 'gun') { f.give(it.key, it.def.magSize * 6); f.select(f.slotFor(it.def)); }
   else if (it.kind === 'melee') { f.giveMelee(MELEE[it.key]); f.select(1); }
   else if (it.kind === 'nades') { f.nade = it.key; f.grenades = 4; }
@@ -3951,7 +4257,7 @@ function takeItem(it) {
     w.ammoSource.give(null, Math.max(0, w.magSize * 6 - w.reserve));
   }
   else if (it.kind === 'skill') { f.uncloak(); f.dropDecoy(); f.bow = null; f.mura = null; f.blaze = null; f.gal = null; f.summon = null; f.lockOn = null; f.barrier = null; f.card = null; f.powered = null; f.hackCast = null; f.sande = null; f.batCast = null; f.wraith = null; f.chidori = null; if (f.octo) f.octoEnd(); f.steal = null; f.stolen = null; f.phase = null; f.deflect = null; f.skill = it.key; f.skillCD = 0; f.hook = null; }
-  else if (it.kind === 'cooldown') { skillCooldowns = !skillCooldowns; f.skillCD = 0; }
+  else if (it.kind === 'cooldown') { trainCfg.cooldowns = !trainCfg.cooldowns; f.skillCD = 0; }
   else if (it.kind === 'heal') { f.hp = f.maxHp; game.fx.sparks(f.x, f.y - 14, 10, 0, -1, '#8aff9a'); }
   else if (it.kind === 'drink') { f.stamina = MAX_STAMINA; f.winded = false; f.boostT = 15; game.fx.sparks(f.x, f.y - 14, 8, 0, -1, '#8ff0ff'); }
   else return false;
@@ -3966,7 +4272,9 @@ function lockerInput(dt) {
   if (paused) return;
   if (L.flash) L.flash.t -= dt;
   if (L.fresh) { L.fresh = false; return; }   // (the frame it opened: that E isn't a close)
-  if (input.wasPressed('KeyE', 'Mouse2', 'Tab') || (L.use === 'shop' && input.wasPressed('KeyB'))) { locker = null; return; }
+  if (trainEdit) { trainTyping(); return; }   // (typing a room's code: the keys are for that)
+  if (L.tabs[L.tab]?.custom) trainTabInput(L.tabs[L.tab].custom);
+  if (input.wasPressed('KeyE', 'Mouse2', 'Tab') || (L.use === 'shop' && input.wasPressed('KeyB'))) { locker = null; trainEdit = null; return; }
   const setTab = (i) => { if (i === L.tab) return; L.tab = i; L.sel = 0; L.scroll = 0; };
   for (let i = 0; i < Math.min(9, L.tabs.length); i++) if (input.wasPressed('Digit' + (i + 1))) setTab(i);
   const items = L.tabs[L.tab].items, n = items.length;
@@ -4007,7 +4315,7 @@ function drawLocker(ctx, u, W, H) {
   const rectOf = (x, y, w, h, i) => ({ i, x0: x * u, y0: y * u, x1: (x + w) * u, y1: (y + h) * u });
   ctx.fillStyle = 'rgba(4, 7, 6, 0.55)';
   ctx.fillRect(0, 0, W, H);
-  const Wd = W / u, Hd = H / u, pw = Math.min(Wd - 24, 420), ph = Math.min(Hd - 24, 236);
+  const Wd = W / u, Hd = H / u, pw = Math.min(Wd - 24, 420), ph = Math.min(Hd - 24, L.use === 'all' ? 270 : 236);
   const x0 = Math.round((Wd - pw) / 2), y0 = Math.round((Hd - ph) / 2);
   px(x0 - 1, y0 - 1, pw + 2, ph + 2, HUDC.frame);
   px(x0, y0, pw, ph, 'rgba(14, 19, 16, 0.97)');
@@ -4028,6 +4336,8 @@ function drawLocker(ctx, u, W, H) {
     L.tabRects.push(rectOf(tx, ty, w, 11, i));
     tx += w + 3;
   });
+  // a room tab (training): its own contents
+  if (L.tabs[L.tab].custom) { L.cellRects = []; drawTrainTab(L.tabs[L.tab].custom, ctx, u, x0 + 8, ty + 18, pw - 16, y0 + ph - 8 - (ty + 18)); return; }
   // the grid
   const items = L.tabs[L.tab].items, cw = 76, ch = 34, gap = 4, gx = x0 + 8, gy = ty + 16, gh = y0 + ph - 32 - gy;
   L.cols = Math.max(1, Math.floor((pw - 16 + gap) / (cw + gap)));
@@ -4230,6 +4540,34 @@ initOnline({
   drawText, textWidth, centerText, panel, playerControl, startNetMatch, addNetFighter, changeNetSetting, kit, tagColor,
   skillItems, skillName, openPicker, pickMap, openBans, banShown, openSound() { soundPanel = true; }, botSkill, SKILL_INFO, setSetting(k, v) { settings[k] = v; saveSettings(); },
   isTeams: (k) => !!MODES[k]?.teams, applyBuy: (f, kind, key) => applyBuy(f, kind, key),
+  // training, together
+  trainCfg, trainJoin, trainTake, trainAct,
+  handsBusy: () => !!locker || paused || !!trainEdit,
+  trainHost(name) { player.peer = online.me(); player.name = name; },
+  trainAlone(wasHost) {
+    if (!wasHost) return startTraining();
+    game.fighters = game.fighters.filter((f) => !f.peer || f === player);
+    player.peer = null;
+    player.name = ROSTER[0].name;
+  },
+  trainGuest() {
+    // into someone else's training: their map, their everything - all of it from them, as it comes
+    loadMap('training');
+    state = 'training';
+    game.obj = null;
+    game.tags = [];
+    stateT = 0;
+    paused = false;
+    locker = null;
+    for (const k of ['bullets', 'grenades', 'pickups', 'feed', 'blasts', 'thrown', 'numbers', 'arrows', 'voids', 'fists', 'galaxies', 'swordSets', 'punches', 'bursts', 'bats', 'bloods', 'fangs', 'props', 'racks']) game[k] = [];
+    stats.reset();
+    player = new Fighter(game, images, ROSTER[0]);
+    player.alive = false;
+    game.fighters = [];
+    bots = [];
+    decoys = [];
+    banner = { text: 'TRAINING TOGETHER', sub: 'TAB: THE ARMORY AND THE ROOM', t: 2.2, color: '#8ff0ff' };
+  },
   get state() { return state; }, set state(v) { state = v; },
   get player() { return player; }, set player(v) { player = v; },
   get stateT() { return stateT; }, set stateT(v) { stateT = v; },
@@ -4341,10 +4679,17 @@ function tick(realDt, draw = true) {
   else if (state === 'soon') { if (input.wasPressed('Escape', 'Enter', 'Space') || kit.click === 'back') state = 'menu'; }
   else if (state === 'title') titleInput();
   else if (online.isScreen(state)) netScreenInput();
-  else if (online.active) netGameInput();   // (online, ESC doesn't pause: it's a menu over the game, which goes on)
+  else if (online.active && !(online.training && state === 'training')) netGameInput();   // (online, ESC doesn't pause: it's a menu over the game, which goes on)
   else if (state === 'match') matchInput();
   if (state === 'intro' && !locker && !paused && canBuy(player) && !online.watching && input.wasPressed('KeyB')) openLocker({ use: 'shop' });
-  if (online.isClient && locker?.use === 'shop') lockerInput(realDt);   // (in someone else's game: the shop's still ours to look through)
+  if (online.isClient && state === 'training' && !locker && !paused) {
+    // in someone else's training: TAB for the armory and the room, E at a cabinet
+    if (input.wasPressed('Tab')) openLocker({ use: 'all' });
+    else if (input.wasPressed('KeyE') && cabinetNear()) openLocker(cabinetNear());
+  }
+  // \ (ฃ / ฅ on a Thai layout): the HUD and everything over the fight off, and on again
+  if (input.wasPressed('Backslash', 'IntlBackslash') && !onMenu() && !online.isScreen(state) && !trainEdit) uiHidden = !uiHidden;
+  if (online.isClient && locker) lockerInput(realDt);   // (in someone else's game: the shop's, the armory's, still ours to look through)
   else if (input.wasPressed('Escape')) { if (locker) locker = null; else paused = !paused; }
   else if (paused) pauseInput();
 
@@ -4363,7 +4708,7 @@ function tick(realDt, draw = true) {
     for (const k of game.feed) k.t -= realDt;
     renderer.update(realDt);
     updateCamera(realDt);
-  } else if (!paused) {
+  } else if (!paused || online.active) {   // (online, the pause menu's over a game that goes on)
     const dt = realDt * slow;
     // Sandevistan: while anyone's got it going, the world's time all but stops, and only theirs goes on
     game.timeK = sandeUsers().length ? SANDE_WORLD : 1;
@@ -4374,7 +4719,7 @@ function tick(realDt, draw = true) {
     const live = state === 'fight' || state === 'end' || state === 'training';
     const cabinetOpen = !!locker;   // (the E that shuts it doesn't open it again)
     if (locker) lockerInput(realDt);
-    let pc = live && !cabinetOpen && !online.menuOpen ? (testControl ? { ...IDLE, ...testControl } : playerControl()) : IDLE;
+    let pc = live && !cabinetOpen && !online.menuOpen && !paused ? (testControl ? { ...IDLE, ...testControl } : playerControl()) : IDLE;
     // E at a cabinet opens it (rather than reaching for what's on the floor)
     if (pc.pickup && cabinetNear()) { openLocker(cabinetNear()); pc = IDLE; }
     // TAB in training: everything, wherever you are
@@ -4383,7 +4728,7 @@ function tick(realDt, draw = true) {
     if (pc.pickup) player.pickupPressed = true;
     player.update(own(player), pc);
     updateRemotes(dt, live);   // (hosting online: the other players' fighters, by their controls)
-    for (const b of bots) b.f.update(own(b.f), live ? b.control(own(b.f)) : IDLE);
+    for (const b of bots) b.f.update(own(b.f), live && !b.f.still ? b.control(own(b.f)) : IDLE);   // (training: a bot put in to stand still)
     updateDecoys(wdt, live);
     updateBullets(wdt);
     updateGrenades(wdt);
@@ -4436,6 +4781,7 @@ window.arena = {
   get level() { return level; },
   get player() { return player; }, get state() { return state; }, set state(v) { state = v; }, get bots() { return bots; },
   set control(c) { testControl = c; },
+  get locker() { return locker; }, trainAct: (m) => trainDo(m), trainCfg, get trainBotOpts() { return trainBotOpts; },
   set frozen(v) { frozen = v; },
   step(sec, dt = 1 / 60) { for (let t = 0; t < sec; t += dt) tick(dt, false); drawFrame(); },
 };

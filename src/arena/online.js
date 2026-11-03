@@ -110,6 +110,26 @@ export const online = {
   sendBuy: (kind, key) => N.room?.send({ t: 'buy', kind, key }, N.room.hostId),   // (in the shop: the host does the buying)
   sendPick: (key) => N.room?.send({ t: 'pick', skill: key }),   // (dead, PICK WHEN YOU DIE: the next life's skill, to the host)
   get hostId() { return N.room?.hostId ?? null; },
+  // training, together (see TRAINING, together)
+  get training() { return !!N.training; },
+  get trainCode() { return N.code ?? ''; },
+  get trainMembers() { return N.training ? N.members : []; },
+  get myRole() { return roleOf(myId()); },
+  get busyText() { return N.busy; },
+  get toast() { return N.msgT > 0 ? N.msg : ''; },
+  get servers() { return SERVERS; },
+  get serverKey() { return N.server?.key ?? null; },
+  roleOf: (id) => roleOf(id),
+  me: () => myId(),
+  openTrainRoom: (key) => openTrainRoom(key),
+  joinTrainRoom: (code) => joinTrainRoom(code),
+  leaveTrain: () => leaveRoom(),
+  trainKick: (id) => kick(id),
+  setRole,
+  renewCode,
+  shareTrain: () => shareTrain(),
+  sendTake: (kind, key) => N.room?.send({ t: 'take', kind, key }, N.room.hostId),   // (an armory item: the host hands it over)
+  sendAct: (m) => N.room?.send({ t: 'tact', ...m }, N.room.hostId),                 // (a room setting, a bot, the spawn: the host does it)
   isScreen: (state) => state === 'net-servers' || state === 'net-lobby' || state === 'net-room',
 };
 
@@ -308,7 +328,7 @@ function snapshot() {
   N.snapN++;
   const s = { t: Math.round(g.time * 1000) / 1000, rt: Math.round(performance.now()) / 1000 };
   // how the round stands: what's changed
-  const hd = { st: A.state, sT: Math.round(A.stateT * 10) / 10, rd: A.round, rT: Math.round(A.roundT * 2) / 2, ot: A.overtime, sl: A.slow, tk: g.timeK ?? 1, wi: ser(A.winner), ch: ser(A.champion), bk: A.banner?.text ?? null, la: g.lights.lamps.map((l) => (l.on ? 1 : 0)).join(''), ob: ser(g.obj) };
+  const hd = { st: A.state, sT: Math.round(A.stateT * 10) / 10, rd: A.round, rT: Math.round(A.roundT * 2) / 2, ot: A.overtime, sl: A.slow, tk: g.timeK ?? 1, wi: ser(A.winner), ch: ser(A.champion), bk: A.banner?.text ?? null, la: g.lights.lamps.map((l) => (l.on ? 1 : 0)).join(''), ob: ser(g.obj), tc: N.training ? { ...A.trainCfg } : null };
   const h = {};
   for (const k in hd) { const j = JSON.stringify(hd[k]); if (N.hdrSent[k] !== j) { h[k] = hd[k]; N.hdrSent[k] = j; } }
   if ('bk' in h) h.bn = ser(A.banner);
@@ -498,6 +518,7 @@ function applyHeader(h) {
   if ('ch' in h) A.champion = rev(h.ch);
   if ('tk' in h) g.timeK = h.tk;
   if ('ob' in h) g.obj = rev(h.ob);   // (the mode's: points, flags)
+  if (h.tc) Object.assign(A.trainCfg, h.tc);   // (training: the room's settings)
   if ('la' in h) [...h.la].forEach((c, i) => { const l = g.lights.lamps[i]; if (l) l.on = c === '1'; });
 }
 function askResync() {
@@ -674,7 +695,7 @@ export function hostFrame(dt) {
     });
   }
   // nobody left on the field but us, and nobody on their way: that's the match, and ours. The results, then back to the room
-  if (!N.joiners.size && A.state !== 'match' && !A.game.fighters.some((f) => f.peer !== myId() && !f.isDecoy && !f._goneAt)) {
+  if (!N.training && !N.joiners.size && A.state !== 'match' && !A.game.fighters.some((f) => f.peer !== myId() && !f.isDecoy && !f._goneAt)) {
     const me = A.game.fighters.find((f) => f.peer === myId()) ?? A.player;
     me.wins = Math.max(me.wins, A.settings.wins);
     A.champion = me;
@@ -722,7 +743,7 @@ export function clientFrame(dt) {
     if (ev) playOnce(ev);
     if (fx) playEffects(fx);
   }
-  const live = A.state === 'fight' || A.state === 'end';
+  const live = A.state === 'fight' || A.state === 'end' || A.state === 'training';
   const self = N.watching ? null : g.fighters.find((f) => f.peer === myId());
   const predicting = !!self && live && self.alive;
   if (predicting) runOwn(self, dt);
@@ -985,7 +1006,7 @@ function runOwn(f, dt) {
   reconcile(gh, f);
   if (!gh.synced) { if (f._sx === undefined) return; gh.x = f._sx; gh.y = f._sy; gh.synced = true; }
   // the controls this frame: a press is kept till a step's had it
-  const c = !N.menu ? A.playerControl() : A.IDLE;
+  const c = !N.menu && !A.handsBusy() ? A.playerControl() : A.IDLE;   // (a panel open over the game: no hands on it)
   for (const k of PRESSES) if (c[k]) N.latch[k] = true;
   if (c.fire) N.latch.fire = true;
   if (c.slot) N.latch.slot = c.slot;
@@ -1109,6 +1130,7 @@ const seatOf = (id) => N.slots.findIndex((x) => x.k === 'p' && x.id === id);
 const seated = () => N.members.filter((m) => seatOf(m.id) >= 0);
 const watchers = () => N.members.filter((m) => seatOf(m.id) < 0);
 function lobbyAd() {
+  if (N.training) return { name: N.roomName, mode: 'training', map: 'training', n: N.members.length, max: TRAIN_MAX, w: 0, playing: true, made: N.made, lock: false, rid: N.room?.rid, code: N.code, training: true };
   return { name: N.roomName, mode: A.settings.mode, map: A.settings.map, n: seated().length, max: roomSize(), w: watchers().length, playing: N.playing, made: N.made, lock: !!N.pass, rid: N.room?.rid };
 }
 function roomState() {
@@ -1198,6 +1220,7 @@ function takeOver(st) {
 }
 // (the host) everyone told how the room stands, the lobby too
 function shareRoom() {
+  if (N.training) return shareTrain();
   if (N.mode !== 'host') return;
   N.room.send(roomState());
   N.lobby?.advertise(lobbyAd());
@@ -1209,6 +1232,7 @@ function shareRoom() {
 // (a player) the host's gone: the room carries on - the first of those left takes it over, as everyone can
 // work out for themselves. A match going on is over (the game was on the host's machine), but nobody's thrown out.
 function hostGone(id) {
+  if (N.training) { leaveRoom(true); say('THE HOST LEFT - TRAINING ON YOUR OWN', 3); return; }
   const r = N.room, members = N.members.filter((m) => m.id !== id), heir = members.find((m) => m.id === myId() || r.peers.has(m.id));
   if (!heir) { leaveRoom(true); say('THE HOST LEFT - THE ROOM IS GONE'); return; }
   const slots = N.slots.map((x) => (x.k === 'p' && x.id === id ? { k: 'open', id: null } : x));
@@ -1259,6 +1283,7 @@ function dropMember(m) {
 function losingConnection() {
   const room = N.room;
   if (!room) return;
+  if (N.training) { leaveRoom(true, true); say('LOST THE CONNECTION - TRAINING ON YOUR OWN', 3); return; }
   N.back = { rid: room.rid, server: N.server, t0: performance.now() };
   room.c.room = null;
   N.busy = 'LOST THE CONNECTION - GETTING BACK IN...';
@@ -1358,6 +1383,7 @@ async function joinRoom(ad, pass = '') {
 }
 function leaveRoom(quiet = false, force = false) {
   if (!N.room && !N.back && !force) return;
+  const wasHost = N.mode === 'host';
   N.back = null;
   if (N.room) {
     if (N.mode === 'host') { N.room.send({ t: 'close' }); N.lobby?.advertise(null); }
@@ -1381,6 +1407,17 @@ function leaveRoom(quiet = false, force = false) {
   noted = null;
   clearAir();
   if (N.saved) { Object.assign(A.settings, N.saved); N.saved = null; }
+  if (N.training) {
+    // out of a training room: training on our own again (the host's own goes on, without the others)
+    const host = wasHost;
+    N.training = false;
+    N.code = '';
+    N.lobby?.leave();
+    N.lobby = null;
+    A.trainAlone(host);
+    if (!quiet) say('YOU LEFT THE ROOM', 2);
+    return;
+  }
   A.state = N.lobby ? 'net-lobby' : 'net-servers';
   A.banner = null;
   if (!quiet) say('YOU LEFT THE ROOM', 2);
@@ -1425,6 +1462,7 @@ function hookRoom() {
   };
 }
 function hostMsg(m, from) {
+  if (m.t === 'hello' && N.training) return trainHello(m, from);
   if (m.t === 'hello') {
     // into an open slot - or, with the game going or no slot open, in to watch (their own seat, if they're coming back to it)
     const name = String(m.name ?? '').slice(0, 12) || 'PLAYER';
@@ -1465,6 +1503,9 @@ function hostMsg(m, from) {
     // back to the room in the middle of the match: their fighter drops out of it
     x.out = true;
     retire(from);
+  } else if (m.t === 'take' || m.t === 'tact') {
+    const f = A.game.fighters.find((o) => o.peer === from && !o._goneAt);
+    if (N.training) { if (m.t === 'take') { if (f && typeof m.kind === 'string') A.trainTake(f, m.kind, typeof m.key === 'string' ? m.key : null); } else A.trainAct(f, x, m); }
   } else if (m.t === 'buy') {
     const f = A.game.fighters.find((o) => o.peer === from);
     if (f && typeof m.kind === 'string') A.applyBuy(f, m.kind, typeof m.key === 'string' ? m.key : null);
@@ -1497,14 +1538,33 @@ function clientMsg(m, from) {
   // (only the host says what goes - coming back, we don't know who that is till they answer)
   if (N.room.hostId === null && (m.t === 'welcome' || m.t === 'no')) N.room.hostId = from;
   if (from !== N.room.hostId) return;
-  if (m.t === 'welcome') { N.welcomed = true; N.out = !!m.out; A.state = 'net-room'; N.busy = ''; N.room.direct(from); }
+  if (m.t === 'welcome') { N.welcomed = true; N.out = !!m.out; if (!N.training) A.state = 'net-room'; N.busy = ''; N.room.direct(from); }
+  else if (m.t === 'tstart') {
+    // into the host's training: theirs from now on, as it comes (see applySnapshot)
+    N.fighters.clear();
+    N.props.clear();
+    N.snaps = [];
+    N.gotSnap = false;
+    N.playing = true;
+    N.out = false;
+    N.watching = false;
+    resetOwn();
+    A.trainGuest();
+    N.room.direct(N.room.hostId);
+    N.room.send({ t: 'resync' }, N.room.hostId);
+    say(`IN ${N.roomName}`, 2);
+  } else if (m.t === 'troom') {
+    N.roomName = m.name;
+    N.code = m.code;
+    N.members = Array.isArray(m.members) ? m.members : [];
+  }
   else if (m.t === 'playing') {
     // watching till now: a fighter of our own, from this round. (All of it again: states on a direct line can overtake this)
     N.watching = false;
     resetOwn();
     N.room.send({ t: 'resync' }, N.room.hostId);
   }
-  else if (m.t === 'no') { leaveRoom(true); say(m.why); }
+  else if (m.t === 'no') { leaveRoom(true); say(m.why, 3); }
   else if (m.t === 'pass') N.heirPass = m.pass ?? '';
   else if (m.t === 'room') {
     N.roomName = m.name;
@@ -1630,6 +1690,128 @@ function backToRoom() {
   A.banner = null;
   N.room.send({ t: 'back' });
   shareRoom();
+}
+
+// ---------- TRAINING, together ----------
+// A training room has no lobby list and no slots. Its host opens it from training itself and gets a code - the first
+// letter the server, the rest at random - and anyone else in training types the code in (TAB, ROOM) and is brought
+// into the host's: the host's training goes on as it was, with them in it. Who's who: the host is ROOT and can make
+// others ADMIN, who can change the room's settings and its bots too (main.js: trainAct says who may do what).
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const REGION_LETTER = { asia: 'S', hk: 'H', jp: 'J', kr: 'K', in: 'I', eu: 'E' };
+const TRAIN_MAX = 8;
+const newCode = (server) => REGION_LETTER[server.key] + Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+async function openTrainRoom(serverKey) {
+  if (N.room || N.busy) return;
+  const server = SERVERS.find((s) => s.key === serverKey) ?? SERVERS[0];
+  N.busy = 'OPENING THE ROOM...';
+  try {
+    N.lobby?.leave();
+    N.server = server;
+    N.lobby = await Lobby.join(server);
+    N.room = await GameRoom.open(server, myId(), `train-${myId()}-${Date.now().toString(36)}`);
+    N.mode = 'host';
+    N.training = true;
+    N.code = newCode(server);
+    N.roomName = `${N.name}'S TRAINING`;
+    N.made = Date.now();
+    N.members = [{ id: myId(), name: N.name, role: 'root' }];
+    N.pass = '';
+    A.trainHost(N.name);   // (our fighter: one of the room's now)
+    hookRoom();
+    N.playing = true;
+    N.match = { training: true };
+    N.ctl = new Map();
+    N.newShots = [];
+    N.liveShots.clear();
+    N.sentRound = -1;
+    N.snapN = 0;
+    N.benched.clear();
+    N.joiners.clear();
+    noted = [];
+    sendAllAgain();
+    shareTrain();
+    say(`THE ROOM IS OPEN - CODE ${N.code}`, 4);
+  } catch (e) {
+    console.error(e);
+    leaveRoom(true, true);
+    say('COULD NOT OPEN A ROOM - CHECK YOUR INTERNET', 3);
+  }
+  N.busy = '';
+}
+async function joinTrainRoom(raw) {
+  const code = String(raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const server = SERVERS.find((s) => REGION_LETTER[s.key] === code[0]);
+  if (code.length !== 5 || !server) return say('THAT CODE ISN\'T RIGHT - IT\'S 5 LETTERS AND NUMBERS', 3);
+  if (N.room || N.busy) return;
+  N.busy = `LOOKING FOR ${code}...`;
+  try {
+    N.lobby?.leave();
+    N.server = server;
+    N.lobby = await Lobby.join(server);
+    // (the list comes in a moment after getting there: looked through a few times)
+    let ad = null;
+    for (let i = 0; i < 24 && !ad; i++) {
+      ad = N.lobby.byCode(code);
+      if (!ad) { if (i % 4 === 3) N.lobby.refresh(); await sleep(250); }
+    }
+    if (!ad) { N.lobby.leave(); N.lobby = null; N.busy = ''; return say(`NO ROOM WITH THE CODE ${code}`, 3); }
+    N.room = await GameRoom.open(server, ad.host, ad.rid);
+    N.mode = 'client';
+    N.training = true;
+    N.welcomed = false;
+    N.members = [];
+    N.roomName = ad.name;
+    N.joinPass = code;
+    N.code = code;
+    hookRoom();
+    const r = N.room;
+    setTimeout(() => { if (N.room === r && !N.welcomed) { leaveRoom(true); say('COULD NOT REACH THAT ROOM', 3); } }, 15000);
+  } catch (e) {
+    console.error(e);
+    leaveRoom(true, true);
+    say('COULD NOT JOIN - CHECK YOUR INTERNET', 3);
+  }
+  N.busy = '';
+}
+// (the host) someone in with the code: a fighter of their own, by the way in
+function trainHello(m, from) {
+  const name = String(m.name ?? '').slice(0, 12) || 'PLAYER';
+  const had = N.members.find((x) => x.id === from);
+  if (N.banned.get(from) > performance.now()) return N.room.send({ t: 'no', why: 'YOU WERE KICKED - TRY AGAIN LATER' }, from);
+  if (!had && m.pass !== N.code) return N.room.send({ t: 'no', why: 'THAT CODE IS OUT OF DATE' }, from);
+  if (!had && N.members.length >= TRAIN_MAX) return N.room.send({ t: 'no', why: 'THAT ROOM IS FULL' }, from);
+  if (had) had.away = 0;
+  else N.members.push({ id: from, name, role: 'player' });
+  if (!A.game.fighters.some((f) => f.peer === from && !f._goneAt)) A.trainJoin({ id: from, name, skill: typeof m.skill === 'string' ? m.skill : null, i: N.members.findIndex((x) => x.id === from) });
+  N.ctl.delete(from);
+  N.room.send({ t: 'welcome', training: true }, from);
+  N.room.send({ t: 'tstart' }, from);
+  sendAllAgain();
+  shareTrain();
+  say(`${name} ${had ? 'IS BACK' : 'JOINED'}`, 2);
+}
+// (the host) who's in, and the code, to everyone (and the lobby, for the code)
+function shareTrain() {
+  if (N.mode !== 'host' || !N.room) return;
+  N.room.send({ t: 'troom', name: N.roomName, code: N.code, members: N.members.map(({ id, name, role }) => ({ id, name, role })) });
+  N.lobby?.advertise(lobbyAd());
+}
+const roleOf = (id) => (!N.mode ? 'root' : N.members.find((m) => m.id === id)?.role ?? 'player');
+function setRole(id, role) {
+  const m = N.members.find((x) => x.id === id);
+  if (N.mode !== 'host' || !m || m.role === 'root' || !['admin', 'player'].includes(role)) return;
+  m.role = role;
+  say(`${m.name} IS ${role === 'admin' ? 'AN ADMIN' : 'A PLAYER'} NOW`, 2);
+  shareTrain();
+}
+function renewCode() {
+  if (N.mode !== 'host' || !N.training) return;
+  N.code = newCode(N.server);
+  say(`NEW CODE: ${N.code} - THE OLD ONE NO LONGER WORKS`, 3);
+  shareTrain();
 }
 
 // ---------- upkeep, and input on the screens ----------
