@@ -242,6 +242,8 @@ class Sound {
         if (f.decoy && !s.decoy) this.play('clone', here);
         if (f.bow && !s.bow) this.play('charge_soft', here);
         if (f.mura && !s.mura) this.play('charge_low', here);
+        if (f.ea && !s.ea) this.play('ea_charge', here);
+        if (f.ea?.phase === 'fire' && s.eaPhase !== 'fire') this.play('ea_fire', { ...here, vol: Math.max(here.vol, 0.8) });
         if (f.blaze && !s.blaze) this.play('flame', here);
         if (f.gal && !s.gal) this.play('charge_low', here);
         if (f.summon && !s.summon) this.play('summon', here);
@@ -268,7 +270,7 @@ class Sound {
         if (!f.sande && s.sande) this.play('sande_off', { vol: 0.9 });
         if (f === viewer && f.skill && (s.cd ?? 0) > 0 && !(f.skillCD > 0)) this.play('ready', { vol: 0.7, gap: 0.3 });
       }
-      Object.assign(s, { wraith: !!f.wraith, chidori: !!f.chidori, octo: !!f.octo, steal: !!f.steal, phase: !!f.phase, jump: !!f.jump, alive: f.alive, ground: f.onGround || f.onLadder, vy: f.vy, padT: f.padT, flipT: f.flipT, roll: !!f.roll, slashes: f.slashes?.length ?? 0, gunIs: f.gun, reloadAt: f.gun?.reloading ? f.gun.reload : -1, ammo: f.gun?.ammo, acting: f.gun?.acting, hook: !!f.hook, cloak: !!f.cloak, decoy: !!f.decoy, bow: !!f.bow, mura: !!f.mura, blaze: !!f.blaze, gal: !!f.gal, summon: !!f.summon, lockOn: !!f.lockOn, lockTarget: f.lockOn?.target ?? null, barrier: !!f.barrier, barrierHit: f.barrier?.hit ?? 0, card: !!f.card, cardOn: !!f.card?.on, hackCast: !!f.hackCast, batCast: !!f.batCast, deflect: !!f.deflect, deflectPhase: f.deflect?.phase, spark: f.deflect?.spark ?? 0, hackedT: f.hackedT ?? 0, sande: !!f.sande, cd: f.skillCD });
+      Object.assign(s, { ea: !!f.ea, eaPhase: f.ea?.phase, wraith: !!f.wraith, chidori: !!f.chidori, octo: !!f.octo, steal: !!f.steal, phase: !!f.phase, jump: !!f.jump, alive: f.alive, ground: f.onGround || f.onLadder, vy: f.vy, padT: f.padT, flipT: f.flipT, roll: !!f.roll, slashes: f.slashes?.length ?? 0, gunIs: f.gun, reloadAt: f.gun?.reloading ? f.gun.reload : -1, ammo: f.gun?.ammo, acting: f.gun?.acting, hook: !!f.hook, cloak: !!f.cloak, decoy: !!f.decoy, bow: !!f.bow, mura: !!f.mura, blaze: !!f.blaze, gal: !!f.gal, summon: !!f.summon, lockOn: !!f.lockOn, lockTarget: f.lockOn?.target ?? null, barrier: !!f.barrier, barrierHit: f.barrier?.hit ?? 0, card: !!f.card, cardOn: !!f.card?.on, hackCast: !!f.hackCast, batCast: !!f.batCast, deflect: !!f.deflect, deflectPhase: f.deflect?.phase, spark: f.deflect?.spark ?? 0, hackedT: f.hackedT ?? 0, sande: !!f.sande, cd: f.skillCD });
     }
   }
 }
@@ -329,6 +331,9 @@ const SOUNDS = {
   flame: { life: 0.8, make: (a, d) => a.noise(d, { dur: 0.6, level: 0.2, from: 450, to: 1500, attack: 0.12 }) },
   summon: { life: 1, make: (a, d) => { for (const [f, at] of [[392, 0], [523, 0.1], [659, 0.2]]) a.tone(d, { at, dur: 0.6, level: 0.1, from: f, wave: 'sine', attack: 0.04 }); } },
   arrow: { life: 0.3, make: (a, d) => a.noise(d, { dur: 0.13, level: 0.12, type: 'bandpass', from: 1700, to: 800, q: 1.4 }) },
+  // enuma elish: the wind pulled in, rising and rising; then the roar of it going, and the low boom under it
+  ea_charge: { life: 2, make: (a, d) => { a.noise(d, { dur: 1.8, level: 0.22, type: 'bandpass', from: 220, to: 1800, q: 0.9, attack: 0.5 }); a.tone(d, { dur: 1.8, level: 0.2, from: 45, to: 120, attack: 0.4 }); a.tone(d, { at: 0.6, dur: 1.2, level: 0.07, from: 300, to: 900, wave: 'triangle', attack: 0.3 }); } },
+  ea_fire: { life: 1.8, make: (a, d) => { a.noise(d, { dur: 0.04, level: 0.9, type: 'highpass', from: 2400, attack: 0.001 }); a.tone(d, { dur: 1.1, level: 1, from: 120, to: 30, attack: 0.003 }); a.noise(d, { dur: 1.3, level: 0.55, from: 2600, to: 160, attack: 0.01 }); a.noise(d, { at: 0.05, dur: 1.1, level: 0.25, type: 'bandpass', from: 900, to: 300, q: 0.8, attack: 0.05 }); } },
   void: { life: 0.8, make: (a, d) => { a.tone(d, { dur: 0.55, level: 0.26, from: 240, to: 60 }); a.noise(d, { dur: 0.5, level: 0.13, from: 1300, to: 200 }); } },
   galaxy: { life: 2.2, make: (a, d) => { a.tone(d, { dur: 2, level: 0.34, from: 90, to: 38, attack: 0.2 }); a.noise(d, { dur: 1.8, level: 0.1, type: 'bandpass', from: 300, to: 1400, attack: 0.5 }); } },
   visor: { life: 0.5, make: (a, d) => { a.tone(d, { dur: 0.12, level: 0.1, from: 880, wave: 'sine' }); a.tone(d, { at: 0.09, dur: 0.2, level: 0.1, from: 1320, wave: 'sine' }); } },

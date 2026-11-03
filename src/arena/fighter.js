@@ -25,6 +25,7 @@ import { drawPhased } from './rift.js';
 import { drawSparkle } from './cloakfx.js';
 import { drawAurumCast, drawAurumHum } from './goldfx.js';
 import { drawReapDraw, drawReapIn, drawShades, drawReapMarks, drawReapFinish } from './shadefx.js';
+import { drawEaSword, drawEaRipple, drawEaCharge, drawEaBeam, drawEaBlast, EA_LEN, EA_SUPPORT } from './eafx.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
@@ -162,8 +163,14 @@ const AURUM_TIME = 12, AURUM_CD = 20;
 // last one; the wait after
 const REAP_RANGE = 140, REAP_CHAIN = 100, REAP_HOP = 0.35, REAP_IN = 0.32, REAP_CUTS = 12, REAP_EVERY = 0.11, REAP_HIT = 22, REAP_FADE = 0.78, REAP_FLOOR = 0.25, REAP_FINISH = 55, REAP_OUT = 0.4, REAP_CD = 22;
 const REAP_DRAW = 0.5;   // first, the sword drawn: stood still, there to be seen and hit, the eyes lit red
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT };
+// enuma elish (skill, Q): the sword drawn out of the gold and held up to the sky (EA_RAISE), the charge (EA_CHARGE) -
+// stood where you are all the while, there to be hit - then the beam (EA_FIRE), turning after the aim no faster than
+// EA_TURN, and a moment to lower it (EA_OUT); the wait after. (Its hits: main.js, eaBeam.)
+const EA_RAISE = 0.4, EA_CHARGE = 1.4, EA_FIRE = 1.2, EA_OUT = 0.4, EA_TURN = 1.1, EA_CD = 30;
+const EA_SWING = 0.1;   // the first of EA_FIRE: brought down from the sky to the aim, and only then the beam
+export const EA_RANGE = 900;
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -336,7 +343,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, jamT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, jamT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -615,7 +622,7 @@ export class Fighter {
     // ladders: grab one by pushing up / down in front of it
     const ladderHere = this.overLadder();
     this.ladderCool -= dt;
-    if (!this.onLadder && !this.octo && !this.steal && !this.reap && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
+    if (!this.onLadder && !this.octo && !this.steal && !this.reap && !this.ea && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
       this.onLadder = true;
       this.x += (ladderHere.x - this.x) * 0.6;
       this.vx = 0;
@@ -637,7 +644,7 @@ export class Fighter {
       }
     }
     // dive roll (costs stamina)
-    if (c.roll && !this.roll && !this.octo && !this.steal && !this.reap && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
+    if (c.roll && !this.roll && !this.octo && !this.steal && !this.reap && !this.ea && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
       const dir = c.move ? Math.sign(c.move) : this.facing;
       // a roll gives a cloak away - unless there's a foe close by: then it stays
       // hidden through the roll and comes up out of it stabbing them (roll past
@@ -681,7 +688,8 @@ export class Fighter {
     else if (sk === 'fang') this.updateFang(dt, c);
     else if (sk === 'aurum') this.updateAurum(dt, c);
     else if (sk === 'reap') this.updateReap(dt, c);
-    if (this.reap && this.reap.phase !== 'out') c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (drawing the sword, or a shadow: held where it is - see updateReap)
+    else if (sk === 'ea') this.updateEa(dt, c);
+    if ((this.reap && this.reap.phase !== 'out') || (this.ea && this.ea.phase !== 'out')) c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (drawing the sword, or a shadow, or the sword up to the sky: held where it is)
     // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
     const st = this.stolen;
     if (st) {
@@ -806,7 +814,10 @@ export class Fighter {
       this.vy = Math.sin(this.blaze.a) * BLAZE_SPEED;
       if (this.vy > 100) this.dropT = 0.1;   // (down through a catwalk too)
     }
-    if (!this.onLadder && !this.lunge && !dashing && !cutting && !lunging && !this.wall) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
+    // enuma elish set off in the air: held up there, still, the whole time (and down after)
+    const hover = this.ea?.air;
+    if (hover) { this.vy = 0; this.vx *= Math.exp(-10 * dt); }
+    if (!this.onLadder && !this.lunge && !dashing && !cutting && !lunging && !this.wall && !hover) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
 
     const wasGround = this.onGround, fall = this.vy, px = this.x, py = this.y;
     this.move(dt);
@@ -851,7 +862,7 @@ export class Fighter {
     if (this.jamT > 0) { this.jamT -= dt; if (this.slot === 2) c = { ...c, fire: false }; }
     if (this.aurum && this.aurum.t < AURUM_CAST) c = { ...c, fire: false, reload: false };   // (the gold sniper's still being built)
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase || this.reap) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase || this.reap || this.ea) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -2009,6 +2020,7 @@ export class Fighter {
     if (this.fang && !this.fang.back) { this.fang.back = true; this.game.recallFangs?.(this); }   // (they come home)
     if (this.aurum) this.game.aurumOff?.(this);
     if (this.reap) { this.reap = null; this.skillCD = REAP_CD; }   // (pulled back out of the shadows, where it was)
+    if (this.ea) { this.ea = null; this.skillCD = EA_CD; }   // (the charge, or the beam, cut off)
     this.jamT = HACK_JAM;
     if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
     this.breakBarrier(false, true);
@@ -2134,7 +2146,7 @@ export class Fighter {
   // it would be left with nothing to finish it.
   get skillBusy() {
     return !!(this.cloak || this.decoy || this.veil || this.lunge || this.bow || this.mura || this.blaze || this.gal || this.summon || this.batCast || this.wraith || this.chidori || this.octo
-      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap);
+      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea);
   }
 
   // ---------- golden fangs (skill, Q) ----------
@@ -2293,6 +2305,107 @@ export class Fighter {
     if (m.phase !== 'out' && m.cur?.alive) drawReapMarks(ctx, [m.cur], t, m.phase === 'draw' ? m.t / REAP_DRAW : 1);
     if (m.cuts.length) drawShades(ctx, paint(), m.cuts, t, this.facing);
     if (m.phase === 'out' && m.fin) drawReapFinish(ctx, m.fin.x, m.fin.y, this.facing, m.t / REAP_OUT, t, m.seed);
+  }
+
+  // ---------- enuma elish (skill, Q) ----------
+  // Q: weapons away, and a sword out of a ripple of gold - a blade of three black cylinders - held up to the sky in
+  // both hands. The cylinders start to turn, each its own way, faster and faster, the wind pulled in round it in red
+  // rings and the light at its point growing (EA_CHARGE: rooted there, to be hit). Then it's brought down to the aim
+  // and it all goes, a beam of red wind as far as EA_RANGE, through walls and all, that turns after the aim as you
+  // hold it - slowly (EA_TURN) - and tears into anyone in it (main.js: eaBeam). Then lowered, and the long wait.
+  updateEa(dt, c) {
+    const m = this.ea, G = this.game;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && !this.onLadder && this.alive) this.ea = { phase: 'raise', t: 0, a: this.aim, len: 0, spin: 0, seed: Math.floor(Math.random() * 1000) / 10, air: !this.onGround };
+      return;
+    }
+    m.t += dt;
+    const me = G.viewer === this;
+    if (m.phase === 'raise') {
+      m.spin += dt * 3;
+      if (m.t >= EA_RAISE) { m.phase = 'charge'; m.t = 0; }
+    } else if (m.phase === 'charge') {
+      const k = Math.min(1, m.t / EA_CHARGE);
+      m.spin += dt * (4 + 46 * k * k);
+      m.a = this.aim;
+      if (Math.random() < dt * 14 * k) { const p = this.eaTip(); G.fx.sparks(p.x, p.y, 1 + Math.round(k * 2), 0, -1, Math.random() < 0.5 ? '#ff4a3a' : '#ffb08a'); }
+      if (me) G.kick?.((Math.random() - 0.5) * 2.4 * k * k, (Math.random() - 0.5) * 2.4 * k * k);
+      if (m.t >= EA_CHARGE) {
+        m.phase = 'fire';
+        m.t = 0;
+        m.a = this.aim;
+      }
+    } else if (m.phase === 'fire') {
+      m.spin += dt * 70;
+      if (m.t - dt < EA_SWING && m.t >= EA_SWING) { const p = this.eaTip(); G.eaFire?.(this, p.x, p.y, m.a); }   // (down at the aim: it goes)
+      const d = ((this.aim - m.a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;   // (the short way round to the aim)
+      m.a += Math.max(-EA_TURN * dt, Math.min(EA_TURN * dt, d));
+      if (m.t >= EA_SWING) m.len = Math.min(EA_RANGE, m.len + 2600 * dt);
+      const p = this.eaTip();
+      G.eaBeam?.(this, p.x, p.y, m.a, m.len, this.eaWidth(), m.seed);
+      if (!m.air) this.vx -= Math.cos(m.a) * 240 * dt;   // (the push of it, back along the beam - not up in the air, where it's held)
+      if (me) G.kick?.((Math.random() - 0.5) * 3 - Math.cos(m.a) * 1.2, (Math.random() - 0.5) * 3 - Math.sin(m.a) * 1.2);
+      if (m.t >= EA_FIRE) { m.phase = 'out'; m.t = 0; }
+    } else if (m.t >= EA_OUT) {
+      this.ea = null;
+      this.skillCD = EA_CD;
+    }
+  }
+  // How wide the beam is (0..1): there at once, held, gone thin at the end.
+  eaWidth() {
+    const m = this.ea;
+    if (m?.phase !== 'fire' || m.t < EA_SWING) return 0;
+    return Math.max(0, Math.min(1, (m.t - EA_SWING) / 0.06, (EA_FIRE - m.t) / 0.3));
+  }
+  // The sword's grip and which way it points: drawn from the hip and swung up overhead; held there; brought down to the
+  // aim to fire along; lowered after.
+  eaGrip() {
+    // (held as a katana is: in front of the body at the waist, both hands on the grip - and for the charge, raised
+    // over the head, the blade straight up to the sky)
+    const m = this.ea, f = this.facing, b = this.pose.body;
+    const ease = (k) => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); };
+    const turn = (from, to, k) => from + wrapAngle(to - from) * k;
+    const fwd = (a) => ({ x: this.x + f + Math.cos(a) * GUN_REACH, y: this.y + b - GUN_HEIGHT + Math.sin(a) * GUN_REACH, a });
+    const ready = f > 0 ? -0.45 : Math.PI + 0.45, upA = -Math.PI / 2;   // (straight up)
+    const over = { x: this.x + f, y: this.y + b - 31, a: upA };
+    const toward = (p, q, k) => ({ x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k, a: turn(p.a, q.a, k) });
+    if (m.phase === 'raise') return toward(fwd(ready), over, ease(m.t / EA_RAISE));
+    if (m.phase === 'charge') {
+      const k = m.t / EA_CHARGE, sh = k > 0.4 ? Math.round(Math.sin(this.game.time * 53) * k) : 0;   // (shaking with it)
+      return { ...over, x: over.x + sh };
+    }
+    if (m.phase === 'fire') return m.t >= EA_SWING ? fwd(m.a) : toward(over, fwd(m.a), ease(m.t / EA_SWING));   // (brought down from the sky to the aim)
+    const rest = f > 0 ? 0.35 : Math.PI - 0.35;
+    return fwd(turn(m.a, rest, ease(m.t / EA_OUT)));
+  }
+  eaTip(g = this.eaGrip()) {
+    return { x: g.x + Math.cos(g.a) * EA_LEN, y: g.y + Math.sin(g.a) * EA_LEN };
+  }
+  // After the lighting: the gold it comes out of; the charge round it and the warning down the aim; the beam.
+  drawEa(ctx, t) {
+    const m = this.ea;
+    if (!m) return;
+    const g = this.eaGrip(), p = this.eaTip(g);
+    if (m.phase === 'raise') drawEaRipple(ctx, g.x + Math.cos(g.a) * 12, g.y + Math.sin(g.a) * 12, m.t / EA_RAISE, t);
+    else if (m.phase === 'charge') {
+      const k = Math.min(1, m.t / EA_CHARGE);
+      drawEaCharge(ctx, p.x, p.y, g.x, g.y, this.x, this.y, k, t, m.seed);
+      // where it'll go: red dots down the aim, for anyone to see coming (more and more, at the end)
+      if (k > 0.35) {
+        const a = this.aim, sx = this.x, sy = this.y + this.pose.body - 15, run = (t * 160) % 8;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = '#ff2a3a';
+        for (let i = 14 + run; i < 320; i += 8) {
+          ctx.globalAlpha = Math.min(1, (k - 0.35) / 0.4) * 0.6 * (1 - i / 320);
+          ctx.fillRect(Math.round(sx + Math.cos(a) * i), Math.round(sy + Math.sin(a) * i), 2, 1);
+        }
+        ctx.restore();
+      }
+    } else if (m.phase === 'fire') {
+      drawEaBeam(ctx, p.x, p.y, m.a, m.len, this.eaWidth(), t, m.seed);
+      if (m.t >= EA_SWING && m.t < EA_SWING + 0.35) drawEaBlast(ctx, p.x, p.y, (m.t - EA_SWING) / 0.35, t);
+    }
   }
 
   // ---------- jumper (skill, Q) ----------
@@ -2927,6 +3040,7 @@ export class Fighter {
     this.aurum = null;
     this._prevGun = null;
     this.reap = null;
+    this.ea = null;
     this.jamT = 0;
     this.alive = false;
     this.hp = 0;
@@ -3377,6 +3491,7 @@ export class Fighter {
     const t = this.game.time, mine = this.seesThrough;
     this.drawReap(ctx, t);
     this.drawAurum(ctx, t);
+    this.drawEa(ctx, t);
     // wraith form going on and off: a burst of smoke, on whoever's screen this is. And all the while, more pouring off it.
     const wr = this.wraith, now = performance.now();
     if (!!wr !== !!this._wraithWas) {
@@ -3529,7 +3644,7 @@ export class Fighter {
       ctx.restore();
     };
     const g = this.gun;
-    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && !this.chidori && !this.reap)) return;   // (put away too while the archery bow's out)
+    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && !this.chidori && !this.reap && !this.ea)) return;   // (put away too while the archery bow's out)
     if (g.def.cls === 'pistol') put(g, Math.PI * 0.62, 2, 10);   // holstered
     else put(g, -Math.PI * 0.75, 3, 13);                         // across the back at 45 degrees
   }
@@ -3663,6 +3778,21 @@ export class Fighter {
       const h = this.chidoriHand(), m = this.chidori;
       drawHand(ctx, 'open', Math.round(h.x), Math.round(h.y));
       if (m.phase === 'charge' || (m.phase === 'hold' && Math.abs(this.vx) <= 40) || m.phase === 'stab') drawHand(ctx, 'grab', Math.round(h.x - this.facing * 3), Math.round(h.y + 2));
+      return;
+    }
+    if (this.ea) {
+      // enuma elish: the sword in both hands - up to the sky, then down along the beam
+      // (as a katana's held: the far hand behind on the grip, the near hand wrapped over it in front of the guard)
+      const m = this.ea, g = this.eaGrip(), c = Math.cos(g.a), flip = Math.abs(c) < 0.25 ? this.facing : Math.sign(c);
+      const heat = m.phase === 'raise' ? 0.1 : m.phase === 'charge' ? m.t / EA_CHARGE : m.phase === 'fire' ? 1 : 1 - m.t / EA_OUT;
+      ctx.save();
+      ctx.translate(Math.round(g.x), Math.round(g.y));
+      ctx.rotate(g.a);
+      ctx.scale(1, flip);
+      drawHand(ctx, 'support', Math.round(EA_SUPPORT), 0);
+      drawEaSword(ctx, m.spin, heat);
+      drawHand(ctx, 'trigger', 0, 0);
+      ctx.restore();
       return;
     }
     if (this.reap?.phase === 'draw') {
