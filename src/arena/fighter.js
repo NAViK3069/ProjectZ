@@ -26,6 +26,7 @@ import { drawSparkle } from './cloakfx.js';
 import { drawAurumCast, drawAurumHum } from './goldfx.js';
 import { drawReapDraw, drawReapIn, drawShades, drawReapMarks, drawReapFinish } from './shadefx.js';
 import { drawEaSword, drawEaRipple, drawEaCharge, drawEaBeam, drawEaBlast, EA_LEN, EA_SUPPORT } from './eafx.js';
+import { drawJcMark, drawJcSphere, drawJcWind, drawJcTrail, drawJcAura, drawJcShatter, drawJcShut, jcCutList } from './cutfx.js';
 import { drawExSword, drawExVeil, drawExCharge, drawExSlash, drawExWave, drawExBlast, drawExAfter, EX_LEN, EX_SUPPORT } from './holyfx.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
@@ -177,9 +178,20 @@ const EA_T = { raise: EA_RAISE, charge: EA_CHARGE, swing: EA_SWING, out: EA_OUT 
 const EX_RAISE = 0.45, EX_CHARGE = 1.3, EX_SWING = 0.14, EX_FIRE = 0.9, EX_OUT = 0.7, EX_SPEED = 1900, EX_CD = 30;
 export const EX_RANGE = 1000;
 const EX_T = { raise: EX_RAISE, charge: EX_CHARGE, swing: EX_SWING, out: EX_OUT };
+// judgement cut (skill, Q): the stance, hand on the hilt (JC_STANCE: the mark goes where you aim, JC_RANGE at most,
+// walls no matter - it's space that's cut); the cuts there (JC_CUTS of them, one every JC_EVERY, each JC_HIT to anyone in
+// the sphere, JC_R); the sword put away (JC_END) - the sphere breaking first (JC_BREAK into it: JC_LAST), then the click;
+// the wait after. (Its hits: main.js, jcCut.)
+const JC_STANCE = 0.45, JC_CUTS = 12, JC_EVERY = 0.06, JC_END = 0.95, JC_BREAK = 0.5, JC_SHUT = 0.68, JC_CD = 18;
+// (the sword by you meanwhile: drawn straight out of the scabbard - JC_DRAW - then spun round the hand three times,
+// fast, there at the waist - JC_SPIN - like a shotgun twirled, to end lined up with its scabbard; put back all but
+// the last of it (JC_GAP still out) - and only once the sphere's broken (JC_BREAK), snapped shut (JC_SHUT))
+const JC_DRAW = 0.18, JC_SPIN = 0.36, JC_MOUTH = 22, JC_GAP = 5, JC_SQ = 0.72;
+export const JC_R = 46, JC_RANGE = 300, JC_HIT = 11, JC_LAST = 70;
+const JC_CUT = JC_CUTS * JC_EVERY + 0.1;
 export const EA_RANGE = 900;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_FIRE };
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD, judge: JC_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -352,7 +364,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, xc: null, jamT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, xc: null, jc: null, jamT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -631,7 +643,7 @@ export class Fighter {
     // ladders: grab one by pushing up / down in front of it
     const ladderHere = this.overLadder();
     this.ladderCool -= dt;
-    if (!this.onLadder && !this.octo && !this.steal && !this.reap && !this.ea && !this.xc && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
+    if (!this.onLadder && !this.octo && !this.steal && !this.reap && !this.ea && !this.xc && !this.jc && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
       this.onLadder = true;
       this.x += (ladderHere.x - this.x) * 0.6;
       this.vx = 0;
@@ -653,7 +665,7 @@ export class Fighter {
       }
     }
     // dive roll (costs stamina)
-    if (c.roll && !this.roll && !this.octo && !this.steal && !this.reap && !this.ea && !this.xc && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
+    if (c.roll && !this.roll && !this.octo && !this.steal && !this.reap && !this.ea && !this.xc && !this.jc && !(this.bow && !this.bow.fired) && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && (this.onGround || this.airRoll) && !this.onLadder && this.rollCool <= 0 && this.stamina >= ROLL_COST) {
       const dir = c.move ? Math.sign(c.move) : this.facing;
       // a roll gives a cloak away - unless there's a foe close by: then it stays
       // hidden through the roll and comes up out of it stabbing them (roll past
@@ -699,7 +711,8 @@ export class Fighter {
     else if (sk === 'reap') this.updateReap(dt, c);
     else if (sk === 'ea') this.updateEa(dt, c);
     else if (sk === 'excal') this.updateExcal(dt, c);
-    if ((this.reap && this.reap.phase !== 'out') || (this.ea && this.ea.phase !== 'out') || (this.xc && this.xc.phase !== 'out')) c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (drawing the sword, or a shadow, or the sword up to the sky: held where it is)
+    else if (sk === 'judge') this.updateJudge(dt, c);
+    if (this.jc || (this.reap && this.reap.phase !== 'out') || (this.ea && this.ea.phase !== 'out') || (this.xc && this.xc.phase !== 'out')) c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (drawing the sword, or a shadow, or the sword up to the sky: held where it is)
     // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
     const st = this.stolen;
     if (st) {
@@ -825,7 +838,7 @@ export class Fighter {
       if (this.vy > 100) this.dropT = 0.1;   // (down through a catwalk too)
     }
     // enuma elish set off in the air: held up there, still, the whole time (and down after)
-    const hover = this.ea?.air || (this.xc?.air && this.xc.phase !== 'out');
+    const hover = this.ea?.air || (this.xc?.air && this.xc.phase !== 'out') || this.jc?.air;
     if (hover) { this.vy = 0; this.vx *= Math.exp(-10 * dt); }
     if (!this.onLadder && !this.lunge && !dashing && !cutting && !lunging && !this.wall && !hover) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
 
@@ -872,7 +885,7 @@ export class Fighter {
     if (this.jamT > 0) { this.jamT -= dt; if (this.slot === 2) c = { ...c, fire: false }; }
     if (this.aurum && this.aurum.t < AURUM_CAST) c = { ...c, fire: false, reload: false };   // (the gold sniper's still being built)
     // drawing the archery bow: hands full - no shooting, hitting, throwing or switching till it's loosed
-    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase || this.reap || this.ea || this.xc) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
+    if ((this.bow && !this.bow.fired) || this.mura || this.blaze || this.gal || this.summon || this.deflect || this.wraith || this.chidori || this.steal || this.phase || this.reap || this.ea || this.xc || this.jc) c = { ...c, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, slot: 0, cycle: 0, reload: false };
     // behind a shadow clone: any attack of your own ends it - the double goes, you're seen
     if (this.decoy && (c.fire || c.melee || c.grenade || c.throwWeapon)) this.dropDecoy();
     // cloaked: the knife and nothing else - no throwing or grenades - and one
@@ -2032,6 +2045,7 @@ export class Fighter {
     if (this.reap) { this.reap = null; this.skillCD = REAP_CD; }   // (pulled back out of the shadows, where it was)
     if (this.ea) { this.ea = null; this.skillCD = EA_CD; }   // (the charge, or the beam, cut off)
     if (this.xc) { this.xc = null; this.skillCD = EX_CD; }
+    if (this.jc) { this.jc = null; this.skillCD = JC_CD; }
     this.jamT = HACK_JAM;
     if (this.sande) { this.sande = null; this.skillCD = SANDE_CD; }
     this.breakBarrier(false, true);
@@ -2157,7 +2171,7 @@ export class Fighter {
   // it would be left with nothing to finish it.
   get skillBusy() {
     return !!(this.cloak || this.decoy || this.veil || this.lunge || this.bow || this.mura || this.blaze || this.gal || this.summon || this.batCast || this.wraith || this.chidori || this.octo
-      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea || this.xc);
+      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea || this.xc || this.jc);
   }
 
   // ---------- golden fangs (skill, Q) ----------
@@ -2500,6 +2514,115 @@ export class Fighter {
     } else drawExAfter(ctx, m.ox, m.oy, m.a, m.len, m.t / EX_OUT, t, m.seed);
   }
 
+  // ---------- judgement cut (skill, Q) ----------
+  // Q: into the stance - the katana at the hip, the hand on its hilt - and a mark where you aim (JC_RANGE at most, and
+  // walls no matter: it's the space there that's cut). Then, there, a sphere of space is cut loose and cut across again
+  // and again (JC_CUTS, each hitting anyone in it), the sword in and out of its scabbard by you too fast to see. Then
+  // it's put away, slowly - and at the click the sphere breaks like glass, the last and hardest hit. Rooted throughout.
+  jcPoint() {
+    const sx = this.x, sy = this.y - 16, t = this.aimTarget ?? { x: sx + Math.cos(this.aim) * 160, y: sy + Math.sin(this.aim) * 160 };
+    const dx = t.x - sx, dy = t.y - sy, d = Math.hypot(dx, dy) || 1, r = Math.min(d, JC_RANGE);
+    return { x: sx + (dx / d) * r, y: sy + (dy / d) * r };
+  }
+  updateJudge(dt, c) {
+    const m = this.jc, G = this.game;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && !this.onLadder && this.alive) this.jc = { phase: 'stance', t: 0, ...this.jcPoint(), seed: Math.floor(Math.random() * 1000) / 10, air: !this.onGround };
+      return;
+    }
+    const before = m.t;
+    m.t += dt;
+    if (m.phase === 'stance') {
+      Object.assign(m, this.jcPoint());   // (the mark goes where you aim, till it's cut)
+      if (m.t >= JC_STANCE) { m.phase = 'cut'; m.t = 0; G.jcOpen?.(this, m.x, m.y); }
+    } else if (m.phase === 'cut') {
+      for (let i = 0; i < JC_CUTS; i++) if (before < i * JC_EVERY && m.t >= i * JC_EVERY) G.jcCut?.(this, m.x, m.y, JC_R, JC_HIT, false);
+      if (G.viewer === this) G.kick?.((Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 1.4);
+      if (m.t >= JC_CUT) { m.phase = 'end'; m.t = 0; }
+    } else {
+      if (before < JC_BREAK && m.t >= JC_BREAK) { m.broke = true; G.jcCut?.(this, m.x, m.y, JC_R, JC_LAST, true); }
+      if (before < JC_SHUT && m.t >= JC_SHUT) m.shut = true;   // (the click: shut, now it's done)
+      if (m.t >= JC_END) { this.jc = null; this.skillCD = JC_CD; }
+    }
+  }
+  // Where the katana is: in its scabbard (sheathed, pulled out `pull` - a touch in the stance, more coming home) or
+  // out (drawn: its grip and angle, as seen facing right). As it cuts it's held swept out forward, wavering between
+  // two angles too fast to follow; put away, it swings round and down to the scabbard's mouth and slides in.
+  jcPose() {
+    const m = this.jc, ease = (k) => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); };
+    if (m.phase === 'stance') return this.jcSheath(2 * Math.min(1, m.t / JC_STANCE));
+    const tt = m.phase === 'cut' ? m.t : JC_CUT + m.t;
+    if (tt < JC_DRAW) return this.jcSheath(2 + (JC_MOUTH - 2) * ease(tt / JC_DRAW));   // (drawn straight out)
+    if (m.phase === 'cut') return { sheathed: false, ...this.jcSpin(tt) };
+    // put back: brought to the scabbard's mouth, slid in all but the last of it - held so - and, the sphere broken,
+    // snapped shut
+    const SA = Math.PI - 0.3;
+    if (m.t < 0.2) { const q = ease(m.t / 0.2), from = this.jcSpin(tt), to = this.jcSheath(JC_MOUTH); return { sheathed: false, ang: SA, sq: 1, gx: from.gx + (to.gx - from.gx) * q, gy: from.gy + (to.gy - from.gy) * q }; }
+    if (m.t < JC_SHUT) return this.jcSheath(JC_GAP + (JC_MOUTH - JC_GAP) * (1 - ease((m.t - 0.2) / 0.22)));
+    return this.jcSheath(JC_GAP * Math.max(0, 1 - (m.t - JC_SHUT) / 0.04));
+  }
+  // in its scabbard at the hip, pulled out p: where the hand on its hilt is
+  jcSheath(p) {
+    const f = this.facing, hx = this.x + f * 5, hy = this.y + this.pose.body - 11;
+    return { sheathed: true, pull: p, gx: hx + f * Math.cos(0.3) * p, gy: hy - Math.sin(0.3) * p };
+  }
+  // the spin (tt: from the cuts' start): from the scabbard's mouth to just in front of the waist, and round the hand
+  // three times, fast and even, ending lined up with the scabbard again (ang as seen facing right). Round in a ring
+  // that leans away a little (sq: squashed top to bottom, so the point keeps off the floor) - flat again after.
+  jcSpin(tt) {
+    const f = this.facing, SA = Math.PI - 0.3, u = Math.max(0, Math.min(1, (tt - JC_DRAW) / JC_SPIN));
+    const mv = Math.max(0, Math.min(1, (tt - JC_DRAW) / 0.05)), from = this.jcSheath(JC_MOUTH), at = { x: this.x + f * 10, y: this.y + this.pose.body - 17 };
+    const after = Math.max(0, Math.min(1, (tt - JC_DRAW - JC_SPIN) / 0.1)), sq = 1 - (1 - JC_SQ) * Math.min(mv, 1 - after);
+    return { ang: SA + u * Math.PI * 6, sq, gx: from.gx + (at.x - from.gx) * mv, gy: from.gy + (at.y - from.gy) * mv };
+  }
+  // the katana out at (gx, gy) along ang (as seen facing right), as the leaning ring of the spin shows it
+  drawKatanaSpun(ctx, gx, gy, ang, sq) {
+    const k = (this._kata ??= new MeleeWeapon(MELEE.katana)), w = this.facing > 0 ? ang : Math.PI - ang, dx = Math.cos(w), dy = Math.sin(w) * sq, a = Math.atan2(dy, dx);
+    ctx.save();
+    ctx.translate(Math.round(gx), Math.round(gy));
+    ctx.rotate(a);
+    ctx.scale(Math.max(0.3, Math.hypot(dx, dy)), Math.cos(a) >= 0 ? 1 : -1);
+    k.draw(ctx);
+    ctx.restore();
+  }
+  // After the lighting: the mark, the sphere and its cuts, the twirl and the wind round you, the break.
+  drawJudge(ctx, t) {
+    const m = this.jc;
+    if (!m) return;
+    const hx = this.x + this.facing * 5, hy = this.y + this.pose.body - 11;
+    if (m.phase === 'stance') {
+      drawJcMark(ctx, m.x, m.y, JC_R, m.t / JC_STANCE, t);
+      drawJcAura(ctx, this.x, this.y, hx, hy, m.t / JC_STANCE, t, m.seed);
+      // a glint along the scabbard's mouth, and the line of where it'll go, faint
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.35 * Math.min(1, m.t / JC_STANCE);
+      ctx.fillStyle = '#5ad8ff';
+      const d = Math.hypot(m.x - this.x, m.y - hy) || 1;
+      for (let i = 10; i < d - JC_R; i += 6) ctx.fillRect(Math.round(this.x + ((m.x - this.x) * i) / d), Math.round(hy + ((m.y - hy) * i) / d), 1, 1);
+      ctx.restore();
+      return;
+    }
+    const since = m.phase === 'cut' ? m.t : JC_CUT + m.t;
+    const broken = !!m.broke;
+    if (!broken) drawJcSphere(ctx, m.x, m.y, JC_R, Math.min(1, since / 0.08), t, m.seed, jcCutList(m.seed, JC_R, JC_CUTS, JC_EVERY, since));
+    else drawJcShatter(ctx, m.x, m.y, JC_R, Math.min(1, (m.t - JC_BREAK) / (JC_END - JC_BREAK)), t, m.seed);
+    if (m.shut) drawJcShut(ctx, hx, hy, this.facing, (m.t - JC_SHUT) / (JC_END - JC_SHUT), t);
+    // the wind of it all round you, cut through again and again - there at once, fading slowly after; and the ring of
+    // light the blade's point leaves as it spins, fading off behind it
+    drawJcWind(ctx, this.x, this.y + this.pose.body - 14, since, t, m.seed, JC_CUTS, JC_EVERY, JC_DRAW + JC_SPIN);
+    const tips = [], AGE = 0.5;
+    for (let j = 0; j * 0.01 < AGE; j++) {
+      const t2 = since - j * 0.01;
+      if (t2 < JC_DRAW) break;
+      if (t2 > JC_DRAW + JC_SPIN) continue;
+      const q = this.jcSpin(t2), a = this.facing > 0 ? q.ang : Math.PI - q.ang;
+      tips.push({ x: q.gx + Math.cos(a) * 28, y: q.gy + Math.sin(a) * 28 * q.sq, k: (j * 0.01) / AGE });
+    }
+    if (tips.length > 1) drawJcTrail(ctx, tips);
+    if (m.phase === 'cut') drawJcAura(ctx, this.x, this.y, hx, hy, 1, t, m.seed);
+  }
+
   // ---------- jumper (skill, Q) ----------
   // Q: a rift tears open where you stand and you step through it into the other place - nothing touches you there,
   // you're quicker, and you can't shoot - and wherever you go is the path (see main.js: updateRifts, which lays it).
@@ -2784,14 +2907,15 @@ export class Fighter {
   // The katana itself - the real one, as it's carried in hand - at (x, y) along ang as seen facing right.
   // In its scabbard: the hilt showing, black lacquer over the blade with a bright line along it and a cap at the end.
   // (pull: the katana drawn that far out of the scabbard - the hilt forward of where it was, the scabbard where it was)
-  drawKatanaAt(ctx, x, y, ang, sheathed, pull = 0) {
+  drawKatanaAt(ctx, x, y, ang, sheathed, pull = 0, blade = true) {
     const k = (this._kata ??= new MeleeWeapon(MELEE.katana));
     const a = this.facing > 0 ? ang : Math.PI - ang, flip = Math.cos(a) >= 0 ? 1 : -1;
     ctx.save();
     ctx.translate(Math.round(x), Math.round(y));
     ctx.rotate(a);
     ctx.scale(1, flip);
-    if (pull) { ctx.save(); ctx.translate(-Math.round(pull), 0); k.draw(ctx); ctx.restore(); } else k.draw(ctx);
+    if (!blade) {}
+    else if (pull) { ctx.save(); ctx.translate(-Math.round(pull), 0); k.draw(ctx); ctx.restore(); } else k.draw(ctx);
     if (sheathed) {
       ctx.fillStyle = '#0b0e12';
       ctx.fillRect(5, -3.5, 25, 6);
@@ -3134,6 +3258,7 @@ export class Fighter {
     this.reap = null;
     this.ea = null;
     this.xc = null;
+    this.jc = null;
     this.jamT = 0;
     this.alive = false;
     this.hp = 0;
@@ -3586,6 +3711,7 @@ export class Fighter {
     this.drawAurum(ctx, t);
     this.drawEa(ctx, t);
     this.drawExcal(ctx, t);
+    this.drawJudge(ctx, t);
     // wraith form going on and off: a burst of smoke, on whoever's screen this is. And all the while, more pouring off it.
     const wr = this.wraith, now = performance.now();
     if (!!wr !== !!this._wraithWas) {
@@ -3738,7 +3864,7 @@ export class Fighter {
       ctx.restore();
     };
     const g = this.gun;
-    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && !this.chidori && !this.reap && !this.ea && !this.xc)) return;   // (put away too while the archery bow's out)
+    if (!g || (this.slot === 2 && !this.bow && !this.mura && !this.blaze && !this.gal && !this.summon && !this.deflect && !this.chidori && !this.reap && !this.ea && !this.xc && !this.jc)) return;   // (put away too while the archery bow's out)
     if (g.def.cls === 'pistol') put(g, Math.PI * 0.62, 2, 10);   // holstered
     else put(g, -Math.PI * 0.75, 3, 13);                         // across the back at 45 degrees
   }
@@ -3900,6 +4026,22 @@ export class Fighter {
       drawExSword(ctx, this.xcLight(), this.game.time);
       drawHand(ctx, 'trigger', 0, 0);
       ctx.restore();
+      return;
+    }
+    if (this.jc) {
+      // judgement cut: the stance - the katana at the hip in its scabbard, the far hand steadying the scabbard, the
+      // near on the hilt; drawn straight out as it cuts, and spun round the hand three times, fast, the scabbard left at
+      // the hip; then put back all but the last of it - and snapped shut once the sphere's broken
+      const P = this.jcPose(), hx = this.x + this.facing * 5, hy = this.y + this.pose.body - 11, SA = Math.PI - 0.3;
+      if (P.sheathed) {
+        drawHand(ctx, 'open', Math.round(this.x - this.facing * 1), hy + 2);
+        this.drawKatanaAt(ctx, hx, hy, SA, true, P.pull);
+      } else {
+        this.drawKatanaAt(ctx, hx, hy, SA, true, 0, false);
+        drawHand(ctx, 'open', Math.round(this.x - this.facing * 1), hy + 2);
+        this.drawKatanaSpun(ctx, P.gx, P.gy, P.ang, P.sq ?? 1);
+      }
+      drawHand(ctx, 'grab', Math.round(P.gx), Math.round(P.gy));
       return;
     }
     if (this.reap?.phase === 'draw') {

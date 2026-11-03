@@ -244,6 +244,10 @@ class Sound {
         if (f.mura && !s.mura) this.play('charge_low', here);
         if (f.ea && !s.ea) this.play('ea_charge', here);
         if (f.xc && !s.xc) this.play('ex_charge', here);
+        if (f.jc && !s.jc) this.play('jc_stance', here);
+        if (f.jc?.phase === 'cut' && s.jcPhase !== 'cut') this.play('jc_cut', { ...here, vol: Math.max(here.vol, 0.7) });
+        if (f.jc?.broke && !s.jcBroke) this.play('jc_break', { ...here, vol: Math.max(here.vol, 0.8) });
+        if (f.jc?.shut && !s.jcShut) this.play('jc_shut', here);
         if (f.xc?.phase === 'fire' && s.xcPhase !== 'fire') this.play('ex_fire', { ...here, vol: Math.max(here.vol, 0.8) });
         if (f.ea?.phase === 'fire' && s.eaPhase !== 'fire') this.play('ea_fire', { ...here, vol: Math.max(here.vol, 0.8) });
         if (f.blaze && !s.blaze) this.play('flame', here);
@@ -272,7 +276,7 @@ class Sound {
         if (!f.sande && s.sande) this.play('sande_off', { vol: 0.9 });
         if (f === viewer && f.skill && (s.cd ?? 0) > 0 && !(f.skillCD > 0)) this.play('ready', { vol: 0.7, gap: 0.3 });
       }
-      Object.assign(s, { ea: !!f.ea, eaPhase: f.ea?.phase, xc: !!f.xc, xcPhase: f.xc?.phase, wraith: !!f.wraith, chidori: !!f.chidori, octo: !!f.octo, steal: !!f.steal, phase: !!f.phase, jump: !!f.jump, alive: f.alive, ground: f.onGround || f.onLadder, vy: f.vy, padT: f.padT, flipT: f.flipT, roll: !!f.roll, slashes: f.slashes?.length ?? 0, gunIs: f.gun, reloadAt: f.gun?.reloading ? f.gun.reload : -1, ammo: f.gun?.ammo, acting: f.gun?.acting, hook: !!f.hook, cloak: !!f.cloak, decoy: !!f.decoy, bow: !!f.bow, mura: !!f.mura, blaze: !!f.blaze, gal: !!f.gal, summon: !!f.summon, lockOn: !!f.lockOn, lockTarget: f.lockOn?.target ?? null, barrier: !!f.barrier, barrierHit: f.barrier?.hit ?? 0, card: !!f.card, cardOn: !!f.card?.on, hackCast: !!f.hackCast, batCast: !!f.batCast, deflect: !!f.deflect, deflectPhase: f.deflect?.phase, spark: f.deflect?.spark ?? 0, hackedT: f.hackedT ?? 0, sande: !!f.sande, cd: f.skillCD });
+      Object.assign(s, { ea: !!f.ea, eaPhase: f.ea?.phase, xc: !!f.xc, xcPhase: f.xc?.phase, jc: !!f.jc, jcPhase: f.jc?.phase, jcBroke: !!f.jc?.broke, jcShut: !!f.jc?.shut, wraith: !!f.wraith, chidori: !!f.chidori, octo: !!f.octo, steal: !!f.steal, phase: !!f.phase, jump: !!f.jump, alive: f.alive, ground: f.onGround || f.onLadder, vy: f.vy, padT: f.padT, flipT: f.flipT, roll: !!f.roll, slashes: f.slashes?.length ?? 0, gunIs: f.gun, reloadAt: f.gun?.reloading ? f.gun.reload : -1, ammo: f.gun?.ammo, acting: f.gun?.acting, hook: !!f.hook, cloak: !!f.cloak, decoy: !!f.decoy, bow: !!f.bow, mura: !!f.mura, blaze: !!f.blaze, gal: !!f.gal, summon: !!f.summon, lockOn: !!f.lockOn, lockTarget: f.lockOn?.target ?? null, barrier: !!f.barrier, barrierHit: f.barrier?.hit ?? 0, card: !!f.card, cardOn: !!f.card?.on, hackCast: !!f.hackCast, batCast: !!f.batCast, deflect: !!f.deflect, deflectPhase: f.deflect?.phase, spark: f.deflect?.spark ?? 0, hackedT: f.hackedT ?? 0, sande: !!f.sande, cd: f.skillCD });
     }
   }
 }
@@ -339,6 +343,11 @@ const SOUNDS = {
   // excalibur: a choir of light rising as it gathers; then the stroke - a bright ring and a great rushing roar
   ex_charge: { life: 2.2, make: (a, d) => { for (const [f, at] of [[262, 0], [330, 0.25], [392, 0.5], [523, 0.8], [659, 1.1]]) a.tone(d, { at, dur: 2 - at, level: 0.07, from: f, to: f * 1.01, wave: 'sine', attack: 0.3 }); a.noise(d, { dur: 1.9, level: 0.12, type: 'bandpass', from: 600, to: 3000, q: 0.8, attack: 0.8 }); } },
   ex_fire: { life: 1.8, make: (a, d) => { a.noise(d, { dur: 0.05, level: 0.8, type: 'highpass', from: 3000, attack: 0.001 }); a.tone(d, { dur: 0.6, level: 0.25, from: 1320, to: 1180, wave: 'triangle', attack: 0.002 }); a.tone(d, { dur: 1, level: 0.9, from: 140, to: 40, attack: 0.003 }); a.noise(d, { dur: 1.3, level: 0.5, from: 4000, to: 300, attack: 0.01 }); } },
+  // judgement cut: the stance (a low hum, the steel's ring); the cuts, one on another; the break - glass and a click
+  jc_stance: { life: 0.7, make: (a, d) => { a.tone(d, { dur: 0.5, level: 0.12, from: 90, to: 70, attack: 0.05 }); a.tone(d, { at: 0.1, dur: 0.4, level: 0.08, from: 2600, to: 2800, wave: 'triangle', attack: 0.02 }); } },
+  jc_cut: { life: 1, make: (a, d) => { for (let i = 0; i < 12; i++) a.noise(d, { at: i * 0.06, dur: 0.05, level: 0.28, type: 'highpass', from: 3500 + (i % 3) * 700, to: 7000, attack: 0.003 }); a.tone(d, { dur: 0.8, level: 0.1, from: 160, to: 90, attack: 0.02 }); } },
+  jc_shut: { life: 0.7, make: (a, d) => { clack(a, d, 0, 4200, 0.75, 0.1); a.tone(d, { at: 0.01, dur: 0.45, level: 0.1, from: 3100, to: 3000, wave: 'triangle', attack: 0.002 }); } },
+  jc_break: { life: 1.4, make: (a, d) => { a.noise(d, { at: 0.02, dur: 0.6, level: 0.4, type: 'highpass', from: 5000, to: 2500, attack: 0.002 }); for (let i = 0; i < 8; i++) a.tone(d, { at: 0.03 + i * 0.04, dur: 0.12, level: 0.06, from: 2400 + i * 330, wave: 'triangle', attack: 0.002 }); a.tone(d, { dur: 0.7, level: 0.6, from: 110, to: 35, attack: 0.003 }); } },
   void: { life: 0.8, make: (a, d) => { a.tone(d, { dur: 0.55, level: 0.26, from: 240, to: 60 }); a.noise(d, { dur: 0.5, level: 0.13, from: 1300, to: 200 }); } },
   galaxy: { life: 2.2, make: (a, d) => { a.tone(d, { dur: 2, level: 0.34, from: 90, to: 38, attack: 0.2 }); a.noise(d, { dur: 1.8, level: 0.1, type: 'bandpass', from: 300, to: 1400, attack: 0.5 }); } },
   visor: { life: 0.5, make: (a, d) => { a.tone(d, { dur: 0.12, level: 0.1, from: 880, wave: 'sine' }); a.tone(d, { at: 0.09, dur: 0.2, level: 0.1, from: 1320, wave: 'sine' }); } },
