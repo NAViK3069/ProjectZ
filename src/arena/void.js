@@ -3,7 +3,43 @@
 // in, a glow) and the purple lightning that crackles off them; and the purple
 // one itself, once red and blue have made it, as a black hole (drawVoidHole).
 
-import { palette, drawPixels, glowAt } from './pixfx.js';
+import { palette, drawPixels, glowAt, pixArc } from './pixfx.js';
+
+// Murasaki's glitter, over the orb `o` and the way it's come (fade 0..1: going out): sparks of pink, violet and white
+// twinkling all down the beam, motes going round the orb on a tilted ring, rings of violet thrown off it now and then.
+const gh = (a, b, c = 0) => { const v = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453; return v - Math.floor(v); };
+export function drawVoidGlitter(ctx, o, t, fade) {
+  const seed = o.seed ?? 0, ux = Math.cos(o.a), uy = Math.sin(o.a), len = Math.hypot(o.x - o.x0, o.y - o.y0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  // down the beam: crosses twinkling on and off, a few at a time, more near the orb
+  for (let i = 0; i < 40; i++) {
+    const s = len * Math.sqrt(gh(i, 1, seed)), q = (gh(i, 2, seed) - 0.5) * 34, tw = Math.sin(t * (12 + 10 * gh(i, 3)) + i * 2.3);
+    if (tw < 0.2) continue;
+    const x = Math.round(o.x0 + ux * s - uy * q), y = Math.round(o.y0 + uy * s + ux * q), L = tw > 0.8 ? 2 : 1;
+    ctx.globalAlpha = fade * (0.4 + 0.6 * tw);
+    ctx.fillStyle = i % 3 === 0 ? '#ffffff' : i % 3 === 1 ? '#ff9ae8' : '#c89aff';
+    ctx.fillRect(x - L, y, L * 2 + 1, 1);
+    ctx.fillRect(x, y - L, 1, L * 2 + 1);
+  }
+  if (o.done < 0) {
+    // motes round the orb on a tilted ring
+    for (let i = 0; i < 24; i++) {
+      const a = gh(i, 4, seed) * 6.283 + t * (5 + 3 * gh(i, 5)), rr = 20 + 8 * gh(i, 6), near = Math.sin(a) > 0;
+      ctx.globalAlpha = near ? 1 : 0.4;
+      ctx.fillStyle = near ? '#ffffff' : '#b060ff';
+      ctx.fillRect(Math.round(o.x + Math.cos(a) * rr), Math.round(o.y + Math.sin(a) * rr * 0.35 - Math.cos(a) * rr * 0.2), near ? 2 : 1, 1);
+    }
+    // rings thrown off it
+    for (let j = 0; j < 3; j++) {
+      const ph = (t * 2.4 + j / 3) % 1;
+      ctx.globalAlpha = (1 - ph) * 0.8;
+      ctx.fillStyle = j % 2 ? '#e0b0ff' : '#ff9ae8';
+      pixArc(ctx, o.x, o.y, 16 + ph * 26, 16 + ph * 26, 0, 0, Math.PI * 2);
+    }
+  }
+  ctx.restore();
+}
 
 export const ORB = {
   red: { core: '#12000a', rim: '#ff2a3a', hi: '#ffb0b0', glow: '255, 60, 70' },

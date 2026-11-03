@@ -822,6 +822,9 @@ function playOnce(ev) {
 // The shots: those from the host, carried on from where it said, a straight line at the time we're drawing
 // (hidden till then, so they come out of the gun as it's drawn firing, and stopped as far as they got);
 // our own, fired here at once and flying through the level as we have it.
+// (a judgement cut's sphere, as the host has it: shots into it are gone - here too, so they're not seen going through)
+const JC_SPHERE_R = 46;
+const cutAway = (b) => A.game.fighters.some((f) => f.jc && (f.jc.phase === 'cut' || (f.jc.phase === 'end' && !f.jc.broke)) && Math.hypot(b.x - f.jc.x, b.y - f.jc.y) < JC_SPHERE_R);
 function carryShots(dt, then, self) {
   const g = A.game, out = [];
   for (const b of N.shots) {
@@ -832,6 +835,7 @@ function carryShots(dt, then, self) {
     b.x = b.x0 + (b.vx / b.speed) * go;
     b.y = b.y0 + (b.vy / b.speed) * go;
     b.travelled = d;
+    if (cutAway(b)) { b.dead = true; g.fx.sparks(b.x, b.y, 3, 0, 0, '#9ae8ff'); continue; }
     out.push(b);
   }
   N.shots = N.shots.filter((b) => !b.dead);
@@ -847,6 +851,7 @@ function stepShot(b, dt) {
     b.left -= dist / n;
     b.travelled += dist / n;
     if (b.left <= 0) { b.dead = true; break; }
+    if (cutAway(b)) { b.dead = true; g.fx.sparks(b.x, b.y, 3, -ux, -uy, '#9ae8ff'); break; }
     if (L.solidAt(b.x, b.y)) { b.dead = true; g.fx.impact(b.x - ux * 2, b.y - uy * 2, -ux, -uy); g.lights.flash(b.x, b.y, 18, '255, 210, 150', 0.05); break; }
     if (g.props.some((p) => !p.dead && p.contains(b.x, b.y))) { b.dead = true; g.fx.impact(b.x - ux * 2, b.y - uy * 2, -ux, -uy); break; }
     for (const o of g.fighters) {

@@ -1947,7 +1947,8 @@ export class Fighter {
     const m = this.card;
     if (!m) {
       if (c.skill && this.skillCD <= 0 && this.alive) {
-        const at = c.target ?? { x: this.x + Math.cos(this.aim) * 60, y: this.y - 14 + Math.sin(this.aim) * 60 };
+        // (a bot: fanned out over its own head - it's not aiming at anyone while it picks)
+        const at = this.bot ? { x: this.x, y: this.y - 46 } : c.target ?? { x: this.x + Math.cos(this.aim) * 60, y: this.y - 14 + Math.sin(this.aim) * 60 };
         const joker = Math.random() < CARD_JOKER ? ['red', 'blue', 'green', 'purple'][Math.floor(Math.random() * 4)] : null;   // (where the joker is, if it's been dealt)
         this.card = { t: 0, kind: null, slot: null, joker, on: false, left: 0, total: 1, pick: { x: at.x - this.x, y: at.y - this.y, t: 0, hover: null }, fly: null, seed: Math.random() * 100 };
         this.game.fx.sparks(at.x, at.y, 10, 0, -1, '#ffe08a');
@@ -1958,7 +1959,14 @@ export class Fighter {
     if (p) {
       p.t += dt;
       let take = null;
-      if (this.bot) take = p.t > 0.35 ? m.joker ?? this.botCard() : null;
+      if (this.bot) {
+        // it makes up its mind, leans over to that one - the gun pointing up at it - and takes it
+        p.want ??= m.joker ?? this.botCard();
+        p.hover = p.t > 0.12 ? p.want : null;
+        const [ox, oy] = CARD_SPOT[p.want];
+        this.aim = Math.atan2(p.y + oy + GUN_HEIGHT, p.x + ox);
+        take = p.t > 0.5 ? p.want : null;
+      }
       else {
         p.hover = c.cardHover ?? null;
         if (c.cardPick && p.t > 0.12) take = c.cardPick;

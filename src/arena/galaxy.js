@@ -12,14 +12,14 @@
 // Each is drawn on `ctx`, its soft glow on `gl` (so the shapes can go on a
 // layer of their own, under the fighters, and the glow straight on the scene).
 
-import { palette, drawPixels, glowAt } from './pixfx.js';
+import { palette, drawPixels, glowAt, pixArc } from './pixfx.js';
 
 const CIRCLE = palette(['#ffffff', '#c8fbff', '#7af0ff', '#5ab4ff', '#4a5aff', '#6a4aff', '#b67aff', '#3a1aa0']);
 const C = { white: '#ffffff', cyan: '#66f0fd', violet: '#bd7afe', blue: '#4654eb', core: '#330294', deep: '#1e0866' };
 const SPACE = palette(Object.values(C));
 const SLASH_A = -0.42;   // the blade runs from low on the left to high on the right
 
-const hash = (a, b, c) => {
+const hash = (a, b, c = 0) => {
   const v = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453;
   return v - Math.floor(v);
 };
@@ -118,6 +118,44 @@ export function drawHole(ctx, gl, x, y, R, k, t, seed) {
     blade(g, SLASH_A, r * 1.65, r * 0.17, 0, t, seed, [C.violet, C.cyan, C.white]);
     g.globalAlpha = 1;
   });
+}
+
+// Over the hole (k 0..1 through it): a disc of light going round it, tilted, the near side over it bright, the far
+// side dim; a thin ring of light bent round its rim, flickering; stars twinkling round it, some being drawn in.
+export function drawHoleShine(ctx, x, y, R, k, t, seed) {
+  const open = Math.min(1, Math.max(0, (k - 0.08) / 0.12)), r = R * (0.35 + 0.65 * Math.min(1, Math.max(0, (k - 0.1) / 0.2)));
+  if (open <= 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  // the disc: grains of light on tilted orbits, quicker nearer in
+  for (let i = 0; i < 90; i++) {
+    const rr = r * (1.25 + 1.4 * hash(i, 31, seed)), sp = 3.2 * Math.pow(r / rr, 1.5), a = hash(i, 32, seed) * 6.283 + t * sp;
+    const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr * 0.28 - Math.cos(a) * rr * 0.12, near = Math.sin(a) > 0;
+    ctx.globalAlpha = open * (near ? 0.95 : 0.35) * (0.5 + 0.5 * hash(i, 33));
+    ctx.fillStyle = rr < r * 1.7 ? (near ? C.white : C.cyan) : i % 3 ? C.violet : C.blue;
+    ctx.fillRect(Math.round(px), Math.round(py), rr < r * 1.5 && near ? 2 : 1, 1);
+  }
+  // the bent light: a thin ring hugging the rim, broken and flickering
+  for (let j = 0; j < 12; j++) {
+    const a0 = (j / 12) * 6.283 - t * 2, on = hash(j, Math.floor(t * 16), seed) > 0.25;
+    if (!on) continue;
+    ctx.globalAlpha = open * 0.8;
+    ctx.fillStyle = j % 2 ? C.cyan : C.white;
+    pixArc(ctx, x, y, r * 1.32, r * 1.32, 0, a0, a0 + 0.38);
+  }
+  // stars round it: crosses twinkling; the nearer ones being drawn in, stretched toward it
+  for (let i = 0; i < 16; i++) {
+    const ph = (t * 0.5 + hash(i, 41, seed)) % 1, a = hash(i, 42, seed) * 6.283 + ph * 1.5, d = r * (4.2 - 2.6 * ph);
+    const sx = Math.round(x + Math.cos(a) * d), sy = Math.round(y + Math.sin(a) * d), tw = Math.sin(t * (8 + 6 * hash(i, 43)) + i * 2);
+    ctx.globalAlpha = open * Math.sin(ph * Math.PI) * (0.5 + 0.5 * Math.max(0, tw));
+    ctx.fillStyle = i % 3 ? C.white : C.cyan;
+    const L = tw > 0.7 ? 2 : 1;
+    ctx.fillRect(sx - L, sy, L * 2 + 1, 1);
+    ctx.fillRect(sx, sy - L, 1, L * 2 + 1);
+    ctx.fillStyle = C.violet;
+    ctx.fillRect(Math.round(sx - Math.cos(a) * 3), Math.round(sy - Math.sin(a) * 3), 1, 1);   // (the streak it leaves, falling in)
+  }
+  ctx.restore();
 }
 
 // the sphere: a churning rim of violet, blue and cyan round a deep indigo heart with a galaxy turning in it

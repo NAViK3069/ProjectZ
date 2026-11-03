@@ -17,13 +17,13 @@ import { MAPS, MAP_KEYS } from './maps.js';
 import { placeProps, DEBRIS } from './props.js';
 import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
 import { drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot } from './goldfx.js';
-import { Fighter, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST } from './fighter.js';
+import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier } from './ai.js';
-import { drawBolts, drawVoidHole } from './void.js';
+import { drawBolts, drawVoidHole, drawVoidGlitter } from './void.js';
 import { drawBlast } from './flame.js';
-import { drawCircle, drawHole, drawBoom } from './galaxy.js';
+import { drawCircle, drawHole, drawBoom, drawHoleShine } from './galaxy.js';
 import { drawSword, drawSwordTrail, drawSwordCircle, drawStab } from './swords.js';
 import { drawLockBeam, drawLockMark } from './visor.js';
 import { drawArrow, drawArrowRing } from './archery.js';
@@ -1327,13 +1327,13 @@ function drawArrows(ctx) {
 // lightning crackles off it, the screen shakes; when it's run its course it
 // fades out and the beam with it, leaving a drift of purple behind.
 
-const VOID_DMG = 150, VOID_RANGE = 540, VOID_SPEED = 470, VOID_R = 16;
+const VOID_DMG = 150, VOID_RANGE = 600, VOID_SPEED = 760, VOID_R = 16;
 function updateVoids(dt) {
   for (const o of game.voids) {
     o.t += dt;
     if (o.done >= 0) { o.done += dt; continue; }
     const ux = Math.cos(o.a), uy = Math.sin(o.a);
-    o.sp = Math.min(VOID_SPEED, o.sp + 1600 * dt);
+    o.sp = Math.min(VOID_SPEED, o.sp + 3000 * dt);
     const step = o.sp * dt;
     o.x += ux * step;
     o.y += uy * step;
@@ -1379,9 +1379,10 @@ function drawVoids(ctx) {
       ctx.stroke();
     }
     ctx.restore();
+    drawVoidGlitter(ctx, o, game.time, fade);
     if (o.done < 0) {
       drawVoidHole(ctx, ctx, o.x, o.y, VOID_R, game.time, o.seed ??= Math.random() * 9, (o.pix ??= {}));
-      drawBolts(ctx, o.x, o.y, VOID_R, 6, game.time, 26);
+      drawBolts(ctx, o.x, o.y, VOID_R, 8, game.time, 30);
     } else if (o.done < 0.25) {
       // gone out: the orb collapsing
       drawVoidHole(ctx, ctx, o.x, o.y, VOID_R * (1 - o.done / 0.25), game.time, o.seed ?? 0, (o.pix ??= {}));
@@ -1568,6 +1569,7 @@ function drawGalaxies(ctx) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(c, 0, 0);
   ctx.restore();
+  for (const o of game.galaxies) if (o.t < GAL_HOLE) drawHoleShine(ctx, o.x, o.y, GAL_R, o.t / GAL_HOLE, game.time, o.seed);
   for (const f of casting) drawCircle(ctx, ctx, f.gal.x, f.gal.y, 20, f.gal.t / SKILL_TIME.galaxy, game.time);
   for (const o of game.galaxies) if (o.t < 0.5) drawCircle(ctx, ctx, o.x, o.y, 20, 1, game.time, 1 - o.t / 0.5);
 }
@@ -2290,14 +2292,39 @@ function drawSwordsOnTop(ctx) {
 
 // ---------- world updates ----------
 
+// Space torn up, and shots: a judgement cut's sphere is a hole nothing gets through - any shot in it, whoever's, is
+// gone (so nobody in it can shoot out either); a galaxy's black hole bends shots going by it toward it, harder the
+// nearer - but they fly on through, as fast as ever, only the way they're going changed.
+const BEND_R = 150, BEND_TURN = 12;   // how far off a black hole bends shots, how hard (rad/s) right by it
+function cutSpheres() {
+  return game.fighters.filter((f) => f.jc && (f.jc.phase === 'cut' || (f.jc.phase === 'end' && !f.jc.broke))).map((f) => f.jc);
+}
+function bendShot(b, dt) {
+  for (const o of game.galaxies) {
+    if (o.t >= GAL_HOLE) continue;
+    const ex = o.x - b.x, ey = o.y - b.y, d = Math.hypot(ex, ey);
+    if (d > BEND_R || d < GAL_R * 0.7) continue;   // (right in its heart: through it straight)
+    const k = 1 - d / BEND_R, w = BEND_TURN * k * k * Math.min(1, o.t / (GAL_HOLE * 0.3)) * dt;
+    const a = Math.atan2(b.vy, b.vx), to = Math.atan2(ey, ex), turn = Math.max(-w, Math.min(w, Math.atan2(Math.sin(to - a), Math.cos(to - a))));
+    const na = a + turn;
+    b.vx = Math.cos(na) * b.speed;
+    b.vy = Math.sin(na) * b.speed;
+  }
+}
 function updateBullets(dt) {
-  const fx = game.fx;
+  const fx = game.fx, spheres = cutSpheres();
   game.bullets = game.bullets.filter((b) => !b.dead);
   for (const b of game.bullets) {
+    if (game.galaxies.length) bendShot(b, dt);
     const dist = b.speed * dt, n = Math.ceil(dist / 3), sx = b.vx * dt / n, sy = b.vy * dt / n, dx = b.vx / b.speed, dy = b.vy / b.speed;
     for (let i = 0; i < n && !b.dead; i++) {
       b.x += sx;
       b.y += sy;
+      if (spheres.length && spheres.some((m) => Math.hypot(b.x - m.x, b.y - m.y) < JC_R)) {
+        b.dead = true;   // (cut out of the world with the rest of it)
+        fx.sparks(b.x, b.y, 3, -dx, -dy, '#9ae8ff');
+        break;
+      }
       b.left -= dist / n;
       b.travelled += dist / n;
       if (b.left <= 0) { b.dead = true; break; }
