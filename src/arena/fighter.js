@@ -182,11 +182,12 @@ const EX_T = { raise: EX_RAISE, charge: EX_CHARGE, swing: EX_SWING, out: EX_OUT 
 // walls no matter - it's space that's cut); the cuts there (JC_CUTS of them, one every JC_EVERY, each JC_HIT to anyone in
 // the sphere, JC_R); the sword put away (JC_END) - the sphere breaking first (JC_BREAK into it: JC_LAST), then the click;
 // the wait after. (Its hits: main.js, jcCut.)
-const JC_STANCE = 0.45, JC_CUTS = 12, JC_EVERY = 0.06, JC_END = 0.95, JC_BREAK = 0.5, JC_SHUT = 0.68, JC_CD = 18;
-// (the sword by you meanwhile: drawn straight out of the scabbard - JC_DRAW - then spun round the hand three times,
-// fast, there at the waist - JC_SPIN - like a shotgun twirled, to end lined up with its scabbard; put back all but
-// the last of it (JC_GAP still out) - and only once the sphere's broken (JC_BREAK), snapped shut (JC_SHUT))
-const JC_DRAW = 0.18, JC_SPIN = 0.36, JC_MOUTH = 22, JC_GAP = 5, JC_SQ = 0.72;
+const JC_STANCE = 0.45, JC_CUTS = 12, JC_EVERY = 0.06, JC_END = 0.7, JC_BREAK = 0.15, JC_SHUT = 0.32, JC_CD = 18;
+// (the sword by you meanwhile: drawn straight out of the scabbard - JC_DRAW - and spun round the hand three times right
+// there, fast - JC_SPIN - like a shotgun twirled, to come round lined up with the scabbard and go straight back in,
+// all but the last of it (JC_GAP still out, JC_SLIDE) - and only once the sphere's broken (JC_BREAK), snapped shut
+// (JC_SHUT))
+const JC_DRAW = 0.18, JC_SPIN = 0.36, JC_SLIDE = 0.2, JC_MOUTH = 22, JC_GAP = 5, JC_SQ = 0.72;
 export const JC_R = 46, JC_RANGE = 300, JC_HIT = 11, JC_LAST = 70;
 const JC_CUT = JC_CUTS * JC_EVERY + 0.1;
 export const EA_RANGE = 900;
@@ -2551,14 +2552,11 @@ export class Fighter {
   jcPose() {
     const m = this.jc, ease = (k) => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); };
     if (m.phase === 'stance') return this.jcSheath(2 * Math.min(1, m.t / JC_STANCE));
-    const tt = m.phase === 'cut' ? m.t : JC_CUT + m.t;
+    const tt = m.phase === 'cut' ? m.t : JC_CUT + m.t, spun = JC_DRAW + JC_SPIN;
     if (tt < JC_DRAW) return this.jcSheath(2 + (JC_MOUTH - 2) * ease(tt / JC_DRAW));   // (drawn straight out)
-    if (m.phase === 'cut') return { sheathed: false, ...this.jcSpin(tt) };
-    // put back: brought to the scabbard's mouth, slid in all but the last of it - held so - and, the sphere broken,
-    // snapped shut
-    const SA = Math.PI - 0.3;
-    if (m.t < 0.2) { const q = ease(m.t / 0.2), from = this.jcSpin(tt), to = this.jcSheath(JC_MOUTH); return { sheathed: false, ang: SA, sq: 1, gx: from.gx + (to.gx - from.gx) * q, gy: from.gy + (to.gy - from.gy) * q }; }
-    if (m.t < JC_SHUT) return this.jcSheath(JC_GAP + (JC_MOUTH - JC_GAP) * (1 - ease((m.t - 0.2) / 0.22)));
+    if (tt < spun) return { sheathed: false, ...this.jcSpin(tt) };                      // (spun right there)
+    // straight back in, all but the last of it - held so - and, the sphere broken, snapped shut
+    if (m.phase === 'cut' || m.t < JC_SHUT) return this.jcSheath(JC_GAP + (JC_MOUTH - JC_GAP) * (1 - ease((tt - spun) / JC_SLIDE)));
     return this.jcSheath(JC_GAP * Math.max(0, 1 - (m.t - JC_SHUT) / 0.04));
   }
   // in its scabbard at the hip, pulled out p: where the hand on its hilt is
@@ -2566,14 +2564,13 @@ export class Fighter {
     const f = this.facing, hx = this.x + f * 5, hy = this.y + this.pose.body - 11;
     return { sheathed: true, pull: p, gx: hx + f * Math.cos(0.3) * p, gy: hy - Math.sin(0.3) * p };
   }
-  // the spin (tt: from the cuts' start): from the scabbard's mouth to just in front of the waist, and round the hand
-  // three times, fast and even, ending lined up with the scabbard again (ang as seen facing right). Round in a ring
-  // that leans away a little (sq: squashed top to bottom, so the point keeps off the floor) - flat again after.
+  // the spin (tt: from the cuts' start): right where it came out of the scabbard, round the hand three times, fast and
+  // even, coming round lined up with the scabbard again (ang as seen facing right). Round in a ring that leans away a
+  // little (sq: squashed top to bottom, so the point keeps off the floor) - flat at either end, to meet the scabbard.
   jcSpin(tt) {
-    const f = this.facing, SA = Math.PI - 0.3, u = Math.max(0, Math.min(1, (tt - JC_DRAW) / JC_SPIN));
-    const mv = Math.max(0, Math.min(1, (tt - JC_DRAW) / 0.05)), from = this.jcSheath(JC_MOUTH), at = { x: this.x + f * 10, y: this.y + this.pose.body - 17 };
-    const after = Math.max(0, Math.min(1, (tt - JC_DRAW - JC_SPIN) / 0.1)), sq = 1 - (1 - JC_SQ) * Math.min(mv, 1 - after);
-    return { ang: SA + u * Math.PI * 6, sq, gx: from.gx + (at.x - from.gx) * mv, gy: from.gy + (at.y - from.gy) * mv };
+    const SA = Math.PI - 0.3, u = Math.max(0, Math.min(1, (tt - JC_DRAW) / JC_SPIN)), at = this.jcSheath(JC_MOUTH);
+    const sq = 1 - (1 - JC_SQ) * Math.min(1, u / 0.12, (1 - u) / 0.12);
+    return { ang: SA + u * Math.PI * 6, sq, gx: at.gx, gy: at.gy };
   }
   // the katana out at (gx, gy) along ang (as seen facing right), as the leaning ring of the spin shows it
   drawKatanaSpun(ctx, gx, gy, ang, sq) {

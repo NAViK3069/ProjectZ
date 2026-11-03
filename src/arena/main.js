@@ -2708,7 +2708,7 @@ function drawWorld() {
   }
   for (const f of game.fighters) if (f.alive && f.jc && !f.hidden && f.jc.phase !== 'stance') {
     const m = f.jc, broke = !!m.broke;
-    extra.push({ x: m.x, y: m.y, r: broke ? 140 : 90, rgb: '110, 190, 255', k: broke ? 0.6 * Math.max(0, 1 - (m.t - 0.5) / 0.4) : 0.35 });
+    extra.push({ x: m.x, y: m.y, r: broke ? 140 : 90, rgb: '110, 190, 255', k: broke ? 0.6 * Math.max(0, 1 - (m.t - 0.15) / 0.45) : 0.35 });
   }
   for (const f of game.fighters) if (f.alive && f.xc && !f.hidden) {
     const m = f.xc, p = f.xcTip();
