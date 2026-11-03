@@ -610,7 +610,7 @@ export class Fighter {
     const prey = this.lunge?.v ?? this.cloak?.prey;
     if (prey?.alive) { const s = this.seen(prey); this.aim = Math.atan2(s.y - 14 - (this.y - GUN_HEIGHT), s.x - this.x); }
     this.lockAim();
-    if (!this.roll) {
+    if (!this.roll && !(this.jc && this.jc.phase !== 'stance')) {   // (judgement cut: turned to the mark as it cuts, and held so till it's done)
       const cs = Math.cos(this.aim), f = cs > 0.15 ? 1 : cs < -0.15 ? -1 : this.facing;
       if (f !== this.facing) { this.facing = f; this.settle = SETTLE_TIME; }
     }
@@ -2535,7 +2535,7 @@ export class Fighter {
     m.t += dt;
     if (m.phase === 'stance') {
       Object.assign(m, this.jcPoint());   // (the mark goes where you aim, till it's cut)
-      if (m.t >= JC_STANCE) { m.phase = 'cut'; m.t = 0; G.jcOpen?.(this, m.x, m.y); }
+      if (m.t >= JC_STANCE) { m.phase = 'cut'; m.t = 0; this.facing = Math.sign(m.x - this.x) || this.facing; G.jcOpen?.(this, m.x, m.y); }
     } else if (m.phase === 'cut') {
       for (let i = 0; i < JC_CUTS; i++) if (before < i * JC_EVERY && m.t >= i * JC_EVERY) G.jcCut?.(this, m.x, m.y, JC_R, JC_HIT, false);
       if (G.viewer === this) G.kick?.((Math.random() - 0.5) * 1.4, (Math.random() - 0.5) * 1.4);
