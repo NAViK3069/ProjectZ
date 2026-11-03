@@ -1,7 +1,6 @@
 // Deflect's dragon, all in pixels: as you dash, a great dragon of green light flies with you - a hologram, see-through,
 // its edges glowing, scan lines running over it, flickering. Its head out in front, jaws gaping open and snapping,
-// long fangs top and bottom; horns swept back, an eye burning white, a mane of flame; whiskers streaming; a pearl of
-// light ahead of its mouth. Its body - scales on it, a paler belly, fins of flame along its back - flowing back along
+// long fangs top and bottom; horns swept back, an eye burning white, a mane of flame; whiskers streaming. Its body - scales on it, a paler belly, fins of flame along its back - flowing back along
 // the way you came, slow, to a tail of fire.
 
 import { glowAt } from './pixfx.js';
@@ -11,7 +10,7 @@ const hash = (a, b, c = 0) => {
   return v - Math.floor(v);
 };
 // the hologram's greens (drawn added on: the dark ones all but see-through, the light ones glowing)
-const H = { edge: '#8affc0', fill: '#1f9e5e', fillLo: '#167a48', scale: '#4ae894', hi: '#c8ffe4', belly: '#5af0a8', horn: '#b0ffd4', mane: '#4aff9a', mouth: '#041a0c', tooth: '#f4fff8', eye: '#ffffff', pearl: '#e8fff4' };
+const H = { edge: '#8affc0', fill: '#1f9e5e', fillLo: '#167a48', scale: '#4ae894', hi: '#c8ffe4', belly: '#5af0a8', horn: '#b0ffd4', mane: '#4aff9a', mouth: '#041a0c', tooth: '#f4fff8', eye: '#ffffff' };
 const S = 1.7;   // (how much bigger than a fighter's own scale it's drawn)
 
 // a set of world pixels, each with its colour; drawn added on, its edge lit, scan lines running down it
@@ -124,16 +123,4 @@ export function drawDragon(ctx, hx, hy, a, pts, t, fade, seed) {
     Wk.set(...at(u, w), s < 10 ? H.hi : H.mane);
   }
   Wk.draw(ctx, fade, t, false);
-  // the pearl it chases, just ahead of its mouth
-  const [px, py] = at(17 + Math.sin(t * 4) * 1.2, 0.5 + Math.cos(t * 3) * 1.2);
-  glowAt(ctx, px, py, 14, [[0, `rgba(220, 255, 235, ${0.65 * fade})`], [1, 'rgba(60, 255, 150, 0)']]);
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = fade;
-  ctx.fillStyle = H.pearl;
-  ctx.fillRect(px - 2, py - 1, 5, 3);
-  ctx.fillRect(px - 1, py - 2, 3, 5);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(px, py, 1, 1);
-  ctx.restore();
 }
