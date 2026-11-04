@@ -56,6 +56,7 @@ export class Level {
     this.racks = [];      // training: weapons laid out to pick up
     this.dummies = [];    // training: target dummies { x, y, patrol }
     this.signs = [];      // training: tips painted on the wall { x, y, text }
+    this.wardrobe = [];   // training: the looks on show to try on { x, y } (cells: the floor under each)
     this.pads = [];       // jump pads: { cx, cy } (the cell standing on it)
     this.flags = [];      // CAPTURE THE FLAG: each side's base { team, x, y } (feet, px)
     map.build(this);
@@ -84,6 +85,7 @@ export class Level {
     for (const d of this.deco) if (d.y !== undefined) d.y += pad;
     for (const s of this.signs) s.y += pad;
     for (const d of this.dummies) d.y += pad;
+    for (const d of this.wardrobe) d.y += pad;
     for (const p of this.props) p.y += pad * T;
     for (const s of this.spawns) s.y += pad * T;
     for (const p of this.pads) p.cy += pad;

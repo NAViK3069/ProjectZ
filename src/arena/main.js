@@ -14,6 +14,7 @@ import { drawText, textWidth } from '../ui/font.js';
 import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K here is a sprite colour)
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
+import { SKINS, skinOf } from './skins.js';
 import { placeProps, DEBRIS } from './props.js';
 import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
 import { drawGoldShot, drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot, drawVioletMuzzle, drawVioletTrace, drawFangMark, drawFangMarked, drawFangGuide, drawFangDash, drawFangCut } from './goldfx.js';
@@ -106,6 +107,7 @@ const OPTIONS = [
   ['skillmode', 'SKILL MODE', [['set', 'AS PICKED'], ['random', 'RANDOM EVERY LIFE'], ['pick', 'PICK WHEN YOU DIE']]],
   ['cd', 'SKILL COOLDOWN', [[0, 'NONE'], [0.25, '25%'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%'], [2, '200%'], [3, '300%']]],
   ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], [null, 'NO SKILL']]],
+  ['skin', 'YOUR LOOK', SKINS.map((k) => [k.key, k.name])],   // (and in training: the wardrobe, to try them on)
   ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
@@ -117,7 +119,7 @@ const OPTIONS = [
   ['banGuns', 'BANNED GUNS', []],   // (these two: lists, picked in a list of their own - see openBans)
   ['banSkills', 'BANNED SKILLS', []],
 ];
-const DEFAULTS = { goal: 20, map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all', skillmode: 'set', cd: 1, banGuns: [], banSkills: [] };
+const DEFAULTS = { goal: 20, map: 'lab', mode: 'ffa', bots: 3, skill: 1, wins: 3, time: 90, skills: 1, myskill: 'grapple', skin: 'crimson', botskill: 'random', lives: 2, hp: 300, dmg: 1, start: 'pistol', nades: 1, drops: 1, pool: 'all', skillmode: 'set', cd: 1, banGuns: [], banSkills: [] };
 const settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('arena.settings') ?? '{}')); } catch {}
 const saveSettings = () => { try { localStorage.setItem('arena.settings', JSON.stringify(settings)); } catch {} };
@@ -346,7 +348,7 @@ const game = {
   // The shadow clone skill: a double of f, at f's spot, holding what f holds,
   // f's health as a share of a quarter of f's - driven by a slow, sloppy bot.
   spawnDecoy(f) {
-    const d = new Fighter(this, f.images, { name: f.name, color: f.color, hue: f.hue, sat: f.sat });
+    const d = new Fighter(this, f.images, { name: f.name, color: f.color, hue: f.hue, sat: f.sat, skin: f.skin, teamHue: f.teamHue });
     d.reset(f.x, f.y);
     Object.assign(d, { isDecoy: true, owner: f, team: f.team, facing: f.facing, aim: f.aim, vx: f.vx, vy: f.vy, crouch: f.crouch, grenades: 0, gun: null });
     d.maxHp = Math.max(1, Math.round(f.maxHp / 4));
@@ -572,24 +574,25 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 const ROSTER = [
   { name: 'YOU', color: '#e8e2d0', hue: 0, sat: 1, skill: 'grapple' },   // the starting character: a grapple line on Q
-  { name: 'VEX', color: '#ff6a5a', hue: 150, sat: 1.3, bot: true },
-  { name: 'KORA', color: '#6ad8ff', hue: 210, sat: 1.2, bot: true },
-  { name: 'DUKE', color: '#c8ff5a', hue: 290, sat: 1.1, bot: true },
-  { name: 'ROOK', color: '#ffb84a', hue: 40, sat: 1.2, bot: true },
-  { name: 'NYX', color: '#e07aff', hue: 250, sat: 1.3, bot: true },
-  { name: 'ZED', color: '#7affc8', hue: 100, sat: 1.2, bot: true },
-  { name: 'IVO', color: '#ff9ad8', hue: 320, sat: 1.2, bot: true },
+  { name: 'VEX', color: '#ff6a5a', hue: 150, sat: 1.3, bot: true, skin: 'shade' },   // (each bot a look of its own: skins.js)
+  { name: 'KORA', color: '#6ad8ff', hue: 210, sat: 1.2, bot: true, skin: 'tide' },
+  { name: 'DUKE', color: '#c8ff5a', hue: 290, sat: 1.1, bot: true, skin: 'oak' },
+  { name: 'ROOK', color: '#ffb84a', hue: 40, sat: 1.2, bot: true, skin: 'sol' },
+  { name: 'NYX', color: '#e07aff', hue: 250, sat: 1.3, bot: true, skin: 'neko' },
+  { name: 'ZED', color: '#7affc8', hue: 100, sat: 1.2, bot: true, skin: 'ronin' },
+  { name: 'IVO', color: '#ff9ad8', hue: 320, sat: 1.2, bot: true, skin: 'sakura' },
 ];
 let bots = [];
 // the two sides, and what they wear (their shirts recoloured blue or red, so a side's plain to see)
-const TEAMS = [{ name: 'BLUE', color: '#6ad8ff', look: { hue: 210, sat: 1.2 } }, { name: 'RED', color: '#ff6a5a', look: { hue: 8, sat: 1.7 } }];
+// (a look from skins.js keeps its hair, its jacket in the side's colour: teamHue)
+const TEAMS = [{ name: 'BLUE', color: '#6ad8ff', look: { hue: 210, sat: 1.2, teamHue: 215 } }, { name: 'RED', color: '#ff6a5a', look: { hue: 8, sat: 1.7, teamHue: 356 } }];
 
 function makeFighters() {
   const M = MODES[settings.mode] ?? MODES.ffa, teams = !!M.teams, n = M.duel ? 1 : teams ? settings.bots | 1 : settings.bots;   // (teams: even sides, 1 v 1 up to 4 v 4; 1 V 1: one bot)
   game.fighters = ROSTER.slice(0, n + 1).map((r, i) => {
     // teams: the first half (you among them) against the rest; otherwise everyone for themselves
     const team = teams ? (i < (n + 1) / 2 ? 0 : 1) : i;
-    const look = { ...r, skill: r.bot ? botSkill() : skillOK(settings.myskill) ? settings.myskill : null };
+    const look = { ...r, skill: r.bot ? botSkill() : skillOK(settings.myskill) ? settings.myskill : null, skin: r.bot ? r.skin : settings.skin };
     const f = new Fighter(game, images, teams ? { ...look, ...TEAMS[team].look } : look);
     f.team = team;
     return f;
@@ -2855,6 +2858,7 @@ function drawWorld() {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
   const seen = (f) => !f.hidden || f === player;
   for (const f of game.fighters) if (f.alive && f.onGround && seen(f)) ctx.fillRect(Math.round(f.x) - 5, Math.round(f.y) - 1, 11, 1);
+  drawWardrobe(ctx);
   for (const f of game.fighters) if (!f.alive) f.draw(ctx);
   for (const f of game.fighters) if (f.alive && f !== player) f.draw(ctx);
   if (player.alive && !onMenu()) player.draw(ctx);   // (the menus' backdrop is the map alone)
@@ -2983,7 +2987,7 @@ function drawWorld() {
   if (mine?.alive) drawMarked(ctx, mine);
   drawCabinetPrompt(ctx);
   // E prompt over a weapon the player could swap to
-  if (player.alive && !cabinetNear()) for (const p of game.pickups) {
+  if (player.alive && !cabinetNear() && !mannequinNear()) for (const p of game.pickups) {
     if (!p.ready || Math.abs(player.x - p.x) > 11 || Math.abs(player.y - p.y) > 18) continue;
     if (!(p.kind === 'gun' && player.gunIn(player.slotFor(WEAPONS[p.key]))) && !(p.kind === 'melee' && !player.melee.def.fists)) continue;
     const t = `E ${p.kind === 'gun' ? WEAPONS[p.key].name : MELEE[p.key].name}`;
@@ -3804,7 +3808,7 @@ function startTraining() {
   locker = null;
   game.bullets = []; game.grenades = []; game.pickups = []; game.feed = []; game.blasts = []; game.thrown = []; game.numbers = []; game.arrows = []; game.voids = []; game.fists = []; game.galaxies = []; game.swordSets = []; game.punches = []; game.bursts = []; game.bats = []; game.bloods = []; game.fangs = []; game.missiles = [];
   stats.reset();
-  player = new Fighter(game, images, ROSTER[0]);
+  player = new Fighter(game, images, { ...ROSTER[0], skin: settings.skin });
   player.team = 0;
   player.immortal = trainCfg.immortal;
   player.reset(level.spawns[0].x, level.spawns[0].y);
@@ -3838,10 +3842,23 @@ function startTraining() {
     return f;
   });
   game.fighters = [player, ...dummies];
+  makeWardrobe();
   decoys = [];
   bots = [];
   // every crate and drum, to put it back a while after it's smashed
   game.racks = level.props.map((spec, i) => ({ spec, prop: game.props[i], t: 0 }));
+}
+
+// the wardrobe: each look on a stand (not in the fight: nothing hits them)
+function makeWardrobe() {
+  game.mannequins = level.wardrobe.map((d, i) => {
+    const sk = SKINS[i % SKINS.length], f = new Fighter(game, images, { name: sk.name, skin: sk.key });
+    f.reset((d.x + 0.5) * T, d.y * T);
+    f.gun = null;   // (empty hands, at its sides)
+    f.slot = 1;
+    f.mannequin = sk.key;
+    return f;
+  });
 }
 
 // Training each frame: smashed crates come back, dummies heal up and the walking one walks.
@@ -3974,7 +3991,7 @@ let trainBotN = 0;
 function spawnTrainBot(o, by) {
   if (game.fighters.filter((f) => f.tbot).length >= 12) return;
   const ally = o.side === 'ally' && by ? by : null;   // (on the side of whoever put it in)
-  const n = ++trainBotN, f = new Fighter(game, images, { name: `BOT ${n}`, color: ally ? '#7affa0' : '#ff8a5a', hue: (n * 53) % 360, sat: 1.2 });
+  const n = ++trainBotN, f = new Fighter(game, images, { name: `BOT ${n}`, color: ally ? '#7affa0' : '#ff8a5a', hue: (n * 53) % 360, sat: 1.2, skin: SKINS[1 + ((n - 1) % (SKINS.length - 1))].key });
   const ox = by ? by.x + (by.facing || 1) * 48 : defaultSpawn().x, oy = by ? by.y : defaultSpawn().y;
   const at = by && !level.solidAt(ox, oy - 14) ? { x: ox, y: oy } : { x: by?.x ?? ox, y: by?.y ?? oy };
   f.team = 200 + n;
@@ -4031,6 +4048,7 @@ function trainAct(f, member, m) {
     case 'area': teleport(f, trainAreas()[m.i]); break;
     case 'goto': { const o = game.fighters.find((q) => q.nid === m.nid && q.alive); if (o && o !== f) teleport(f, { x: o.x - (o.facing || 1) * 16, y: o.y }); break; }
     case 'die': if (f?.alive) f.die(null, 'RESET', 0, 0); break;
+    case 'skin': if (f && SKINS.some((k) => k.key === m.k)) { f.setSkin(m.k); game.fx.sparks(f.x, f.y - 14, 14, 0, -1, '#ffd25a'); } break;   // (the wardrobe)
     case 'kick': if (online.isHost && m.id !== member?.id && (role === 'root' || (admin && online.roleOf(m.id) === 'player'))) online.trainKick(m.id); break;
     case 'role': if (online.isHost && role === 'root') online.setRole(m.id, m.role); break;
     case 'code': if (online.isHost && role === 'root') online.renewCode(); break;
@@ -4044,8 +4062,8 @@ function trainTake(f, kind, key) {
 }
 // (the host) someone in with the room's code: a fighter of their own, at the way in
 const TRAIN_LOOKS = ROSTER.map(({ color, hue, sat }) => ({ color, hue, sat }));
-function trainJoin({ id, name, skill, i }) {
-  const f = new Fighter(game, images, { name, ...TRAIN_LOOKS[(i ?? 1) % TRAIN_LOOKS.length] });
+function trainJoin({ id, name, skill, i, skin }) {
+  const f = new Fighter(game, images, { name, ...TRAIN_LOOKS[(i ?? 1) % TRAIN_LOOKS.length], skin: skinOf(skin) ? skin : undefined });
   f.peer = id;
   f.team = 100 + (i ?? 1);
   const s = defaultSpawn();
@@ -4583,6 +4601,36 @@ function cabinetNear() {
   }
   return null;
 }
+// the look on show the player's standing at (training: the wardrobe)
+function mannequinNear() {
+  if (state !== 'training' || !player.alive || !game.mannequins) return null;
+  return game.mannequins.find((m) => Math.abs(player.x - m.x) < 10 && Math.abs(player.y - m.y) < 8) ?? null;
+}
+// put it on - and wear it from now on (it's YOUR LOOK)
+function wear(m) {
+  settings.skin = m.mannequin;
+  saveSettings();
+  trainDo({ a: 'skin', k: m.mannequin });
+}
+// the wardrobe: each look on a little stand, turned to face you, its name over it ("E - WEAR" by the one you're at)
+function drawWardrobe(ctx) {
+  if (state !== 'training' || !game.mannequins) return;
+  const near = !locker && mannequinNear();
+  for (const m of game.mannequins) {
+    m.facing = player.x < m.x ? -1 : 1;
+    const x = Math.round(m.x), y = Math.round(m.y), on = (player.skin ?? 'crimson') === m.mannequin;
+    ctx.fillStyle = '#1a1e28'; ctx.fillRect(x - 7, y - 2, 15, 2);
+    ctx.fillStyle = on ? '#ffd25a' : '#5a6478'; ctx.fillRect(x - 7, y - 2, 15, 1);
+    m.y = y - 2;
+    m.draw(ctx);
+    m.y = y;
+    if (m === near || on) {
+      const t = m === near && !on ? 'E - WEAR' : m.name, tx = Math.round(x - textWidth(t) / 2), ty = Math.round(y - 42 + (m === near ? Math.sin(game.time * 4) : 0));
+      drawText(ctx, t, tx, ty, 1, on ? '#ffd25a' : '#8aff9a');
+    }
+  }
+}
+
 // each panel opens again on the tab (and the pick, and how far down) it was left on
 const lockerLeft = {};
 function openLocker(d) {
@@ -4920,6 +4968,7 @@ initOnline({
   trainGuest() {
     // into someone else's training: their map, their everything - all of it from them, as it comes
     loadMap('training');
+    makeWardrobe();
     state = 'training';
     game.obj = null;
     game.tags = [];
@@ -5055,6 +5104,7 @@ function tick(realDt, draw = true) {
     // in someone else's training: TAB for the armory and the room, E at a cabinet
     if (input.wasPressed('Tab')) openLocker({ use: 'all' });
     else if (input.wasPressed('KeyE') && cabinetNear()) openLocker(cabinetNear());
+    else if (input.wasPressed('KeyE') && mannequinNear()) wear(mannequinNear());
   }
   // \ (ฃ / ฅ on a Thai layout): the HUD and everything over the fight off, and on again
   if (input.wasPressed('Backslash', 'IntlBackslash') && !onMenu() && !online.isScreen(state) && !trainEdit) uiHidden = !uiHidden;
@@ -5092,6 +5142,7 @@ function tick(realDt, draw = true) {
     let pc = live && !cabinetOpen && !online.menuOpen && !paused ? (testControl ? { ...IDLE, ...testControl } : playerControl()) : IDLE;
     // E at a cabinet opens it (rather than reaching for what's on the floor)
     if (pc.pickup && cabinetNear()) { openLocker(cabinetNear()); pc = IDLE; }
+    else if (pc.pickup && state === 'training' && mannequinNear()) { wear(mannequinNear()); pc = IDLE; }
     // TAB in training: everything, wherever you are
     else if (state === 'training' && !cabinetOpen && player.alive && input.wasPressed('Tab')) { openLocker({ use: 'all' }); pc = IDLE; }
     if (online.tabOpen) pc = { ...pc, fire: false, melee: false };   // (the host, over the scores: the mouse is for KICK and BAN)

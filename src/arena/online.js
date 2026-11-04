@@ -60,9 +60,10 @@ const LOOKS = [
   { color: '#7affc8', hue: 100, sat: 1.2 }, { color: '#ff9ad8', hue: 320, sat: 1.2 },
 ];
 const BOT_NAMES = ['VEX', 'KORA', 'DUKE', 'ROOK', 'NYX', 'ZED', 'IVO', 'MOX'];
+const BOT_SKINS = ['shade', 'tide', 'oak', 'sol', 'neko', 'ronin', 'sakura', 'admiral'];   // (what each wears: skins.js)
 const DELAY_MIN = 0.035, DELAY_MAX = 0.3;   // how far in the past everyone else is drawn, at most and at least
 const teamOf = (i) => (i < SLOTS / 2 ? 0 : 1);
-const TEAM_LOOKS = [{ color: '#6ad8ff', hue: 210, sat: 1.2 }, { color: '#ff6a5a', hue: 8, sat: 1.7 }];   // in TEAMS everyone wears their side's colour: BLUE, RED (the art's own hair is red)
+const TEAM_LOOKS = [{ color: '#6ad8ff', hue: 210, sat: 1.2, teamHue: 215 }, { color: '#ff6a5a', hue: 8, sat: 1.7, teamHue: 356 }];   // in TEAMS everyone wears their side's colour: BLUE, RED (the art's own hair is red)
 const MAX_WATCH = 8;   // how many can watch a room besides those in its slots
 const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost their seat
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
@@ -91,6 +92,7 @@ const N = {
 try { N.name = localStorage.getItem('arena.name') || ''; N.skill = localStorage.getItem('arena.skill') ?? 'grapple'; } catch {}
 if (!N.name) N.name = `PLAYER${Math.floor(100 + Math.random() * 900)}`;
 if (N.skill === 'null') N.skill = null;
+const mySkin = () => (N.saved ?? A.settings).skin ?? 'crimson';   // (YOUR LOOK: our own settings', not a room's we've got for now)
 const saveMe = () => { try { localStorage.setItem('arena.name', N.name); localStorage.setItem('arena.skill', String(N.skill)); } catch {} };
 const say = (msg, t = 3) => { N.msg = msg; N.msgT = t; };
 
@@ -336,7 +338,8 @@ function snapshot() {
   // the fighters
   s.f = g.fighters.map((f) => {
     const e = { n: nidOf(f) };
-    if (!N.sent.has(f)) e.i = [f.name, f.color, f.hue ?? 0, f.sat ?? 1, f.team ?? 0, f.peer ?? null];
+    if (!N.sent.has(f)) e.i = [f.name, f.color, f.hue ?? 0, f.sat ?? 1, f.team ?? 0, f.peer ?? null, f.skin ?? null, f.teamHue ?? null];
+    if ((f.skin ?? null) !== (f._skinSent ?? null)) { if (!e.i) e.sk = f.skin ?? null; f._skinSent = f.skin ?? null; }
     const delta = changed(f, f, F_RULES, FAST);
     if (f.decoy !== f._decoySent) { delta.decoy = ser(f.decoy); f._decoySent = f.decoy; }
     handDelta(f, delta);
@@ -404,7 +407,7 @@ function applySnapshot(s) {
   // any gone dropped, each brought up to date
   for (const e of s.f) {
     if (N.fighters.has(e.n) || !e.i) continue;
-    const [name, color, hue, sat, team, peer] = e.i, f = new Fighter(g, A.images, { name, color, hue, sat });
+    const [name, color, hue, sat, team, peer, skin, teamHue] = e.i, f = new Fighter(g, A.images, { name, color, hue, sat, skin: skin ?? undefined, teamHue: teamHue ?? undefined });
     f.nid = e.n;
     f.team = team;
     f.peer = peer;
@@ -416,6 +419,7 @@ function applySnapshot(s) {
     if (!f) { askResync(); continue; }
     keep.push(f);
     const own = f.peer === me && !N.watching;
+    if (e.sk !== undefined && (f.skin ?? null) !== e.sk) f.setSkin(e.sk ?? undefined);
     if (own && e.a !== undefined && e.a > N.ack) N.ack = e.a;
     if (e.k) {
       const [x, y, vx, vy, aim, b] = e.k, onGround = !!(b & 1), onLadder = !!(b & 2), crouch = !!(b & 4), facing = b & 8 ? 1 : -1;
@@ -1310,7 +1314,7 @@ async function getBack(b) {
       N.welcomed = false;
       r.hostId = null;   // (whoever answers)
       hookRoom();
-      r.send({ t: 'hello', name: N.name, skill: N.skill, pass: N.joinPass });
+      r.send({ t: 'hello', name: N.name, skill: N.skill, skin: mySkin(), pass: N.joinPass });
       setTimeout(() => { if (N.room === r && !N.welcomed) { leaveRoom(true); say('COULD NOT GET BACK IN - THE ROOM IS GONE'); } }, 8000);
       return;
     } catch {
@@ -1351,7 +1355,7 @@ async function createRoom(name = '', pass = '') {
     N.pass = pass;
     N.made = Date.now();
     N.playing = false;
-    N.members = [{ id: myId(), name: N.name, skill: N.skill, ready: true }];
+    N.members = [{ id: myId(), name: N.name, skill: N.skill, skin: mySkin(), ready: true }];
     // four open to start with (you in the first), four closed
     N.slots = Array.from({ length: SLOTS }, (_, i) => (i === 0 ? { k: 'p', id: myId() } : { k: i < 4 ? 'open' : 'closed', id: null }));
     hookRoom();
@@ -1432,7 +1436,7 @@ function hookRoom() {
   const r = N.room;
   r.onLost = () => { if (N.room === r) losingConnection(); };
   r.onJoin = (id) => {
-    if (N.mode === 'client' && id === r.hostId) r.send({ t: 'hello', name: N.name, skill: N.skill, pass: N.joinPass }, id);
+    if (N.mode === 'client' && id === r.hostId) r.send({ t: 'hello', name: N.name, skill: N.skill, skin: mySkin(), pass: N.joinPass }, id);
   };
   r.onLeave = (id) => {
     if (N.mode === 'client' && id === r.hostId) return hostGone(id);
@@ -1478,7 +1482,7 @@ function hostMsg(m, from) {
       const free = N.playing ? -1 : N.slots.findIndex((x) => x.k === 'open');
       if (free < 0 && watchers().length >= MAX_WATCH) return N.room.send({ t: 'no', why: 'THAT ROOM IS FULL' }, from);
       if (free >= 0) moveTo(from, free);
-      N.members.push({ id: from, name, skill: m.skill ?? null, ready: false, out: N.playing });   // (a match going on: in the room for now, not looking at it - see 'watch')
+      N.members.push({ id: from, name, skill: m.skill ?? null, skin: typeof m.skin === 'string' ? m.skin : null, ready: false, out: N.playing });   // (a match going on: in the room for now, not looking at it - see 'watch')
     } else {
       had.away = 0;
       had.out = false;
@@ -1637,7 +1641,7 @@ function letJoinersIn() {
     if (had) had._goneAt = 0;
     else if (old) { N.benched.delete(id); A.game.fighters.push(old); }
     else {
-      const teams = A.isTeams(A.settings.mode), r = { name: m.name, ...(teams ? TEAM_LOOKS[teamOf(i)] : LOOKS[i]), skill: m.skill, peer: id, team: teams ? teamOf(i) : i };
+      const teams = A.isTeams(A.settings.mode), r = { name: m.name, ...(teams ? TEAM_LOOKS[teamOf(i)] : LOOKS[i]), skill: m.skill, skin: m.skin, peer: id, team: teams ? teamOf(i) : i };
       N.match.roster.push(r);
       A.addNetFighter(r, N.match.roster.length);
     }
@@ -1656,8 +1660,8 @@ function startGame() {
     const team = A.isTeams(s.mode) ? teamOf(i) : i, look = A.isTeams(s.mode) ? TEAM_LOOKS[team] : LOOKS[i];
     if (x.k === 'p') {
       const m = N.members.find((y) => y.id === x.id);
-      if (m) roster.push({ name: m.name, ...look, skill: m.skill, peer: m.id, team });
-    } else if (x.k === 'bot') roster.push({ name: BOT_NAMES[bots++], ...look, bot: true, team, skill: A.botSkill() });
+      if (m) roster.push({ name: m.name, ...look, skill: m.skill, skin: m.skin, peer: m.id, team });
+    } else if (x.k === 'bot') roster.push({ name: BOT_NAMES[bots], ...look, bot: true, team, skill: A.botSkill(), skin: BOT_SKINS[bots++] });
   });
   if (roster.length < 2) return say('NEED SOMEONE TO FIGHT - A PLAYER OR A BOT', 2.5);
   if (A.isTeams(s.mode) && new Set(roster.map((r) => r.team)).size < 2) return say('TEAMS NEEDS SOMEONE ON EACH SIDE', 2.5);
@@ -1790,7 +1794,7 @@ function trainHello(m, from) {
   if (!had && N.members.length >= TRAIN_MAX) return N.room.send({ t: 'no', why: 'THAT ROOM IS FULL' }, from);
   if (had) had.away = 0;
   else N.members.push({ id: from, name, role: 'player' });
-  if (!A.game.fighters.some((f) => f.peer === from && !f._goneAt)) A.trainJoin({ id: from, name, skill: typeof m.skill === 'string' ? m.skill : null, i: N.members.findIndex((x) => x.id === from) });
+  if (!A.game.fighters.some((f) => f.peer === from && !f._goneAt)) A.trainJoin({ id: from, name, skill: typeof m.skill === 'string' ? m.skill : null, skin: typeof m.skin === 'string' ? m.skin : null, i: N.members.findIndex((x) => x.id === from) });
   N.ctl.delete(from);
   N.room.send({ t: 'welcome', training: true }, from);
   N.room.send({ t: 'tstart' }, from);
@@ -2238,7 +2242,7 @@ function drawRoom(k, u, W, H) {
   // the slots: two columns of four (BLUE and RED, in TEAMS)
   const colW = Math.floor((pw - 16 * u - gap) / 2), playing = N.slots.filter((x) => x.k === 'p').length, watch = watchers();
   // (the settings' rows squeezed a little when the screen's too short for it all - the buttons at the foot stay on it)
-  const opts = A.OPTIONS.map((o, i) => [o, i]).filter(([o]) => o[0] !== 'bots' && o[0] !== 'myskill'), rows = Math.ceil(opts.length / 2);
+  const opts = A.OPTIONS.map((o, i) => [o, i]).filter(([o]) => o[0] !== 'bots' && o[0] !== 'myskill' && o[0] !== 'skin'), rows = Math.ceil(opts.length / 2);
   const need = (rh, sh) => y + 26 * u + 16 * u + 4 * sh + (watch.length ? 10 * u : 0) + gap + 26 * u + rows * rh + gap + 18 * u + 12 * u;
   const slotH = 18 * u;
   let rowH = 10 * u;

@@ -547,7 +547,7 @@ export const MAPS = {
     name: 'TRAINING', w: 138, h: 64, theme: 'range', training: true,
     // where TAB, SPAWN takes you straight to: [name, cell column, floor row]
     areas: [['ARMORY', 14, 27], ['FIRING RANGE', 27, 27], ['MOVEMENT COURSE', 24, 14], ['GRAPPLE SHAFT', 66, 27], ['LIVE FIRE', 104, 27], ['THE LAB', 60, 36],
-      ['LAB: ACID RUN', 3, 46], ['LAB: WALL CLIMB', 31, 62], ['LAB: BOT ARENA', 64, 62], ['LAB: TARGETS', 85, 62], ['LAB: VENTS', 115, 42]],
+      ['LAB: ACID RUN', 3, 46], ['LAB: WALL CLIMB', 31, 62], ['LAB: BOT ARENA', 64, 62], ['LAB: TARGETS', 85, 62], ['LAB: VENTS', 115, 42], ['WARDROBE', 14, 36]],
     build(L) {
       L.shell();
       L.fill(1, 27, 136, 29, SOLID);                              // the ground floor (the lab under it)
@@ -650,6 +650,9 @@ export const MAPS = {
       );
       for (const x of [6, 18, 32, 46, 60, 74, 88, 102, 116, 130]) L.lamp(x, 30);
       L.signs.push({ x: 3.5, y: 33, text: 'B1 - THE LAB' }, { x: 94, y: 33, text: 'B1 - THE LAB' });
+      // THE WARDROBE (the corridor, under the armory): every look there is, on show - E by one to put it on
+      for (let i = 0; i < 12; i++) L.wardrobe.push({ x: 5 + i * 1.6, y: 36 });
+      L.signs.push({ x: 9.5, y: 31.6, text: 'WARDROBE - E: WEAR' });
 
       // ACID RUN (cols 1-26): blocks to jump between over an acid bath - fall in and you're back at your spawn
       L.fill(1, 50, 26, 61, SOLID); L.row(50, 6, 22, ACID);

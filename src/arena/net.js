@@ -12,7 +12,7 @@
 // src/vendor (it loads when you first go online).
 
 const SDK = new URL('../vendor/photon-realtime.js', import.meta.url).href;
-const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-34';   // (players on different versions don't meet)
+const APP_ID = 'a27f8fdc-7d82-448d-bce8-3a05096542b7', APP_VERSION = 'arena-35';   // (players on different versions don't meet)
 const PROPS = ['n', 'm', 'mp', 's', 'mx', 'w', 'p', 'l', 'md', 'h', 'c', 't'];   // a room's properties the lobby sees (name, mode, map, seated, max, watchers, playing, locked, made, host; a training room: its code, and that it is one)
 const EV = { msg: 1, snap: 2, ctl: 3, rtc: 4, part: 5 };
 // (Photon takes a message of up to 50 000 bytes: anything bigger - the whole of a busy training room, sent the first

@@ -11,6 +11,7 @@
 // shells, works the pump / bolt, breaks the action open...).
 
 import { makeCanvas } from '../engine/pixel.js';
+import { skinOf, skinParts } from './skins.js';
 import { ORIGIN_X, ORIGIN_Y, WALK_BODY, WALK_HEAD, STEP_FRAMES, walkLegs } from '../entities/rig.js';
 import { HANDS, part, GUN_PAL, artW, artH } from '../combat/gunart.js';
 import { Weapon, RELOAD_EVENTS, SHELL_IN } from '../combat/weapons.js';
@@ -319,12 +320,15 @@ function tintedHands(hue, sat) {
   return out;
 }
 
-// Recolour the character art: shirt and hair shift hue. Also a blinking head
-// and white copies of everything for the hit flash.
+// Recolour the character art: shirt and hair shift hue - or, with a skin, drawn in that skin (see skins.js). Also a
+// blinking head and white copies of everything for the hit flash. (Each look made once, and shared.)
 const PARTS = ['head', 'body', 'legL', 'legR', 'backHead', 'backBody', 'backLegL', 'backLegR'];
-function tinted(images, hue, sat = 1) {
-  const out = {};
-  for (const k of PARTS) {
+const LOOKS = new Map();
+function tinted(images, hue, sat = 1, skin = null, teamHue) {
+  const key = `${hue}|${sat}|${skin?.key}|${teamHue}`;
+  if (LOOKS.get(key)?.images === images) return LOOKS.get(key).out;
+  const out = skin ? skinParts(images, skin, teamHue) : {};
+  if (!skin) for (const k of PARTS) {
     if (!images[k]) continue;
     const [c, g] = makeCanvas(images[k].width, images[k].height);
     g.filter = hue ? `hue-rotate(${hue}deg) saturate(${sat})` : 'none';
@@ -350,6 +354,7 @@ function tinted(images, hue, sat = 1) {
     out[k + 'W'] = w;
   }
   out.headBlinkW = out.headW;
+  LOOKS.set(key, { images, out });
   return out;
 }
 
@@ -358,17 +363,23 @@ const QUIET = new Proxy({}, { get: () => () => {} });
 const quietGame = (g) => (g.quiet ??= Object.create(g, { fx: { value: QUIET }, lights: { value: QUIET }, kick: { value: () => {} } }));
 
 export class Fighter {
-  // opts: { name, color, hue, sat, bot }
+  // opts: { name, color, hue, sat, bot, skin (a key in skins.js), teamHue (TEAMS, with a skin: the jacket's colour) }
   constructor(game, images, opts) {
     this.game = game;
     Object.assign(this, opts);
     this.images = images;   // (a shadow clone is made from the same art)
-    this.parts = tinted(images, opts.hue ?? 0, opts.sat ?? 1);
+    this.parts = tinted(images, opts.hue ?? 0, opts.sat ?? 1, skinOf(opts.skin), opts.teamHue);
     this.hands = (opts.sat ?? 1) !== 1 ? tintedHands(opts.hue ?? 0, opts.sat) : HANDS;
     this.wins = 0;
     this.kills = 0;
     this.deaths = 0;
     this.reset(0, 0);
+  }
+
+  // put on another look (training: the wardrobe)
+  setSkin(key) {
+    this.skin = key;
+    this.parts = tinted(this.images, this.hue ?? 0, this.sat ?? 1, skinOf(key), this.teamHue);
   }
 
   reset(x, y) {
