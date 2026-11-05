@@ -348,6 +348,10 @@ export class Bot {
 
     // ---- what to do ----
     const pick = (pred, range) => {
+      // (the one it's already on its way to: still that one, a bit further than it'd set out for - someone
+      // seen or lost a moment had it off after it, back, off...)
+      const was = this.goalKey;
+      if (was?.kind !== undefined && was.ready && pred(was) && G.pickups.includes(was) && !(this.skip.get(was) > G.time) && Math.hypot(was.x - f.x, was.y - f.y) < range * 1.6) return was;
       let best = null, bd = Infinity;
       for (const p of G.pickups) if (p.ready && pred(p) && !(this.skip.get(p) > G.time)) {
         const d = Math.hypot(p.x - f.x, p.y - f.y);
@@ -355,7 +359,8 @@ export class Bot {
       }
       return best && bd < range ? best : null;
     };
-    const calm = !this.target;   // nobody to fight right now: time to stock up
+    // nobody to fight right now: time to stock up (and already at it: on with it till someone's actually in sight)
+    const calm = !this.target || (!vis && (this.mode === 'loot' || this.mode === 'heal'));
     const healthP = hpK < (calm ? 0.8 : 0.45) ? pick((p) => p.kind === 'health', calm ? 900 : 520) : null;
     // a gun better than what's in its slot (an empty slot: anything)
     const better = (def) => { const g = f.gunIn(f.slotFor(def)); return gunTier(def) > gunTier(g && (g.ammo > 0 || g.reserve > 0) ? g.def : null) + 0.4; };
@@ -364,12 +369,19 @@ export class Bot {
     const meleeP = f.melee.def.fists && !f.cloak ? pick((p) => p.kind === 'melee', calm ? 600 : armed ? 220 : 420) : null;
     let goal = null, key = null, fight = false, sprint = false;
     const losing = vis && hpK < 0.3 && t.hp / t.maxHp > hpK + 0.15;
+    // (in a fight with them: still in it through a moment out of sight - a foe flickering in and out of view behind
+    // a pillar had it off after the gun, back to the fight, off again, turning round each time)
+    const inSight = vis || (this.mode === 'fight' && this.unseen < 0.6 && !!t);
     if (healthP && !(vis && dist < 110)) { goal = nav.nodeBelow(healthP.x, healthP.y); key = healthP; sprint = vis; this.mode = 'heal'; }
-    else if (gunP && (!armed || !vis)) { goal = nav.nodeBelow(gunP.x, gunP.y); key = gunP; sprint = !armed; this.mode = 'loot'; }
-    else if (meleeP && !(vis && armed)) { goal = nav.nodeBelow(meleeP.x, meleeP.y); key = meleeP; this.mode = 'loot'; }
-    else if (vis && armed && (losing || (w.reloading && dist < 200))) {
-      // back off out of sight to patch up / reload
-      if (!this.spot || this.spotT <= 0 || this.mode !== 'retreat') { this.spot = this.coverFrom(t, true); this.spotT = 2.5; }
+    else if (gunP && (!armed || !inSight)) { goal = nav.nodeBelow(gunP.x, gunP.y); key = gunP; sprint = !armed; this.mode = 'loot'; }
+    else if (meleeP && !(inSight && armed)) { goal = nav.nodeBelow(meleeP.x, meleeP.y); key = meleeP; this.mode = 'loot'; }
+    else if (armed && t && (vis || (this.mode === 'retreat' && this.unseen < 1.2)) && ((hpK < 0.3 && t.hp / t.maxHp > hpK + 0.15) || ((w.reloading || w.ammo <= 0) && dist < 200))) {
+      // (out of sight is what it was after: there a moment, not straight back round the corner into them)
+      // back off out of sight to patch up / reload - and once it is, stay put (somewhere else picked out of
+      // sight, then somewhere else again, had it up the ladder and down again)
+      const hid = !vis && this.mode === 'retreat' && f.onGround && nav.nodeAt(f.x, f.y);
+      if (hid) { this.spot = hid; this.spotT = Math.max(this.spotT, 0.3); this.spotFor = 'retreat'; }
+      else if (!this.spot || this.spotT <= 0 || this.mode !== 'retreat') { this.spot = this.coverFrom(t, true); this.spotT = 2.5; this.spotFor = 'retreat'; }
       goal = this.spot; key = 'retreat'; sprint = true; this.mode = 'retreat';
     } else if (armed && t && (vis || (this.mode === 'fight' && this.unseen < 0.5)) && dist < (w.def.cls === 'shotgun' ? 150 : w.def.cls === 'sniper' ? 420 : 300) * (this.mode === 'fight' ? 1.25 : 1)) fight = true;
     // (in a fight it stays in it a little further out, and through a moment out of sight - at the edge
@@ -387,7 +399,7 @@ export class Bot {
     // its reach, rather than hanging back where its gun's happy
     const skillReach = SKILL_REACH[f.usingSkill];
     if (skillReach && t && f.skillCD <= 0 && !(f.hackedT > 0) && !f.skillBusy && !losing && this.mode !== 'heal' && this.mode !== 'loot' && this.mode !== 'retreat'
-      && dist > skillReach * 0.85 && (vis || this.known.has(t))) {
+      && dist > skillReach * (this.mode === 'fight' ? 1.05 : 0.85) && (vis || this.known.has(t))) {
       const n = nav.nodeAt(t.x, t.y, t.onLadder) ?? nav.nodeBelow(t.x, t.y);
       if (n) { goal = n; key = t; fight = false; sprint = true; this.mode = 'close'; }
     }
@@ -469,6 +481,15 @@ export class Bot {
         }
       }
     }
+    // a drum that'd go up right beside it, in the way of the shot: not that shot (it took itself out with them)
+    if (c.fire && c.aim !== null) {
+      const ax = Math.cos(c.aim), ay = Math.sin(c.aim);
+      for (const p of G.props) {
+        if (p.dead || !p.explosive) continue;
+        const px = p.x - s.x, py = p.y - p.h / 2 - s.y, along = px * ax + py * ay;
+        if (along > -4 && along < Math.min(dist, 100) && Math.abs(px * ay - py * ax) < p.w / 2 + 6) { c.fire = false; break; }
+      }
+    }
     if (w && w.ammo <= 0 && w.reserve > 0) c.reload = true;
     if (w && !vis && w.ammo < w.magSize * 0.5 && w.reserve > 0) c.reload = true;
 
@@ -503,7 +524,7 @@ export class Bot {
         c.aim = Math.atan2(t.y - 14 - s.y, t.x - s.x);
       }
     } else if (k && this.flee && t) {
-      if (!this.spot || this.spotT <= 0 || this.mode !== 'retreat') { this.spot = this.coverFrom(t, true); this.spotT = 2; }
+      if (!this.spot || this.spotT <= 0 || this.mode !== 'retreat') { this.spot = this.coverFrom(t, true); this.spotT = 2; this.spotFor = 'retreat'; }
       goal = this.spot; key = 'retreat'; fight = false; this.mode = 'retreat'; c.fire = false;
     }
     if (f.veil && t) {
@@ -516,8 +537,12 @@ export class Bot {
     }
     // a grenade at someone in the open, not too close
     if (vis && !k && !f.veil && f.grenades > 0 && this.nadeT <= 0 && dist > 80 && dist < 230 && f.onGround && Math.random() < 0.5) {
-      c.grenade = true;
-      c.aim = Math.atan2(aimY - s.y - dist * 0.35, t.x - s.x);
+      const ga = Math.atan2(aimY - s.y - dist * 0.35, t.x - s.x), mx = s.x + Math.cos(ga) * dist * 0.5, my = s.y + Math.sin(ga) * dist * 0.5;
+      // (only with room for the lob: under a low ceiling it came straight back down at its feet)
+      if (G.los(s.x, s.y, mx, my) && G.los(mx, my, t.x, t.y - 12)) {
+        c.grenade = true;
+        c.aim = ga;
+      }
       this.nadeT = rand(7, 13);
     }
     // dodge when shot at
@@ -554,10 +579,10 @@ export class Bot {
     // a shield up close is about to go off: not stood right next to it, if it can shoot from further off
     this.backOff = !!(t && t.barrier && armed && vis && dist < 80 && t.barrier.t < 2.5);
 
-    if (fight && f.onLadder) { fight = false; goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? nav.nodeBelow(t.x, t.y); key = t; }
+    if (fight && f.onLadder) { fight = false; goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? nav.nodeBelow(t.x, t.y); key = t; this.mode = 'hunt'; }
     // the blue card: it runs (it's cheap); the green: it keeps out of it while it heals, if it's hurt
     if (f.card?.on && f.card.kind === 'blue') sprint = true;
-    if (f.card?.on && f.card.kind === 'green' && hpK < 0.5 && vis) { this.spot = this.spot && this.mode === 'retreat' && this.spotT > 0 ? this.spot : this.coverFrom(t, true); this.spotT = Math.max(this.spotT, 1); goal = this.spot ?? goal; key = 'retreat'; fight = false; this.mode = 'retreat'; sprint = true; }
+    if (f.card?.on && f.card.kind === 'green' && hpK < 0.5 && vis) { this.spot = this.spot && this.mode === 'retreat' && this.spotT > 0 ? this.spot : this.coverFrom(t, true); this.spotT = Math.max(this.spotT, 1); this.spotFor = 'retreat'; goal = this.spot ?? goal; key = 'retreat'; fight = false; this.mode = 'retreat'; sprint = true; }
     // (and red: it stays in the fight whatever its health - that's what it's for)
     if (fight) this.duel(dt, c, t);
     else if (this.pauseT > 0 && this.mode === 'search' && !f.onLadder) { if (!c.roll) c.move = 0; }   // a moment to look around
@@ -577,6 +602,11 @@ export class Bot {
       if (this.safeAhead(c.move)) { c.jump = true; this.holdT = Math.random() < 0.5 ? 0.4 : 0; }
     }
     if (!fight) { this.obstacles(dt, c); this.unjitter(dt, c); this.reach(dt, c, key); }
+    // a grenade about to go off close by - anyone's, its own too (thrown at someone close, it walked on to it
+    // making for its next spot): away from it
+    const nade = G.grenades?.find((g) => g.kind !== 'impact' && g.t < 1.3 && Math.abs(g.x - f.x) < 85 && Math.abs(g.y - (f.y - 10)) < 60);
+    if (nade && f.onGround && !f.onLadder && !c.roll) { c.move = Math.sign(f.x - nade.x) || 1; c.sprint = f.stamina > 20; }
+    this.jumpThrough(c);
     this.airControl(c);
     this.avoidAcid(c);
     this.unstick(dt, c);
@@ -825,7 +855,7 @@ export class Bot {
   // it and the target, otherwise somewhere at a good range. away: one out of
   // the target's sight instead.
   coverFrom(t, away = false) {
-    const f = this.f, G = this.game, nav = G.nav, here = nav.nodeAt(f.x, f.y);
+    const f = this.f, G = this.game, nav = G.nav, here = nav.nodeAt(f.x, f.y, f.onLadder);
     if (!here) return null;
     let best = null, bs = -Infinity;
     for (const n of nav.standable) {
@@ -853,9 +883,13 @@ export class Bot {
   // there is some), hop now and then.
   duel(dt, c, t) {
     const f = this.f;
-    if (!this.spot || this.spotT <= 0) {   // (the spot it had, kept till its time's up - not a new one every time it comes back to the fight)
+    // (the spot it had, kept till its time's up - not a new one every time it comes back to the fight. But not one
+    // picked to get away from them (a retreat's), nor one it's since left well behind: it turned round for those)
+    const far = this.spot && Math.abs((this.spot.cx + 0.5) * T - f.x) > 6 * T;
+    if (!this.spot || this.spotT <= 0 || this.spotFor !== 'fight' || far) {
       this.spot = this.coverFrom(t);
       this.spotT = rand(1.2, 2.6);
+      this.spotFor = 'fight';
     }
     this.mode = 'fight';
     this.path = [];
@@ -891,7 +925,9 @@ export class Bot {
     // while it's still up at that height - turning back is what made it hop on the spot
     const j = this.jumping, jx = j && (j.edge.to.cx + 0.5) * T, jy = j && (j.edge.to.cy + 1) * T;
     if (j && (f.vy < 0 || f.y < jy + 4)) {
-      if (j.edge.kind !== 'pad') c.move = Math.sign(jx - f.x) || c.move;   // (a jump pad's throw: straight up until it's clear - see follow)
+      // (a jump pad's throw: straight up until it's clear - see follow. Right over where it's coming down: hands
+      // off - steering for the very middle, it went left, right, left all the way up)
+      if (j.edge.kind !== 'pad') c.move = Math.abs(jx - f.x) <= 6 ? 0 : Math.sign(jx - f.x);
       return;
     }
     if (!doomed(f.x + f.vx * 0.25)) return;
@@ -1023,8 +1059,23 @@ export class Bot {
     }
     const step = this.path[0];
     if (!step) {
-      // nothing left to do but it's hanging on a ladder: get down onto the floor
-      if (f.onLadder) { c.down = true; return; }
+      // nothing left to do but it's hanging on a ladder: off it - to the side, onto the floor it's level with
+      // (at the top: down to the bottom, it was somewhere else again, and back up it went, and down...),
+      // or down to the floor
+      if (f.onLadder) {
+        const fy = Math.round(f.y / T), cx = Math.floor(f.x / T), gx = goal ? (goal.cx + 0.5) * T : f.x;
+        if (Math.abs(f.y - fy * T) < 3) {
+          // (a side picked once and kept: picked by where the goal is, right on top of it, it went left, right, left)
+          if (!(this.offSide?.until > this.game.time)) {
+            const s0 = Math.abs(gx - f.x) > 8 ? Math.sign(gx - f.x) : Math.random() < 0.5 ? -1 : 1;
+            this.offSide = { until: this.game.time + 1, s: nav.stand(cx + s0, fy - 1) ? s0 : nav.stand(cx - s0, fy - 1) ? -s0 : 0 };
+          }
+          const s = this.offSide.s;
+          if (s) { c.move = s; c.up = f.y > fy * T + 0.5; c.down = f.y < fy * T - 0.5; return; }
+        }
+        c.down = true;
+        return;
+      }
       // there (or no way): face the goal and close the last bit
       if (goal) c.move = this.toward((goal.cx + 0.5) * T, 4);
       return;
@@ -1033,8 +1084,11 @@ export class Bot {
     const sx = (step.from.cx + 0.5) * T;
     switch (e.kind) {
       case 'walk':
-      case 'fall':
-        c.move = Math.abs(tx - f.x) > 2 ? Math.sign(tx - f.x) : 0;
+      case 'fall': {
+        // (the step after goes on the same way: on, no slowing for the middle of this one - running past it, in
+        // the air off a bump, it turned back for it and then round again)
+        const nx = this.path[1], nd = nx && (nx.edge.kind === 'walk' || nx.edge.kind === 'fall') ? Math.sign(nx.node.cx - n.cx) : 0, d = tx - f.x;
+        c.move = nd && (Math.sign(d) === nd || Math.abs(d) < 8) ? nd : Math.abs(d) > (f.onGround ? 2 : 6) ? Math.sign(d) : 0;
         if (f.onLadder) {
           // level the feet with the floor first, or the floor's edge blocks stepping off
           c.move = Math.sign(tx - f.x);
@@ -1042,6 +1096,7 @@ export class Bot {
           c.down = f.y < ty - 0.5;
         }
         break;
+      }
       case 'climb': {
         const up = n.cy < step.from.cy;
         if (!f.onLadder && Math.abs(f.x - tx) > 3) c.move = Math.sign(tx - f.x);
@@ -1078,7 +1133,7 @@ export class Bot {
             this.jumping ??= { edge: e, t: this.game.time };
           }
         } else {
-          c.jumpHeld = f.y > ty - 4;
+          c.jumpHeld = true;   // (held all the way up, as the route worked it out (Nav.arc): let go at the height it was going to, a jump over a wall to the same floor was a hop into the wall)
           // only steer over once it's high enough to clear the lip
           const above = f.y < ty + 2;
           // (near enough the landing spot: hands off - steering hard for its middle, it went past and back)
@@ -1089,16 +1144,36 @@ export class Bot {
       }
     }
     if (f.onGround && this.jumpedFrom && here && here !== this.jumpedFrom) this.jumpedFrom = null;
-    // landed from a jump: if it didn't end up where the jump was meant to go
-    // (bonked a ceiling, fell short), don't keep trying it - go another way
-    const j = this.jumping;
-    if (j && (f.onGround || f.onLadder) && this.game.time - j.t > 0.25) {
-      if (here !== j.edge.to) {
-        this.failed.set(j.edge, this.game.time + 15);
-        this.repath = 0;
-      }
-      this.jumping = null;
+  }
+
+  // A planned jump, while it's in the air - whatever it's doing meanwhile (a foe seen halfway over had it let go of
+  // the jump: a short hop, short of the far side). And how it came down.
+  jumpThrough(c) {
+    const f = this.f, j = this.jumping;
+    if (!j) return;
+    const down = f.onGround || f.onLadder;
+    if (!down) {
+      j.air = true;
+      const e = j.edge;
+      if (e.kind !== 'jump') return;
+      const tx = (e.to.cx + 0.5) * T, ty = (e.to.cy + 1) * T;
+      c.jumpHeld = true;
+      if ((e.dy <= -3 && f.y > ty) || (Math.abs(e.dx) >= 3 && Math.abs(tx - f.x) > 24)) if (f.vy > -60 && f.airJumps > 0) { c.jump = true; c.jumpHeld = true; }
+      return;
     }
+    if (!j.air) {
+      // (never got off the ground - the jump was taken back, it was busy: nothing was tried)
+      if (this.game.time - j.t > 0.4) this.jumping = null;
+      return;
+    }
+    // down: if it didn't end up where it meant to (bonked a ceiling, fell short) that jump's no good for a while -
+    // a step or two along the same floor is near enough (on from there)
+    const here = this.game.nav.nodeAt(f.x, f.y, f.onLadder), to = j.edge.to;
+    if (here !== to) {
+      if (!(here && here.cy === to.cy && Math.abs(here.cx - to.cx) <= 2)) this.failed.set(j.edge, this.game.time + 15);
+      this.repath = 0;
+    }
+    this.jumping = null;
   }
 
   // Never step toward a drop into the acid.
@@ -1128,7 +1203,7 @@ export class Bot {
       this.stuckT = 0;
       if (this.mode === 'fight') {
         // pushing into a wall to get to a firing spot: fight from here instead (no hopping on the spot)
-        this.spot = this.game.nav.nodeAt(f.x, f.y);
+        this.spot = this.game.nav.nodeAt(f.x, f.y); this.spotFor = 'fight';
         this.spotT = rand(1.5, 3);
         c.move = 0;
         return;

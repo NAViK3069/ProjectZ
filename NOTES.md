@@ -17,7 +17,9 @@ a "coming soon" page (`MODES` in `src/arena/main.js`).
 Twelve maps (`src/arena/maps.js`), made for up to eight: about 85-100 x 30-36 cells, several floors
 joined several ways. A jump gets you up 3 rows, a double jump 6, a jump pad (`L.pad`, new) about 8. Bots
 work out their routes (`Nav` in `ai.js`) by flying each jump with the real numbers (`arc`), so a route
-they plan is one they can make; a bot that stops getting nearer drops that step and goes another way
+they plan is one they can make - so a bot on a planned jump flies it as `arc` does, the button held all the
+way up, even if a fight starts halfway over (`jumpThrough`, which also judges the landing: a step or two
+along the same floor counts as made). A bot that stops getting nearer drops that step and goes another way
 (`progress`). The menus' backdrop is the maps in turn, with nobody in them (`menuBackdrop`).
 
 To check a map after changing it: every place should be reachable from every spawn (`game.nav`).
