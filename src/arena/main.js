@@ -3036,6 +3036,7 @@ function drawSpectating(u, W, H) {
 }
 const LOOK_DEAD_X = 90, LOOK_DEAD_Y = 64, LOOK_EASE = 2.6;   // how far from the body the mouse can go before the camera looks that way, how slowly it eases over
 let lookX = 0, lookY = 0;
+let wasAlive = false, justDied = false;   // (your fighter, the last frame: alive - so the frame you die is known)
 function updateCamera(dt) {
   const cam = renderer.camera;
   let tx, ty;
@@ -3044,14 +3045,21 @@ function updateCamera(dt) {
     tx = PW / 2 + Math.sin(titlePan) * (PW / 2);
     ty = PH / 2 + Math.sin(titlePan * 1.7) * (PH / 3);
   } else {
+    if (wasAlive && !player.alive) justDied = true;   // (just now: the camera goes to who did it)
     let f = player.alive ? player : null;
     if (!f) {
       // someone still in this game to watch - who got you, if they're about (not a shadow clone, nor
-      // someone from a match before: kept from one to the next, the camera sat where they'd last been)
-      const ok = (o) => o && o.alive && !o.isDecoy && !o.dummy && game.fighters.includes(o);
-      if (!ok(spectating)) spectating = (ok(player.killer?.owner ?? player.killer) && (player.killer.owner ?? player.killer)) || game.fighters.find(ok) || player;
+      // someone from a match before: kept from one to the next, the camera sat where they'd last been).
+      // The moment you die it's whoever killed you, always (or whoever last hit you, if it was the drop or the
+      // acid that did it) - not still whoever you were watching last time round.
+      const ok = (o) => o && o.alive && !o.isDecoy && !o.dummy && o !== player && game.fighters.includes(o);
+      const by = (o) => o?.owner ?? o, killer = ok(by(player.killer)) ? by(player.killer) : ok(by(player.hitBy)) ? by(player.hitBy) : null;
+      if (justDied && killer) spectating = killer;
+      if (!ok(spectating)) spectating = killer || game.fighters.find(ok) || player;
       f = spectating;
     }
+    justDied = false;
+    wasAlive = player.alive;
     const target = f.alive ? f : f.corpse ?? f;
     tx = target.x;
     ty = target.y - 20;
