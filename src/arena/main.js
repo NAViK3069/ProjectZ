@@ -2620,8 +2620,10 @@ function drawSande(ctx) {
   const v = ctx.getTransform(), sx = lead ? v.a * lead.x + v.e : 0, sy = lead ? v.d * (lead.y - 14) + v.f : 0;
   drawSandeScreen(ctx, ctx.canvas, k, age, performance.now() / 1000, sx, sy);
   if (!users.length) sandeOut = Math.max(0, sandeOut - 1 / 60 / 0.2);
-  for (const f of game.fighters) if (f._sandeTrail?.items.length || f.sande) { if (f.alive && (!f.hidden || f === player)) f.drawSandeTrail(ctx); }
-  for (const f of users) if (!f.hidden || f === player) f.draw(ctx);
+  // (theirs - and anyone adapted to it, moving in it too: their after-images, and them in full colour over the wash)
+  const moving = game.fighters.filter((f) => f.alive && (f.sande || f.sandeWalk));
+  for (const f of game.fighters) if (f._sandeTrail?.items.length || f.sande || f.sandeWalk) { if (f.alive && (!f.hidden || f === player)) f.drawSandeTrail(ctx); }
+  for (const f of moving) if (!f.hidden || f === player) f.draw(ctx);
 }
 let sandeOut = 0;
 // You, cloaked with the stab still to use: the foe nearest you, which way they're facing and where their back is, and

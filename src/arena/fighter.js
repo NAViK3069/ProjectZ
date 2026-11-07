@@ -635,6 +635,12 @@ export class Fighter {
     // slowly as everything else
     const frozen = this.frozen;
     if (frozen) this.noteHarm('skill:sande', 'sande');   // (that's being done to them: something to adapt to)
+    if (this.sandeWalk) {
+      // the bar drained as fast as the Sandevistan's own (whoever's it is), held from filling back meanwhile
+      const u = this.game.fighters.find((f) => f.alive && f.sande), rate = u ? u.sande.from / u.sande.total : MAX_STAMINA / SANDE_MAX_T;
+      this.stamina = Math.max(0, this.stamina - rate * dt);
+      this.staminaRest = Math.max(this.staminaRest, 0.4);
+    }
     if (frozen) c = { ...c, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: !!c.skill && this.usingSkill === 'sande' };
     // the chidori in someone: the two of you held there till it's done - no jumping, rolling, walking or climbing out
     // of it, either of you (heldT: the one it's in - see main.js, chidoriHold)
@@ -1276,6 +1282,11 @@ export class Fighter {
   // In their own time while the world's stopped: theirs is the Sandevistan - or they've adapted to it.
   get ownTime() {
     return !!this.sande || this.adaptedTo('skill:sande');
+  }
+  // Moving in someone else's Sandevistan, adapted to it: after-images and full colour like theirs, and the stamina
+  // drained as theirs is - but none of its speed (and run dry, still moving).
+  get sandeWalk() {
+    return !this.sande && (this.game.timeK ?? 1) < 1 && this.adaptedTo('skill:sande');
   }
   get phantom() {   // (the purple card: gone, and nothing can touch you)
     return this.cardPower('purple') > 0;
@@ -2230,7 +2241,7 @@ export class Fighter {
   // After-images: every so often a hard-edged copy of the body in the next colour, left where it was, fading.
   drawSandeTrail(ctx) {
     const now = performance.now() / 1000, list = (this._sandeTrail ??= { items: [], pool: [], last: 0, hue: 0 });
-    if (this.alive && this.sande && now - list.last > 0.034) {
+    if (this.alive && (this.sande || this.sandeWalk) && now - list.last > 0.034) {
       list.last = now;
       const it = list.items.length >= 16 ? list.items.shift() : { cv: list.pool.pop() ?? makeCanvas(64, 64) };
       const [c, g] = it.cv, hue = SANDE_HUES[list.hue++ % SANDE_HUES.length];
