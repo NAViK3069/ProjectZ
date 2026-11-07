@@ -152,7 +152,7 @@ export function openOnline() {
 // down, to go out with the next state of the game; the others set them off
 // on their own screens the same way. Each says whose doing it was, if a player's:
 // their own steps and shots they've shown already.
-const FX_CALLS = ['dust', 'puff', 'mist', 'wisp', 'motes', 'runDust', 'step', 'casing', 'blood', 'sparks', 'impact', 'gunSmoke', 'debris', 'smoke', 'fire', 'scorch'];
+const FX_CALLS = ['dust', 'puff', 'mist', 'wisp', 'motes', 'runDust', 'step', 'casing', 'blood', 'sparks', 'impact', 'gunSmoke', 'debris', 'smoke', 'fire', 'scorch', 'vfx'];
 const OWN_MOVES = new Set(['dust', 'puff', 'step', 'runDust']);
 let noted = null, depth = 0, fxBy = 0, fxShot = 0;
 function recordEffects() {
@@ -535,7 +535,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'steal', 'stolen', 'phase', 'jump', 'riftCool', 'deflect', 'hook', 'skillCD', 'fang', 'aurum', 'reap', 'ea', 'xc', 'jc'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'heldT', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'steal', 'stolen', 'phase', 'jump', 'riftCool', 'deflect', 'hook', 'skillCD', 'fang', 'aurum', 'reap', 'ea', 'xc', 'jc'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];

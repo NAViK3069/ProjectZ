@@ -24,6 +24,35 @@ along the same floor counts as made). A bot that stops getting nearer drops that
 
 To check a map after changing it: every place should be reachable from every spawn (`game.nav`).
 
+## Skills, and adding one
+
+A skill lives in four places, and `checkSkills` (`src/arena/skills.js`, run as the game loads) says in the console
+which of them a skill is missing from:
+
+1. **What it does:** `fighter.js` - its numbers at the top, `SKILL_CD` / `SKILL_TIME`, an `update<Name>` (called by
+   `usingSkill` in `update`), its state in `skillBusy`, in `hacked` (cut off) and `die`; what it does to others in
+   `main.js` (stubbed in `online.js`'s list for players' screens), its looks in its own `*fx.js`. Online: its state
+   field goes in `online.js`'s `SKILL_KEYS`.
+2. **Its name, picture and words:** `main.js` - `SKILL_INFO`, and the YOUR SKILL / BOT SKILLS lists in `OPTIONS`
+   and `online.js`'s `SKILLS`.
+3. **How it's aimed, and what it threatens:** `skills.js` - `SKILLS`: `aim` ('self', 'dir', 'point', 'pick'; a
+   'point' or 'pick' one gets the phone's lock-on: the foe nearest the way the stick's aimed, `phoneLock`), and
+   `danger` - the line or circle it's about to hit, so bots get out of the way (`Bot.dodge`).
+4. **How a bot uses it:** `ai.js` - `BOT_SKILLS`: `use` (Q now?) and, if it has a second press or wants the bot's
+   feet, `during` ('chase' at them / 'away'). A skill in that table is in the RANDOM bot pool by itself.
+
+Its moments - the cast, the hit, the blast - get effects from `src/arena/vfx.js`: crisp pixel shapes in a few
+colours (`PAL`: fire, holy, void, volt, blood, mint, violet, shade, ice, steel, smoke), white-hot first, a soft
+glow added over them, moving every frame and fading smoothly at the end. A blast is simulated, not drawn: billows
+of fire bursting out, rising, cooling to smoke from the rim in, sparks streaking off, embers drifting (about 2 ms a
+frame for a grenade's). `game.fx.vfx(kind, x, y, {...})` with kind blast, ring, star, glitter, slash, bolt or
+spikes (the top of vfx.js says what each takes; glitter goes round a point, or along a line with x1, y1). They go
+to every screen online by themselves (`vfx` is in online.js's `FX_CALLS`).
+
+If it makes you untouchable: in `Fighter.untouchable`, and in `breakGuard` so judgement cut's break ends it.
+Judgement cut is true damage (`hurt(..., pierce)`): nothing untouchable is out of its reach, and the blue shield
+takes none of it.
+
 ## Playing online
 
 It's on GitHub Pages: https://navik3069.github.io/ProjectZ/ (the repo's `main`

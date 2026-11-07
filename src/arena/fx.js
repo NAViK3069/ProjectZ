@@ -5,6 +5,7 @@
 import { makeCanvas } from '../engine/pixel.js';
 import { artW, artH } from '../combat/gunart.js';
 import { T, SOLID, PLAT, ACID } from './level.js';
+import { VfxList } from './vfx.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const SCORCH_HOLD = 6, SCORCH_FADE = 5;   // a scorch mark stays this long, then takes this long to fade out
@@ -18,6 +19,11 @@ export class Fx {
     this.items = [];
     this.stains = [];   // blood on walls and floors, fading: { x, y, w, h, color, t }
     this.scorches = [];   // burn marks, fading: { img, x, y, t }
+    this.sheet = new VfxList();   // the skills' effects drawn frame by frame (vfx.js)
+  }
+  // One of those: a blast, a ring, a star, glitter, a slash, a bolt, spikes (vfx.js says what each takes).
+  vfx(kind, x, y, o = {}) {
+    this.sheet.add(kind, x, y, o);
   }
 
   add(p) {
@@ -145,6 +151,7 @@ export class Fx {
   // ---------- each frame ----------
 
   update(dt) {
+    this.sheet.update(dt);
     for (const s of this.scorches) s.t += dt;
     this.scorches = this.scorches.filter((s) => s.t < SCORCH_HOLD + SCORCH_FADE);
     for (const s of this.stains) s.t += dt;
@@ -238,6 +245,7 @@ export class Fx {
 
   // The bright ones, after the lighting.
   drawGlow(ctx) {
+    this.sheet.draw(ctx);
     for (const p of this.items) {
       if (!p.glow || (p.only && p.only !== this.viewer)) continue;
       ctx.globalAlpha = Math.min(1, p.life / Math.min(0.15, p.max));

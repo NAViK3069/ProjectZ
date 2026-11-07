@@ -300,3 +300,49 @@ export function drawExAfter(ctx, ox, oy, a, len, k, t, seed) {
     ctx.globalAlpha = 1;
   });
 }
+
+// The warning before the stroke: a thread of light run out down the aim to `len` (its head a bright glint), stars
+// twinkling on and off along it and out to the wave's edges - where it's going, k 0..1 through the warning; fade 1..0
+// as it dies away once the wave's gone.
+export function drawExGuide(ctx, ox, oy, a, len, k, t, seed, fade = 1) {
+  const ux = Math.cos(a), uy = Math.sin(a), W = WAVE_W;
+  const star = (x, y, r, c) => {
+    ctx.fillStyle = c;
+    ctx.fillRect(x, y, 1, 1);
+    if (r > 0) { ctx.fillRect(x - r, y, r, 1); ctx.fillRect(x + 1, y, r, 1); ctx.fillRect(x, y - r, 1, r); ctx.fillRect(x, y + 1, 1, r); }
+  };
+  lit(ctx, () => {
+    // the thread: unbroken, pale gold, bright beads of light crawling along it
+    const run = (t * 260) % 8;
+    for (let s = 0; s < len; s++) {
+      const bead = (s - run + 800) % 8 < 2;
+      ctx.globalAlpha = fade * (bead ? 1 : 0.55 + 0.3 * k);
+      ctx.fillStyle = bead ? C.core : C.goldHi;
+      ctx.fillRect(Math.round(ox + ux * s), Math.round(oy + uy * s), 1, 1);
+    }
+    // its edges: as wide as the wave will be, a dotted gold line either side, firming up as it comes
+    ctx.fillStyle = C.goldHi;
+    for (let s = (t * 120) % 6; s < len; s += 6) for (const side of [-1, 1]) {
+      ctx.globalAlpha = fade * (0.3 + 0.45 * k);
+      ctx.fillRect(Math.round(ox + ux * s - uy * W * side), Math.round(oy + uy * s + ux * W * side), 1, 1);
+    }
+    // the twinkling: each star blinks on its own beat, more of them as it comes
+    const n = Math.floor(len / 8);
+    for (let i = 0; i < n; i++) {
+      const beat = Math.sin(t * (9 + hash(i, seed) * 8) + hash(i, 3) * 6.3);
+      if (beat < 0.2) continue;
+      const s = hash(i, seed, 1) * len, q = (hash(i, seed, 2) - 0.5) * 2 * W * (0.3 + 0.7 * k);
+      ctx.globalAlpha = fade * (Math.min(1, beat));
+      star(Math.round(ox + ux * s - uy * q), Math.round(oy + uy * s + ux * q), beat > 0.85 ? 2 : beat > 0.5 ? 1 : 0, hash(i, 4) > 0.5 ? C.core : C.pale);
+    }
+    // the head of it, racing out
+    if (len > 4) {
+      const hx = Math.round(ox + ux * len), hy = Math.round(oy + uy * len);
+      ctx.globalAlpha = fade;
+      star(hx, hy, 3, C.core);
+      ctx.fillStyle = C.goldHi;
+      ctx.fillRect(hx - 1, hy - 1, 3, 3);
+    }
+    ctx.globalAlpha = 1;
+  });
+}

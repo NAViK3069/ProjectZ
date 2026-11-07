@@ -12,7 +12,8 @@
 // were last, picks up what's lying around, roams and hops.
 
 import { T, SOLID, PLAT, LADDER, ACID, LOW } from './level.js';
-import { GRAVITY, WALK, AIR_ACCEL, JUMP, JUMP2, PAD_JUMP } from './fighter.js';
+import { GRAVITY, WALK, AIR_ACCEL, JUMP, JUMP2, PAD_JUMP, GRAPPLE_RANGE, CHIDORI_REACH, JC_RANGE } from './fighter.js';
+import { SKILLS, dangersTo } from './skills.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick2 = (l) => l[(Math.random() * l.length) | 0];
@@ -258,7 +259,7 @@ export const gunTier = (def) => (def ? TIER[def.cls] ?? 1 : 0) + (def && def.dam
 const AIM_WANDER = 0.06;   // how far a bot's hand wanders off (rad, on NORMAL)
 
 // Skills that only work up close, and how close: a bot with one of these ready goes in to that, not hanging back.
-const SKILL_REACH = { reap: 120, fang: 200, blaze: 150, chidori: 200, steal: 125, galaxy: 210, decoy: 230, cloak: 300 };
+const SKILL_REACH = { reap: 120, fang: 260, blaze: 150, chidori: 210, steal: 125, galaxy: 210, decoy: 230, cloak: 300, judge: 260 };
 export class Bot {
   constructor(game, f, skill = 1) {
     this.game = game;
@@ -552,7 +553,14 @@ export class Bot {
       this.rollT = rand(2, 4);
     }
 
-    this.useSkill(c, t, vis, dist, hpK, enemies);
+    // the skill: Q when it's worth it, and whatever it wants pressed while it's going - and of its feet: at them, or away
+    const plan = this.useSkill(c, t, vis, dist, hpK, enemies);
+    if (plan === 'chase' && t) {
+      goal = nav.nodeAt(t.x, t.y, t.onLadder) ?? nav.nodeBelow(t.x, t.y - 4) ?? goal; key = t; fight = false; sprint = true;
+    } else if (plan === 'away' && t) {
+      if (!this.spot || this.spotFor !== 'retreat' || this.spotT <= 0) { this.spot = this.coverFrom(t, true); this.spotT = 2; this.spotFor = 'retreat'; }
+      goal = this.spot ?? goal; key = 'retreat'; fight = false; sprint = true;
+    }
     // the purple card: it's safe only until it attacks - it holds its fire and gets out of there, or round to a better place
     if (f.phantom) { c.fire = false; c.melee = false; c.grenade = false; }
     // in wraith form itself: nothing that would end it. And no wasting shots on someone else's: they go through.
@@ -560,22 +568,6 @@ export class Bot {
     // into a deflect field: every shot comes back - it holds its fire till the blade's drawn
     if (t?.deflect?.phase === 'guard' && Math.hypot(t.x - f.x, t.y - f.y) < 360) c.fire = false;
     if (f.wraith) c.roll = false;
-    // in the other place: away from them a while, then the way back opened behind
-    if (f.phase) {
-      c.fire = false;
-      if (t) c.move = -Math.sign(t.x - f.x) || 1;
-      c.sprint = true;
-      c.skill = f.phase.age > 2;
-    }
-    // chidori in hand: straight at them, running, and the lunge once it's close
-    if (f.chidori && t) {
-      c.fire = false;
-      c.aim = Math.atan2(t.y - 14 - (f.y - 14), t.x - f.x);
-      c.target = { x: t.x, y: t.y - 14 };
-      if (f.chidori.phase !== 'charge') { c.move = Math.sign(t.x - f.x) || 1; c.sprint = true; }
-      c.skill = f.chidori.phase === 'hold' && !f.chidori.lunged && vis && dist < 110;
-    }
-    if (f.deflect && t) { c.aim = Math.atan2(t.y - 14 - (f.y - 14), t.x - f.x); c.target = { x: t.x, y: t.y - 14 }; }
     // a shield up close is about to go off: not stood right next to it, if it can shoot from further off
     this.backOff = !!(t && t.barrier && armed && vis && dist < 80 && t.barrier.t < 2.5);
 
@@ -602,10 +594,13 @@ export class Bot {
       if (this.safeAhead(c.move)) { c.jump = true; this.holdT = Math.random() < 0.5 ? 0.4 : 0; }
     }
     if (!fight) { this.obstacles(dt, c); this.unjitter(dt, c); this.reach(dt, c, key); }
+    // (going at them with something in hand, on their floor and near: straight in, whatever the route says)
+    if (plan === 'chase' && t && vis && f.onGround && Math.abs(t.y - f.y) < 24 && Math.abs(t.x - f.x) < 140 && !c.roll) { c.move = Math.sign(t.x - f.x) || 1; c.sprint = true; }
     // a grenade about to go off close by - anyone's, its own too (thrown at someone close, it walked on to it
     // making for its next spot): away from it
     const nade = G.grenades?.find((g) => g.kind !== 'impact' && g.t < 1.3 && Math.abs(g.x - f.x) < 85 && Math.abs(g.y - (f.y - 10)) < 60);
     if (nade && f.onGround && !f.onLadder && !c.roll) { c.move = Math.sign(f.x - nade.x) || 1; c.sprint = f.stamina > 20; }
+    this.dodge(c);
     this.jumpThrough(c);
     this.airControl(c);
     this.avoidAcid(c);
@@ -617,13 +612,14 @@ export class Bot {
       if (this.dj && !f.onGround && !f.onLadder && f.vy > -40 && f.airJumps > 0) { c.jump = true; this.dj = false; }
     }
     if (f.onGround && this.holdT <= 0) this.dj = false;
+    if (f.hook && f.hook.state !== 'back') c.jump = false;   // (on the grapple line: a jump lets go of it)
     // Turned round just now: it doesn't turn straight back. (Someone right overhead or crossing it had it
     // flipping from side to side every moment.) It's a beat before it can turn on them and shoot.
     this.turnT -= dt;
     if (c.aim !== null && !f.roll && !this.smash) {   // (breaking something up: it faces that, and stays facing it)
       const side = Math.cos(c.aim);
       if (Math.abs(side) > 0.15 && Math.sign(side) !== f.facing) {
-        if (this.turnT > 0) { c.aim = Math.PI - c.aim; c.target = null; c.fire = false; }
+        if (this.turnT > 0) { c.aim = Math.PI - c.aim; c.target = null; c.fire = false; if (SKILLS[f.usingSkill]?.aim !== 'self') c.skill = false; }   // (not a skill sent the wrong way)
         else this.turnT = 0.5;
       }
     }
@@ -747,103 +743,58 @@ export class Bot {
     if (this.lootT > 7 || (this.lootT > 2 && !this.path.length && f.onGround && !this.smash)) { this.skip.set(key, G.time + 12); this.lootT = 0; this.repath = 0; }
   }
 
-  // Q, when it's worth it - each skill has its moment. (Not while one's still going:
-  // a second Q would cut the cloak short, say.)
+  // Q, when it's worth it - each skill has its moment (BOT_SKILLS, below). While one's going: what it wants pressed for
+  // it - and returned, what it wants of the bot's feet ('chase': at them; 'away': out of their sight; or nothing).
   useSkill(c, t, vis, dist, hpK, enemies) {
-    const f = this.f, G = this.game, k = f.usingSkill;   // (its own, or one it's taken)
-    if (f.hackedT > 0) return;   // (Q does nothing, and it knows it)
-    if (!k || (k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || !f.alive || f.onLadder || f.roll) return;
-    if (f.wraith || f.chidori || f.octo || f.steal || f.phase || f.cloak || f.decoy || f.veil || f.bow || f.mura || f.blaze || f.gal || f.summon || f.hook || f.swordsOut || f.lockOn || f.barrier || f.card || f.hackCast || f.sande || f.batCast || f.deflect || f.fang || f.aurum || f.reap || f.ea || f.xc || f.jc) return;
+    const f = this.f, G = this.game, k = f.usingSkill, B = BOT_SKILLS[k];   // (its own, or one it's taken)
+    if (!B || !f.alive || f.hackedT > 0) return null;   // (hacked: Q does nothing, and it knows it)
+    const s = { b: this, f, G, c, t, vis, dist, hpK, enemies, aimed: vis && Math.abs(this.aimErr) < 0.2, near: enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280) };
+    if (f.skillBusy) return B.during?.(s) ?? null;   // (not a second Q while one's still going: it'd cut the cloak short, say - unless the skill wants one)
+    if ((k === 'grapple' ? !(f.charges > 0) : f.skillCD > 0) || this.skillT > 0 || f.onLadder || f.roll) return null;
     this.skillT = rand(0.4, 0.9) / this.skill;   // (it thinks it over now and then, not every frame)
-    const aimed = vis && Math.abs(this.aimErr) < 0.2;
-    const near = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 280);
-    let go = false;
-    switch (k) {
-      case 'cloak':      // to slip away when it's losing, or to creep up for a stab
-        go = (vis && hpK < 0.35) || (!!t && dist < 360 && hpK >= 0.35 && Math.random() < 0.6);
-        this.flee = hpK < 0.35;
-        break;
-      case 'decoy':      // a double to take the heat in a fight (then round behind them, unseen)
-        go = vis && dist < 260 && Math.random() < 0.6;
-        break;
-      case 'archery':    // the more in reach the better
-        go = near.length >= 2 || (near.length === 1 && (vis || Math.random() < 0.3));
-        break;
-      case 'murasaki':   // the line of it at someone in sight
-        go = aimed && dist < 380;
-        break;
-      case 'blaze':      // close enough to dash and hit
-        go = aimed && dist < 165 && Math.abs(t.y - f.y) < 50;
-        break;
-      case 'galaxy':     // where they stand
-        go = vis && dist < 230;
-        if (go) c.target = { x: t.x, y: t.y - 12 };
-        break;
-      case 'vampire':    // the bats go every way: best with someone close, better still with several, or when it needs the blood
-        go = near.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 170).length >= (hpK < 0.6 ? 1 : 2) || (vis && dist < 110);
-        break;
-      case 'fang':       // close enough for most of the fan to find them
-        go = aimed && dist < 220;
-        break;
-      case 'aurum':      // someone in sight, far enough off that a sniper's the thing
-        go = aimed && dist > 110 && dist < 640;
-        break;
-      case 'judge':      // someone in sight within its reach: the mark goes on them (it leads them a little)
-        go = vis && dist < 290;
-        if (go) c.target = { x: t.x + (t.vx ?? 0) * 0.3, y: t.y - 14 };
-        break;
-      case 'excal':      // the same: someone in sight, in line, and it not hurting too much to stand there a moment
-        go = aimed && dist > 90 && dist < 650 && hpK > 0.3;
-        break;
-      case 'ea':         // someone in sight and not too close: the charge leaves it standing there, so not when it's hurting
-        go = aimed && dist > 90 && dist < 600 && hpK > 0.3;
-        break;
-      case 'reap':       // someone in its reach, feet on the floor: it does the rest
-        go = vis && dist < 130 && f.onGround;
-        break;
-      case 'jumper':     // to get out of it, hurt: into the other place, away from them, and the way back left open behind
-        go = hpK < 0.5 && f.hurtT < 1;
-        break;
-      case 'steal':      // someone in reach with a skill worth having
-        go = vis && dist < 140 && !!t.usingSkill && t.usingSkill !== 'grapple' && t.usingSkill !== 'steal';
-        if (go) c.target = { x: t.x, y: t.y - 14 };
-        break;
-      case 'octo':       // a fight on: four more guns in it
-        go = vis && dist < 420;
-        break;
-      case 'chidori':    // someone close enough to run them down, on about the same level
-        go = vis && dist < 220 && Math.abs(t.y - f.y) < 40;
-        break;
-      case 'deflect':    // being shot at from in front, from not too far: it turns them back (and dashes on them at the end)
-        go = vis && t.lastFireT < 0.35 && dist < 300 && !!t.gun;
-        break;
-      case 'sande':      // it's only moments: when someone's in sight and close enough to make them count - or to get out of it, hurt
-        go = (vis && dist < 260 && (!!f.bestGun() || dist < 90) && f.stamina >= 60) || (hpK < 0.35 && f.hurtT < 0.5 && f.stamina >= 30);   // (it's as long as the stamina: not wasted on a little)
-        break;
-      case 'shield':     // being shot at, or about to walk into it: not just because someone's there, it's only so much and it slows it
-        go = (f.hurtT < 0.5 && hpK < 0.85) || (vis && t.lastFireT < 0.3 && dist < 260 && hpK < 0.7);
-        break;
-      case 'cards':      // a fight going on, or (not a card it can count on, but) when it's getting hurt
-        go = (vis && dist < 340) || (hpK < 0.5 && f.hurtT > 1);
-        break;
-      case 'hack': {     // worth it when it cuts something off: someone in reach with a skill going - or two at once, or close and it's in trouble
-        const inReach = enemies.filter((o) => Math.hypot(o.x - f.x, o.y - f.y) < 150);
-        const busy = (o) => o.cloak || o.decoy || o.veil || o.bow || o.mura || o.blaze || o.gal || o.summon || o.hook || o.swordsOut || o.lockOn || o.barrier || o.card || o.sande || o.deflect || o.batCast || o.chidori || o.octo || o.steal || o.phase || o.stolen;
-        go = inReach.some(busy) || inReach.length >= 2 || (inReach.length === 1 && hpK < 0.5);
-        break;
+    if (B.use(s)) c.skill = true;
+    return null;
+  }
+
+  // Something of a foe's skill coming its way (skills.js: danger): out of it. A line across the floor: up out of it as it
+  // arrives (a jump, the second one at the top); one up or down the screen, or a circle: aside, the nearer way out.
+  dodge(c) {
+    const f = this.f;
+    if (!f.alive || f.onLadder || f.skillBusy && (f.ea || f.xc || f.jc || f.reap)) return;   // (rooted in one of its own: nothing to be done)
+    const list = dangersTo(f, this.game);
+    if (!list.length) return;
+    list.sort((p, q) => p.eta - q.eta);
+    const { d, eta } = list[0];
+    if (eta > 1.1) return;
+    if (d.line) {
+      const ux = Math.cos(d.a), uy = Math.sin(d.a);
+      if (Math.abs(uy) < 0.55) {
+        if (f.onGround && eta < 0.32 && !c.roll) { c.jump = true; this.holdT = 0.55; this.dj = true; }
+        return;
       }
-      case 'lock':       // someone in sight to shoot at, with a gun to do it
-        go = vis && !!f.bestGun() && dist < 360;
-        break;
-      case 'demon':      // a fight coming, and stamina for three swords at least
-        go = f.stamina >= 60 && f.onGround && ((vis && dist < 320) || near.length >= 2);
-        break;
-      case 'grapple':    // out of a fight going badly: up and away
-        go = vis && hpK < 0.35 && Math.random() < 0.3;
-        if (go) { c.aim = -Math.PI / 2 + rand(-0.5, 0.5); c.target = { x: f.x + Math.cos(c.aim) * 160, y: f.y + Math.sin(c.aim) * 160 }; }
-        break;
+      const side = Math.sign((f.x - d.x) * uy - (f.y - 14 - d.y) * ux) || 1;   // (which side of the line it's on)
+      c.move = Math.sign(-uy * side) || 1;
+    } else c.move = Math.sign(f.x - d.x) || (Math.random() < 0.5 ? -1 : 1);
+    c.sprint = f.stamina > 15;
+    if (f.onGround && !this.safeAhead(c.move)) c.move = 0;   // (not off into the acid to get out of it)
+  }
+
+  // The grapple, to get out of a fight going badly: a line up and away from them, to somewhere it bites (a ceiling, a
+  // ledge's underside, a wall) well up off the floor - out of their sight if it can be. The aim for it, or null.
+  grappleAway(t) {
+    const f = this.f, G = this.game, L = G.level, s = f.lineFrom(), side = -Math.sign(t.x - f.x) || 1;
+    let best = null, bs = -Infinity;
+    for (const k of [-0.25, 0, 0.3, 0.6, 0.9, 1.15]) {
+      const a = -Math.PI / 2 + side * k, ux = Math.cos(a), uy = Math.sin(a);
+      let hit = null;
+      for (let r = 20; r < GRAPPLE_RANGE * 0.95; r += 4) if (L.solidAt(s.x + ux * r, s.y + uy * r)) { hit = r; break; }
+      if (!hit || hit < 60) continue;
+      const x = s.x + ux * (hit - 12), y = s.y + uy * (hit - 12);
+      if (y > f.y - 50) continue;   // (not much of a way up)
+      const score = (f.y - y) * 0.5 + Math.abs(x - t.x) * 0.3 + (G.los(t.x, t.y - 14, x, y) ? 0 : 90) + Math.random() * 10;
+      if (score > bs) { bs = score; best = a; }
     }
-    if (go) c.skill = true;
+    return best;
   }
 
   wanderReached() {
@@ -1214,3 +1165,148 @@ export class Bot {
     }
   }
 }
+
+// ---------- the skills, as a bot uses them ----------
+// For each skill: use(s) - Q now? (and whatever goes with it: where it's aimed, c.target for a point); during(s) - every
+// moment while it's going: anything it wants pressed for it (a second Q, the lunge, the dash), and what it wants of its
+// feet ('chase' / 'away'). s: { b (the bot), f, G, c, t (its target), vis, dist, hpK, enemies, near (within 280), aimed }.
+// Every skill needs one - a new skill without one is said in the console (skills.js: checkSkills).
+const chestOf = (v) => ({ x: v.x, y: v.y - 14 });
+// where it'd put a point skill on t: where they are if it can see them, where it last did a moment ago if not
+const pointOn = (s, lead = 0) => {
+  const { b, G, t, vis } = s;
+  if (!t) return null;
+  if (vis) return { x: t.x + (t.vx ?? 0) * lead, y: t.y - 14 };
+  const k = b.known.get(t);
+  return k && G.time - k.t < 0.8 ? { x: k.x, y: k.y - 14 } : null;
+};
+export const BOT_SKILLS = {
+  grapple: {
+    // in to them, the line locked on, for the spin (and the blood back) - more often without a gun worth the name, at
+    // someone low, or reloading; out of a fight going badly: up and away
+    use(s) {
+      const { b, f, c, t, vis, dist, hpK } = s;
+      if (!t || !vis) return false;
+      if (hpK < 0.35 && t.hp / t.maxHp > hpK) {
+        const a = b.grappleAway(t);
+        if (a === null) return false;
+        c.aim = a;
+        c.target = { x: f.x + Math.cos(a) * 160, y: f.y - 14 + Math.sin(a) * 160 };
+        return true;
+      }
+      if (dist < 60 || dist > GRAPPLE_RANGE * 0.9 || t.barrier || t.untouchable || f.hookTarget() !== t) return false;
+      const keen = !f.bestGun() || f.weapon?.def.cls === 'shotgun' || t.hp < 90 || !!t.weapon?.reloading || hpK < 0.7;
+      return hpK > 0.25 && (keen || Math.random() < 0.3);
+    },
+  },
+  cloak: {   // to slip away when it's losing, or to creep up for a stab
+    use(s) { s.b.flee = s.hpK < 0.35; return (s.vis && s.hpK < 0.35) || (!!s.t && s.dist < 360 && s.hpK >= 0.35 && Math.random() < 0.6); },
+  },
+  decoy: { use: (s) => s.vis && s.dist < 260 && Math.random() < 0.6 },   // a double to take the heat (then round behind them, unseen)
+  archery: { use: (s) => s.near.length >= 2 || (s.near.length === 1 && (s.vis || Math.random() < 0.3)) },   // the more in reach the better
+  murasaki: { use: (s) => s.aimed && s.dist < 380 },   // the line of it at someone in sight
+  blaze: { use: (s) => s.aimed && s.dist < 165 && Math.abs(s.t.y - s.f.y) < 50 },   // close enough to dash and hit
+  galaxy: {   // where they stand
+    use(s) {
+      if (!s.vis || s.dist > 230) return false;
+      s.c.target = { x: s.t.x, y: s.t.y - 12 };
+      return true;
+    },
+  },
+  vampire: {   // the bats go every way: best with someone close, better still with several, or when it needs the blood
+    use: (s) => s.near.filter((o) => Math.hypot(o.x - s.f.x, o.y - s.f.y) < 170).length >= (s.hpK < 0.6 ? 1 : 2) || (s.vis && s.dist < 110),
+  },
+  fang: {
+    // close enough for most of the fan to find them (and the sixth at them, to mark)
+    use: (s) => s.aimed && s.dist < 330 && s.G.los(s.f.x, s.f.y - 17, s.t.x, s.t.y - 14),
+    // someone marked: to them (through walls and all, untouchable on the way) - unless that's into several of them,
+    // hurt. Nobody marked: home when that'll do something - one's in someone (it tears out), or someone's between them
+    // and it (they go through them); left too long, home anyway.
+    during(s) {
+      const { f, G, c } = s, m = f.fang;
+      if (!m || m.back || m.t < 0.3) return null;
+      const mark = m.mark?.alive && !m.mark.vanish ? m.mark : null;
+      if (mark) {
+        const crowd = G.fighters.filter((o) => o !== mark && o.alive && G.foes(f, o) && Math.hypot(o.x - mark.x, o.y - mark.y) < 130).length;
+        if (s.hpK > 0.35 || crowd === 0 || mark.hp < 70) c.skill = true;
+        return null;
+      }
+      const sx = f.x, sy = f.y - 17;
+      const between = (q, d) => {
+        const dx = sx - d.x, dy = sy - d.y, L = Math.hypot(dx, dy) || 1, qx = q.x - d.x, qy = q.y - 14 - d.y, along = (qx * dx + qy * dy) / L;
+        return along > 0 && along < L - 10 && Math.abs(qx * dy - qy * dx) / L < 12;
+      };
+      const mine = G.fangs?.filter((d) => d.owner === f && d.state !== 'back') ?? [];
+      if (mine.some((d) => (d.state === 'in' && d.on?.alive) || G.fighters.some((q) => q.alive && !q.untouchable && G.foes(f, q) && between(q, d))) || m.t > 2.3) c.skill = true;
+      return null;
+    },
+  },
+  aurum: { use: (s) => s.aimed && s.dist > 110 && s.dist < 640 },   // someone in sight, far enough off that a sniper's the thing
+  judge: {
+    // someone within its reach - seen, or seen a moment ago behind a wall (walls no matter to it); more so at someone
+    // nothing else can touch now (true damage, and the break ends it)
+    use(s) {
+      const { f, c, t } = s, p = pointOn(s, 0.3);
+      if (!p || Math.hypot(p.x - f.x, p.y - (f.y - 14)) > JC_RANGE * 0.95) return false;
+      if (!s.vis && !t.untouchable && !t.barrier && Math.random() < 0.5) return false;
+      c.target = p;
+      return true;
+    },
+    // the mark goes where it aims till the cut: kept on them
+    during(s) { if (s.f.jc?.phase === 'stance') { const p = pointOn(s, 0.25); if (p) s.c.target = p; } return null; },
+  },
+  excal: { use: (s) => s.aimed && s.dist > 90 && s.dist < 650 && s.hpK > 0.3 },   // in sight, in line, and not hurting too much to stand there
+  ea: { use: (s) => s.aimed && s.dist > 90 && s.dist < 520 && s.hpK > 0.3 },   // the same, and not far: it's weaker further out
+  reap: { use: (s) => s.vis && s.dist < 130 && s.f.onGround },   // someone in its reach, feet on the floor: it does the rest
+  jumper: {
+    use: (s) => s.hpK < 0.5 && s.f.hurtT < 1,   // to get out of it, hurt: into the other place
+    // away from them a while, then the way back opened behind
+    during(s) {
+      if (!s.f.phase) return null;
+      s.c.fire = false;
+      s.c.skill = s.f.phase.age > 2;
+      return 'away';
+    },
+  },
+  steal: {   // someone in reach with a skill worth having
+    use(s) {
+      const { t } = s;
+      if (!s.vis || s.dist > 140 || !t.usingSkill || t.usingSkill === 'grapple' || t.usingSkill === 'steal') return false;
+      s.c.target = chestOf(t);
+      return true;
+    },
+  },
+  octo: { use: (s) => s.vis && s.dist < 420 },   // a fight on: four more guns in it
+  chidori: {
+    use: (s) => s.vis && s.dist < 260 && Math.abs(s.t.y - s.f.y) < 48,   // someone close enough to run down, on about the same level
+    // in hand: at them, and the lunge (the once) when they're in its reach, in sight
+    during(s) {
+      const { f, c, t, vis, dist } = s, m = f.chidori;
+      if (!m || !t) return null;
+      c.fire = false;
+      c.aim = Math.atan2(t.y - 14 - (f.y - 14), t.x - f.x);
+      c.target = chestOf(t);
+      if (m.phase === 'hold' && !m.lunged && vis && dist < CHIDORI_REACH * 0.85 && s.G.los(f.x, f.y - 14, t.x, t.y - 14)) c.skill = true;
+      return m.phase === 'charge' || m.phase === 'hold' ? 'chase' : null;
+    },
+  },
+  deflect: {
+    use: (s) => s.vis && s.t.lastFireT < 0.35 && s.dist < 300 && !!s.t.gun,   // shot at from in front: it turns them back (and dashes on them at the end)
+    during(s) { if (s.f.deflect && s.t) { s.c.aim = Math.atan2(s.t.y - 14 - (s.f.y - 14), s.t.x - s.f.x); s.c.target = chestOf(s.t); } return null; },
+  },
+  sande: {   // only moments: when someone's close enough to make them count - or to get out of it, hurt
+    use: (s) => (s.vis && s.dist < 260 && (!!s.f.bestGun() || s.dist < 90) && s.f.stamina >= 60) || (s.hpK < 0.35 && s.f.hurtT < 0.5 && s.f.stamina >= 30),
+  },
+  shield: {   // being shot at, or about to walk into it: it's only so much, and it slows it
+    use: (s) => (s.f.hurtT < 0.5 && s.hpK < 0.85) || (s.vis && s.t.lastFireT < 0.3 && s.dist < 260 && s.hpK < 0.7),
+  },
+  cards: { use: (s) => (s.vis && s.dist < 340) || (s.hpK < 0.5 && s.f.hurtT > 1) },   // a fight going on, or when it's getting hurt
+  hack: {   // worth it when it cuts something off: someone in reach with a skill going - or two at once, or close and it's in trouble
+    use(s) {
+      const inReach = s.enemies.filter((o) => Math.hypot(o.x - s.f.x, o.y - s.f.y) < 150);
+      return inReach.some((o) => o.skillBusy || o.stolen) || inReach.length >= 2 || (inReach.length === 1 && s.hpK < 0.5);
+    },
+  },
+  lock: { use: (s) => s.vis && !!s.f.bestGun() && s.dist < 360 },   // someone in sight to shoot at, with a gun to do it
+  demon: { use: (s) => s.f.stamina >= 60 && s.f.onGround && ((s.vis && s.dist < 320) || s.near.length >= 2) },   // a fight coming, and stamina for three swords
+};

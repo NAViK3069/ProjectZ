@@ -18,10 +18,10 @@ import { SKINS, skinOf } from './skins.js';
 import { placeProps, DEBRIS } from './props.js';
 import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
 import { drawGoldShot, drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot, drawVioletMuzzle, drawVioletTrace, drawFangMark, drawFangMarked, drawFangGuide, drawFangDash, drawFangCut } from './goldfx.js';
-import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST } from './fighter.js';
+import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST, EA_RANGE, JC_RANGE } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
-import { Nav, Bot, gunTier } from './ai.js';
+import { Nav, Bot, gunTier, BOT_SKILLS as BOT_USES } from './ai.js';
 import { drawBolts, drawVoidHole, drawVoidGlitter } from './void.js';
 import { drawBlast, drawFireBurst, drawFireGo } from './flame.js';
 import { drawCircle, drawHole, drawBoom, drawHoleShine } from './galaxy.js';
@@ -34,7 +34,8 @@ import { drawCardBurst } from './skillfx.js';
 import { drawShieldBurst, drawHackWave, drawSandeScreen, drawBat, drawBatTrail, drawBlood, drawDeflectCut, drawChidoriHit, drawStealBurst, drawStealMark, DEFLECT_R, CARDS, CARD_LEAN, CARD_PICK, cardToward } from './skillfx.js';
 import { sound } from './sound.js';
 import { TouchControls, isPhone } from './touch.js';
-import { online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
+import { phoneLock, checkSkills } from './skills.js';
+import { SKILLS as ONLINE_SKILLS, online, initOnline, openOnline, netUpdate, netScreenInput, netGameInput, drawNetScreen, drawNetOverlay, updateRemotes, hostFrame, clientFrame } from './online.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (l) => l[(Math.random() * l.length) | 0];
@@ -197,6 +198,7 @@ const game = {
   deflectEnd(f, m) {
     this.bursts.push({ kind: 'cut', x: f.x, y: f.y - 14, x0: m.x0, y0: m.y0, t: 0, seed: Math.random() * 100 });
     this.lights.flash(f.x, f.y - 14, 90, '90, 255, 190', 0.15);
+    this.fx.vfx('glitter', m.x0, m.y0, { x1: f.x, y1: f.y - 14, r: 7, n: 14, pal: 'mint', size: 5, dur: 0.4 });   // (all along the way it went)
     if (f === player) renderer.kick(Math.cos(m.a) * 3, Math.sin(m.a) * 3);
   },
   // deflect's dash: whoever it passes through, the once
@@ -209,6 +211,8 @@ const game = {
       v.hitHow = 'DEFLECT';
       v.hurt(dmg, f, ux * 240, -120);
       this.fx.sparks(v.x, v.y - 14, 12, ux, uy, '#7affd0');
+      this.fx.vfx('slash', v.x, v.y - 14, { r: 28, a: m.a - (ux >= 0 ? 0.4 : -0.4), sweep: 2.4, dir: ux >= 0 ? 1 : -1, pal: 'mint', tilt: 0.55, dur: 0.32 });
+      this.fx.vfx('star', v.x, v.y - 14, { r: 12, pal: 'mint' });
       this.punches.push({ x: v.x, y: v.y - 14, ax: ux, ay: uy, t: 0, seed: Math.random() * 100 });
     }
   },
@@ -240,6 +244,8 @@ const game = {
     const x = near ? v.x : f.x + Math.cos(f.aim) * 16, y = near ? v.y - 14 : f.y - 14 + Math.sin(f.aim) * 16;
     const back = !!(near && k.backstab === v);
     this.bursts.push({ kind: 'stab', x, y, a: f.aim, back, t: 0, seed: Math.random() * 10 });
+    this.fx.vfx('slash', x, y, { r: back ? 24 : 18, a: f.aim - 0.5, sweep: 1.8, dir: 1, pal: back ? 'holy' : 'violet', w: back ? 8 : 5, tilt: 0.6, dur: 0.3 });
+    if (back) this.fx.vfx('star', x, y, { r: 18, pal: 'holy' });
     this.lights.flash(x, y, back ? 120 : 80, back ? '255, 210, 120' : '180, 120, 255', back ? 0.3 : 0.18);
     if (f === player || v === player) renderer.kick(Math.cos(f.aim) * (back ? 6 : 3), Math.sin(f.aim) * (back ? 6 : 3));
   },
@@ -247,6 +253,8 @@ const game = {
   openRift(f) {
     this.rifts.push({ id: (this.riftIds = (this.riftIds ?? 0) + 1), owner: f, a: { x: f.x, y: f.y }, b: null, path: [{ x: f.x, y: f.y }], t: 0, open: false, life: RIFT_LIFE, seed: Math.random() * 10 });
     this.bursts.push({ kind: 'rift', x: f.x, y: f.y - 15, t: 0 });
+    this.fx.vfx('ring', f.x, f.y - 15, { r: 34, pal: 'violet', w: 4, sq: 1.6 });
+    this.fx.vfx('glitter', f.x, f.y - 15, { r: 24, n: 9, pal: 'violet', size: 5, sq: 1.4 });
     this.lights.flash(f.x, f.y - 15, 110, '170, 90, 255', 0.25);
   },
   // the skill thief's hack done: they're cut off, and what was theirs goes to the thief (named, for over the head)
@@ -256,6 +264,8 @@ const game = {
     v.hacked(STEAL_HACK);
     this.bursts.push({ kind: 'steal', x: v.x, y: v.y - 14, x0: f.x, y0: f.y - 17, owner: f, t: 0, seed: Math.random() * 6 });   // (owner: the stream goes after the thief, wherever they go)
     this.fx.sparks(v.x, v.y - 14, 16, 0, -1, '#ff6ad8');
+    this.fx.vfx('ring', v.x, v.y - 14, { r: 30, pal: 'void', w: 4 });
+    this.fx.vfx('bolt', f.x, f.y - 17, { x1: v.x, y1: v.y - 14, pal: 'void', dur: 0.3, fork: 1 });
     this.lights.flash(v.x, v.y - 14, 130, '255, 90, 220', 0.3);
     if (f === player || v === player) renderer.kick(0, -3);
   },
@@ -270,6 +280,8 @@ const game = {
       if (!o.hurt(CHIDORI_DMG, f, Math.cos(a) * 60, -30)) continue;   // (rolled under it)
       m.pin = { x: o.x, y: o.y, fx: o.x - Math.cos(a) * 12, fy: f.y };
       this.fx.sparks(o.x, o.y - 14, 30, Math.cos(a), Math.sin(a), '#ffffff');
+      this.fx.vfx('star', o.x, o.y - 14, { r: 22, pal: 'volt', dur: 0.3 });
+      for (let i = 0; i < 4; i++) { const b = a + rand(-1.2, 1.2), L = rand(26, 46); this.fx.vfx('bolt', o.x, o.y - 14, { x1: o.x + Math.cos(b) * L, y1: o.y - 14 + Math.sin(b) * L, pal: 'volt', dur: 0.35, fork: 1 }); }
       this.lights.flash(o.x, o.y - 14, 200, '170, 220, 255', 0.5);
       if (f === player || o === player) renderer.kick(Math.cos(a) * 5, Math.sin(a) * 5);
       return o;
@@ -280,7 +292,7 @@ const game = {
     const v = m.victim, p = m.pin;
     if (!p) return;
     f.x = p.fx;
-    if (v?.alive) { v.x = p.x; v.y = p.y; v.vx = v.vy = 0; if (m.t < 0.4) v.flash = 0; }   // (the white of the hit, only for an instant: then the body, jolting)
+    if (v?.alive) { v.x = p.x; v.y = p.y; v.vx = v.vy = 0; v.heldT = 0.1; if (m.t < 0.4) v.flash = 0; }   // (heldT: no getting out of it - see Fighter.update)   // (the white of the hit, only for an instant: then the body, jolting)
     if (Math.random() < 0.5) this.fx.sparks(p.x, p.y - 14, 1, Math.cos(m.a), Math.sin(m.a), '#9fe6ff');
   },
   chidoriRelease(f, m) {
@@ -289,6 +301,8 @@ const game = {
     f.vx = -Math.cos(a) * 90;
     this.bursts.push({ kind: 'chidori', x: p.x, y: p.y - 14, a, t: 0, seed: Math.random() * 100 });
     this.fx.sparks(p.x, p.y - 14, 24, Math.cos(a), Math.sin(a), '#bfefff');
+    this.fx.vfx('ring', p.x, p.y - 14, { r: 40, pal: 'volt', w: 6 });
+    this.fx.vfx('spikes', p.x, p.y - 14, { r: 40, n: 9, pal: 'volt', a, spread: 2.2 });
     this.lights.flash(p.x, p.y - 14, 160, '150, 210, 255', 0.35);
     if (f === player || v === player) renderer.kick(Math.cos(a) * 8, Math.sin(a) * 8);
   },
@@ -316,6 +330,9 @@ const game = {
       links.push({ x: o.x, y: o.y - 14 });
     }
     this.bursts.push({ kind: 'card', card: kind, x: f.x, y: f.y - 14, t: 0, seed: Math.random() * 100, r: CARD_SHARE, links });
+    const cp = { red: 'fire', green: 'mint', blue: 'volt', purple: 'violet', joker: 'holy' }[kind] ?? 'holy';
+    this.fx.vfx('ring', f.x, f.y - 14, { r: 44, pal: cp, w: 4 });
+    this.fx.vfx('glitter', f.x, f.y - 22, { r: 30, n: 12, pal: cp, size: 6, dur: 0.5 });
     this.lights.flash(f.x, f.y - 14, CARD_SHARE, CARDS[kind]?.rgb ?? '255, 210, 90', 0.3);
   },
   onShieldHit(v, d) {
@@ -511,11 +528,10 @@ const game = {
 
   explode(x, y, owner, r = 54, dmg = 135) {
     const fx = this.fx;
-    fx.fire(x, y, 46);
-    fx.smoke(x, y, 16, true);
-    fx.sparks(x, y, 26, 0, -1, '#ffb84a');
-    fx.debris(x, y, 10, ['#2b3a37', '#46584f', '#a9b8ae'], 1);
+    fx.debris(x, y, 10, ['#2b3a37', '#46584f', '#a9b8ae'], 1);   // (the fire, smoke and sparks: the blast below)
     fx.scorch(x, y + 6, 30);
+    fx.vfx('blast', x, y - 4, { r: r * 0.62, pal: 'fire', smoke: true, dur: 1.6 });
+    fx.vfx('ring', x, y, { r: r * 1.35, pal: 'fire', w: 7, dur: 0.38 });
     this.lights.flash(x, y, 190, '255, 170, 90', 0.4);
     this.blasts.push({ x, y, r, t: 0 });
     for (const o of this.fighters) {
@@ -602,7 +618,7 @@ function makeFighters() {
   bots = game.fighters.filter((f) => f.bot).map((f, i) => new Bot(game, f, (0.9 + i * 0.04) * settings.skill));
 }
 // a bot's skill, by the setting: the one picked, or one at random
-const BOT_SKILLS = ['cloak', 'decoy', 'archery', 'murasaki', 'blaze', 'galaxy', 'demon', 'lock', 'shield', 'cards', 'hack', 'sande', 'vampire', 'deflect', 'chidori', 'octo', 'steal', 'jumper', 'fang', 'aurum', 'reap', 'ea', 'excal', 'judge'];
+const BOT_SKILLS = Object.keys(BOT_USES);   // (every skill a bot knows how to use: ai.js)
 const botSkill = () => (settings.botskill === 'random' ? pick(BOT_SKILLS.filter(skillOK)) ?? null : skillOK(settings.botskill) ? settings.botskill ?? null : null);
 const teamMode = () => !!MODES[settings.mode]?.teams && state !== 'training';   // (training's just you and the dummies, whatever the room says)
 // the room's mode, and what it makes of the other settings
@@ -1173,6 +1189,10 @@ function playerControl() {
     c.aim = Math.atan2(m.y - s.y, m.x - s.x);
     c.target = m;   // the gun zeroes on the cursor, like the main game
   } else if (c.move) c.aim = c.move > 0 ? 0 : Math.PI;
+  // a phone: the aim's a way, not a place - a skill that goes to a point goes to the foe nearest that way (skills.js)
+  phoneTarget = touch && input.mouse.active ? phoneLock(f, game, true) : null;
+  const lock = touch && input.mouse.active ? phoneLock(f, game, c.skill) : null;
+  if (lock) c.target = { x: lock.x, y: lock.y - 14 };
   // the buff cards fanned out: they're held still on the screen where the mouse was, and the mouse leans from there
   if (f.card?.pick && input.mouse.active) {
     cardPin ??= { x: input.mouse.x, y: input.mouse.y };
@@ -1183,6 +1203,7 @@ function playerControl() {
   return c;
 }
 let cardPin = null;   // (css px)
+let phoneTarget = null;   // (a phone: who the skill would go to, Q now - marked on the screen)
 // the right mouse button held down (the input only tracks the left one)
 let rightHeld = false;
 canvas.addEventListener('pointerdown', (e) => { if (e.button === 2) rightHeld = true; });
@@ -1277,6 +1298,7 @@ function arrowBurst(o) {
   o.dead = true;
   game.arrows.push({ kind: 'ring', x: o.x, y: o.y, t: 0, small: true });
   game.fx.sparks(o.x, o.y, 12, 0, -1, '#9cff9c');
+  game.fx.vfx('spikes', o.x, o.y, { r: 22, n: 7, pal: 'mint', dur: 0.3 });
   feathers(o.x, o.y - 2, 6);
   game.lights.flash(o.x, o.y, 60, '120, 255, 140', 0.12);
   for (const v of game.fighters) {
@@ -1293,6 +1315,7 @@ function arrowHit(o, v) {
   const sp = Math.hypot(o.vx, o.vy) || 1;
   if (v.hurt(ARROW_DMG, o.owner, (o.vx / sp) * 120, -80)) {
     game.fx.blood(v.x, v.y - 14, 6, o.vx / sp, o.vy / sp);
+    game.fx.vfx('star', o.x, o.y, { r: 10, pal: 'mint' });
     // pinned: out of breath - no stamina at all (no running, no rolling) for ARROW_DRAIN s, then it refills as usual
     v.stamina = 0;
     v.winded = true;
@@ -1373,6 +1396,8 @@ function updateVoids(dt) {
       v.hitHow = 'MURASAKI';
       if (v.hurt(VOID_DMG, o.owner, ux * 320, -160 + uy * 120)) game.fx.blood(v.x, v.y - 14, 14, ux, uy);
       game.fx.sparks(v.x, v.y - 14, 12, ux, uy, '#d8a0ff');
+      game.fx.vfx('spikes', v.x, v.y - 14, { r: 30, n: 7, pal: 'void', a: o.a, spread: 2.2 });
+      game.fx.vfx('star', v.x, v.y - 14, { r: 14, pal: 'void' });
     }
     for (const p of game.props) if (!p.dead && Math.hypot(p.x - o.x, p.y - p.h / 2 - o.y) < VOID_R + p.w / 2) game.damageProp(p, 999, o.owner, ux * 200, -80);
     if (Math.random() < 0.6) game.fx.motes(o.x - ux * 6, o.y - uy * 6, 1, ['#b060ff', '#e0b0ff', '#ffffff']);
@@ -1381,6 +1406,9 @@ function updateVoids(dt) {
       o.done = 0;
       game.fx.sparks(o.x, o.y, 18, ux, uy, '#d8a0ff');
       game.fx.motes(o.x, o.y + 14, 14, ['#b060ff', '#e0b0ff', '#7a3ad0']);
+      game.fx.vfx('blast', o.x, o.y, { r: 20, pal: 'void', dur: 0.9 });
+      game.fx.vfx('ring', o.x, o.y, { r: 40, pal: 'void', w: 5 });
+      game.fx.vfx('glitter', o.x, o.y, { r: 34, n: 8, pal: 'void', size: 6 });
       game.lights.flash(o.x, o.y, 70, '170, 70, 255', 0.2);
     }
   }
@@ -1449,6 +1477,9 @@ function flameFist(f, x, y, a, v) {
   fx.smoke(x, y, 10, true);
   fx.sparks(x, y, 22, ux, uy, '#ffd27a');
   fx.sparks(x, y, 12, -ux, -uy, '#ff7a2a');
+  fx.vfx('blast', x, y, { r: 22, pal: 'fire', smoke: true, dur: 1 });
+  fx.vfx('spikes', x, y, { r: 34, n: 7, pal: 'fire', a, spread: 1.6, dur: 0.3 });
+  fx.vfx('ring', x, y, { r: FIST_R * 0.9, pal: 'fire', w: 5, sq: 0.7 });
   if (!v) fx.scorch(x, y, 16);
   game.lights.flash(x, y, 170, '255, 140, 60', 0.35);
   if (f === player || Math.hypot(player.x - x, player.y - y) < 200) renderer.kick(ux * 6, uy * 6 - 2);
@@ -1512,6 +1543,10 @@ function updateGalaxies(dt) {
       if (Math.hypot(player.x - o.x, player.y - o.y) < 200) renderer.kick((Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 1.2);
     } else if (!o.boomed) {
       o.boomed = true;
+      game.fx.vfx('blast', o.x, o.y, { r: GAL_BLAST_R * 0.5, pal: 'void', dur: 1.2 });
+      game.fx.vfx('ring', o.x, o.y, { r: GAL_BLAST_R * 1.3, pal: 'volt', w: 8, dur: 0.5 });
+      game.fx.vfx('ring', o.x, o.y, { r: GAL_BLAST_R * 0.9, pal: 'void', w: 4, dur: 0.6, delay: 0.08 });
+      game.fx.vfx('glitter', o.x, o.y, { r: GAL_BLAST_R, n: 14, pal: 'volt', size: 7, dur: 0.6 });
       // Which way the blast throws something at (dx, dy) from its heart: straight
       // out - but anything it had dragged right into its heart (which is
       // everything, by now) goes off up and away to one side or the other at
@@ -1709,6 +1744,8 @@ function updateSwords(dt) {
           h.hurt(SWORD_HIT, o, ux * 260, -110 + uy * 60);
           game.punches.push({ x: tipX, y: tipY, ax: ux, ay: uy, t: 0, seed: Math.random() * 100 });
           game.fx.sparks(tipX, tipY, 10, ux, uy, '#d6f6ff');
+          game.fx.vfx('star', tipX, tipY, { r: 12, pal: 'volt' });
+          game.fx.vfx('spikes', tipX, tipY, { r: 20, n: 5, pal: 'volt', a: Math.atan2(uy, ux), spread: 1.4, dur: 0.25 });
           game.lights.flash(tipX, tipY, 70, '120, 200, 255', 0.15);
           if (Math.hypot(player.x - tipX, player.y - tipY) < 180) renderer.kick(ux * 5, uy * 4);
           s.state = 'done';
@@ -1753,6 +1790,8 @@ function summonBats(f) {
     game.bats.push({ owner: f, x: f.x + Math.cos(a) * 6, y: f.y - 16 + Math.sin(a) * 6, a, sp, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: -i * 0.008, seed: Math.random() * 100 });
   }
   game.fx.sparks(f.x, f.y - 16, 18, 0, -1, '#ff4a5a');
+  game.fx.vfx('ring', f.x, f.y - 16, { r: 60, pal: 'blood', w: 6 });
+  game.fx.vfx('spikes', f.x, f.y - 16, { r: 34, n: 9, pal: 'blood', dur: 0.35 });
   game.lights.flash(f.x, f.y - 16, 120, '255, 50, 70', 0.25);
 }
 function updateBats(dt) {
@@ -1952,6 +1991,9 @@ function barrierBurst(f, broken, charge = broken ? 1 : 0) {
   const near = Math.max(0, 1 - Math.hypot(player.x - x, player.y - y) / (180 + 120 * charge));
   if (near > 0) renderer.kick(rand(-1, 1) * (3 + 7 * charge) * near, rand(-1, 1) * (3 + 6 * charge) * near);
   if (charge > 0.5) game.fx.sparks(x, y, Math.round(10 + 20 * charge), 0, 0, '#bfefff');
+  game.fx.vfx('ring', x, y, { r: reach, pal: 'ice', w: 6 + 6 * charge, dur: 0.45 });
+  game.fx.vfx('spikes', x, y, { r: reach * 0.55, n: 10, pal: 'ice', dur: 0.4 });
+  game.fx.vfx('glitter', x, y, { r: reach * 0.8, n: Math.round(6 + 10 * charge), pal: 'ice', size: 6, dur: 0.5 });
   for (const o of game.fighters) {
     if (o === f || !o.alive || o.vanish || !game.foes(f, o)) continue;
     const dx = o.x - x, dy = o.y - 14 - y, d = Math.hypot(dx, dy) || 1;
@@ -1978,6 +2020,8 @@ function hackBurst(f) {
   }
   game.swordSets = game.swordSets.filter((d) => !d.over);
   game.bursts.push({ kind: 'hack', x, y, t: 0, seed: Math.random() * 100, r: HACK_REACH, links });
+  game.fx.vfx('ring', x, y, { r: HACK_REACH, pal: 'mint', w: 4, dur: 0.5 });
+  for (const l of links) game.fx.vfx('bolt', x, y, { x1: l.x, y1: l.y, pal: 'mint', dur: 0.3, fork: 1 });
   game.lights.flash(x, y, 130, '60, 255, 140', 0.25);
 }
 // ---------- golden fangs ----------
@@ -2114,6 +2158,8 @@ function fangDash(f, v) {
   game.fx.sparks(v.x, v.y - 14, 18, ux, -0.4, '#ffd25a');
   game.fx.sparks(v.x, v.y - 14, 10, -ux, -0.6, '#fff6c8');
   game.bursts.push({ kind: 'fangcut', x: v.x, y: v.y - 14, a: ux > 0 ? 0 : Math.PI, t: 0, seed: Math.random() * 100 });
+  game.fx.vfx('slash', v.x, v.y - 14, { r: 26, a: ux > 0 ? -0.2 : Math.PI + 0.2, sweep: 2.6, dir: ux > 0 ? 1 : -1, pal: 'holy', tilt: 0.7, dur: 0.34 });
+  game.fx.vfx('glitter', v.x, v.y - 14, { r: 26, n: 9, pal: 'holy', size: 6 });
   game.lights.flash(v.x, v.y - 14, 130, '255, 200, 90', 0.35);
   if (Math.hypot(player.x - v.x, player.y - v.y) < 260) renderer.kick(ux * 6, -3);
 }
@@ -2160,6 +2206,7 @@ function updateMissiles(dt) {
       for (const p of game.props) if (!p.dead && Math.hypot(p.x - m.x, p.y - p.h / 2 - m.y) < MIS_R) game.damageProp(p, 40, m.owner, 0, -60);
       game.fx.sparks(m.x, m.y, 12, 0, -1, '#ffd27a');
       game.fx.sparks(m.x, m.y, 8, 0, 0, '#8fe8ff');
+      game.fx.vfx('blast', m.x, m.y, { r: MIS_R * 0.5, pal: 'fire', smoke: true, dur: 0.9 });
       game.fx.smoke(m.x, m.y, 4);
       game.lights.flash(m.x, m.y, 70, '255, 180, 110', 0.2);
       if (Math.hypot(player.x - m.x, player.y - m.y) < 160) renderer.kick((Math.random() - 0.5) * 3, -1.5);
@@ -2237,6 +2284,11 @@ function reapCut(f, v, dmg, ux, uy, last) {
   v.hurt(dmg, f, ux * (last ? 260 : 30), last ? -150 : -20);
   game.fx.blood(v.x, v.y - 14, last ? 12 : 4, ux, -0.3);
   game.fx.sparks(v.x, v.y - 14, last ? 14 : 5, ux, uy, '#b06aff');
+  if (last) {
+    game.fx.vfx('slash', v.x, v.y - 14, { r: 30, a: ux > 0 ? 0.3 : Math.PI - 0.3, sweep: 2.8, dir: ux > 0 ? -1 : 1, pal: 'shade', w: 11, dur: 0.4 });
+    game.fx.vfx('ring', v.x, v.y - 14, { r: 46, pal: 'shade', w: 5 });
+    game.fx.vfx('spikes', v.x, v.y - 14, { r: 36, n: 8, pal: 'shade' });
+  } else game.fx.vfx('star', v.x + rand(-8, 8), v.y - 14 + rand(-8, 8), { r: 7, pal: 'shade', dur: 0.2 });
   game.lights.flash(v.x, v.y - 14, last ? 140 : 60, '150, 60, 255', last ? 0.3 : 0.1);
   if (Math.hypot(player.x - v.x, player.y - v.y) < 200) renderer.kick(ux * (last ? 7 : 2), last ? -4 : uy * 2);
 }
@@ -2244,8 +2296,9 @@ function reapCut(f, v, dmg, ux, uy, last) {
 // ---------- enuma elish ----------
 // The beam (fighter.js: updateEa; its looks: eafx.js). Nothing stops it - walls, floors, it's through them all - and
 // whoever's in it is torn at as long as they stay there: a hard first hit, then one every EA_EVERY, thrown along it.
-// Crates and drums in it are gone; where it runs through rock, sparks and dust are thrown off.
-const EA_W = 17, EA_FIRST = 40, EA_HIT = 24, EA_EVERY = 0.1;
+// Crates and drums in it are gone; where it runs through rock, sparks and dust are thrown off. The further down it, the
+// less it hurts: at EA_RANGE, EA_FAR of what it does up close.
+const EA_W = 17, EA_FIRST = 40, EA_HIT = 24, EA_EVERY = 0.1, EA_FAR = 0.4;
 const eaHits = new WeakMap();   // the caster -> { seed (the cast), next: who -> when they can be hit again }
 function eaFire(f, x, y, a) {
   const ux = Math.cos(a), uy = Math.sin(a);
@@ -2253,13 +2306,18 @@ function eaFire(f, x, y, a) {
   game.fx.sparks(x, y, 16, -ux, -uy, '#ffb08a');
   game.fx.sparks(x, y, 12, 0, -1, '#ffffff');
   game.fx.smoke(x, f.y, 8, true);
+  game.fx.vfx('ring', x, y, { r: 56, pal: 'blood', w: 9, dur: 0.45 });
+  game.fx.vfx('spikes', x, y, { r: 46, n: 9, pal: 'blood', a, spread: 2.6 });
+  game.fx.vfx('star', x, y, { r: 22, pal: 'blood', dur: 0.4 });
   game.lights.flash(x, y, 280, '255, 40, 40', 0.55);
   if (f === player || Math.hypot(player.x - x, player.y - y) < 300) renderer.kick(-ux * 10, -uy * 10 - 3);
 }
 function eaBeam(f, ox, oy, a, len, wk, seed) {
-  skyBeam(f, ox, oy, a, len, EA_W * wk, seed, { first: EA_FIRST, hit: EA_HIT, every: EA_EVERY, how: 'ENUMA ELISH', spark: '#ff5a3a', kx: 240, ky: -70, kFirst: 1 });
+  skyBeam(f, ox, oy, a, len, EA_W * wk, seed, { first: EA_FIRST, hit: EA_HIT, every: EA_EVERY, how: 'ENUMA ELISH', spark: '#ff5a3a', kx: 240, ky: -70, kFirst: 1, far: EA_FAR, range: EA_RANGE, pal: 'blood' });
 }
-// (enuma elish's and excalibur's: whoever's within w of the line takes `first` the first time, then `hit` every `every`)
+// (enuma elish's and excalibur's: whoever's within w of the line takes `first` the first time, then `hit` every `every` -
+// with o.far, down to that much of it at o.range along the line; with o.front, `first` only if it's the front of it that
+// gets them (within o.front of it, as it runs out) - come into it after it's gone by, it's `hit`)
 function skyBeam(f, ox, oy, a, len, w, seed, o) {
   if (w <= 0.8) return;
   const ux = Math.cos(a), uy = Math.sin(a);
@@ -2269,14 +2327,15 @@ function skyBeam(f, ox, oy, a, len, w, seed, o) {
     if (v === f || !v.alive || v.vanish || !game.foes(f, v)) continue;
     const dx = v.x - ox, dy = v.y - 14 - oy, along = dx * ux + dy * uy;
     if (along < -8 || along > len || Math.abs(-dx * uy + dy * ux) > w + 9) continue;
-    const at = h.next.get(v), first = at === undefined;
-    if (!first && game.time < at) continue;
+    const at = h.next.get(v), first = at === undefined && (!o.front || along > len - o.front);
+    if (at !== undefined && game.time < at) continue;
     h.next.set(v, game.time + o.every);
     v.hitHow = o.how;
-    const kk = first ? o.kFirst : 1;
-    if (v.hurt(first ? o.first : o.hit, f, ux * o.kx * kk, o.ky * kk + uy * 140)) game.fx.blood(v.x, v.y - 14, first ? 10 : 6, ux, uy);
+    const kk = first ? o.kFirst : 1, fall = o.far ? 1 - (1 - o.far) * Math.min(1, Math.max(0, along) / o.range) : 1;
+    if (v.hurt((first ? o.first : o.hit) * fall, f, ux * o.kx * kk, o.ky * kk + uy * 140)) game.fx.blood(v.x, v.y - 14, first ? 10 : 6, ux, uy);
     game.fx.sparks(v.x, v.y - 14, first ? 14 : 6, ux, uy, o.spark);
     if (first && o.flash) game.lights.flash(v.x, v.y - 14, 90, o.flash, 0.25);
+    if (first) { game.fx.vfx('star', v.x, v.y - 14, { r: 16, pal: o.pal }); game.fx.vfx('spikes', v.x, v.y - 14, { r: 28, n: 6, pal: o.pal, a, spread: 1.8, dur: 0.3 }); }
   }
   for (const p of game.props) {
     if (p.dead) continue;
@@ -2299,25 +2358,33 @@ function skyBeam(f, ox, oy, a, len, w, seed, o) {
 
 // ---------- excalibur ----------
 // The wave of light (fighter.js: updateExcal; its looks: holyfx.js): as with enuma elish, through everything - but it
-// goes where it was sent and isn't turned. Its front hits hard and throws them; then, while they're still in it, less.
-const EX_W = 24, EX_FIRST = 110, EX_HIT = 14, EX_EVERY = 0.1;
+// goes where it was sent and isn't turned. Its front hits hard and throws them; then, while they're still in it, less -
+// and anyone who got out of the way of the front (over it, say: the thread of light before it shows where) and comes
+// down into it after only gets the less.
+const EX_W = 24, EX_FIRST = 98, EX_HIT = 12, EX_EVERY = 0.1;
 function xcFire(f, x, y, a) {
   const ux = Math.cos(a), uy = Math.sin(a);
   game.fx.sparks(x, y, 34, ux, uy, '#ffd24a');
   game.fx.sparks(x, y, 18, -ux, -uy, '#fff0a8');
   game.fx.sparks(x, y, 14, 0, -1, '#ffffff');
   game.fx.smoke(x, f.y, 8, true);
+  game.fx.vfx('ring', x, y, { r: 64, pal: 'holy', w: 10, dur: 0.5 });
+  game.fx.vfx('star', x, y, { r: 28, pal: 'holy', dur: 0.45 });
+  game.fx.vfx('glitter', x, y, { r: 50, n: 14, pal: 'holy', size: 7, dur: 0.6 });
   game.lights.flash(x, y, 320, '255, 220, 120', 0.6);
   if (f === player || Math.hypot(player.x - x, player.y - y) < 320) renderer.kick(-ux * 12, -uy * 12 - 4);
 }
 function xcBeam(f, ox, oy, a, len, wk, seed) {
-  skyBeam(f, ox, oy, a, len, EX_W * wk, seed, { first: EX_FIRST, hit: EX_HIT, every: EX_EVERY, how: 'EXCALIBUR', spark: '#ffd24a', kx: 120, ky: -40, kFirst: 3.2, flash: '255, 220, 120' });
+  skyBeam(f, ox, oy, a, len, EX_W * wk, seed, { first: EX_FIRST, hit: EX_HIT, every: EX_EVERY, how: 'EXCALIBUR', spark: '#ffd24a', kx: 120, ky: -40, kFirst: 3.2, flash: '255, 220, 120', front: 90, pal: 'holy' });
 }
 
 // ---------- judgement cut ----------
 // The sphere of space cut loose (fighter.js: updateJudge; its looks: cutfx.js). Each cut catches everyone in it -
 // walls no matter - and holds them there, drawn a little into the middle; the last, as it breaks, throws them out.
+// It's true damage: nothing's untouchable to it (a blue shield takes none of it, the smoke and the phantom and the other
+// place are no hiding place), and when the sphere breaks, so does whatever was keeping them untouchable (breakGuard).
 function jcOpen(f, x, y) {
+  game.fx.vfx('ring', x, y, { r: JC_R + 8, pal: 'volt', w: 3, dur: 0.3 });
   game.lights.flash(x, y, 120, '90, 180, 255', 0.3);
   if (Math.hypot(player.x - x, player.y - y) < 260) renderer.kick(0, -2);
 }
@@ -2328,10 +2395,23 @@ function jcCut(f, x, y, r, dmg, last) {
     if (d > r + 8) continue;
     const n = d || 1;
     v.hitHow = 'JUDGEMENT CUT';
-    if (last) v.hurt(dmg, f, (dx / n) * 340, -200 + (dy / n) * 120);
-    else { v.hurt(dmg, f, -(dx / n) * 40, -(dy / n) * 30 - 20); v.vx *= 0.3; }
+    if (last && v.breakGuard?.()) {
+      game.fx.sparks(v.x, v.y - 14, 16, 0, -1, '#ffffff');
+      game.lights.flash(v.x, v.y - 14, 90, '200, 240, 255', 0.3);
+    }
+    if (last) v.hurt(dmg, f, (dx / n) * 340, -200 + (dy / n) * 120, false, true);
+    else { v.hurt(dmg, f, -(dx / n) * 40, -(dy / n) * 30 - 20, false, true); v.vx *= 0.3; }
     game.fx.blood(v.x, v.y - 14, last ? 12 : 3, dx / n, dy / n);
     game.fx.sparks(v.x, v.y - 14, last ? 14 : 4, dx / n, dy / n, '#9ae8ff');
+  }
+  if (last) {
+    game.fx.vfx('spikes', x, y, { r: r * 1.6, n: 14, pal: 'ice', dur: 0.5 });
+    game.fx.vfx('ring', x, y, { r: r * 1.9, pal: 'volt', w: 8, dur: 0.5 });
+    game.fx.vfx('star', x, y, { r: 26, pal: 'volt', dur: 0.4 });
+    game.fx.vfx('glitter', x, y, { r: r * 1.5, n: 16, pal: 'ice', size: 6, dur: 0.6 });
+  } else {
+    const ca = Math.random() * Math.PI * 2;   // (a cut across it, any way at all)
+    game.fx.vfx('slash', x + Math.cos(ca) * r * 0.2, y + Math.sin(ca) * r * 0.2, { r: r * 0.9, a: ca, sweep: 1.6, dir: Math.random() < 0.5 ? 1 : -1, pal: 'volt', w: 4, tilt: 0.35 + Math.random() * 0.5, dur: 0.18 });
   }
   if (last) {
     for (const p of game.props) if (!p.dead && Math.hypot(p.x - x, p.y - p.h / 2 - y) < r + p.w / 2) game.damageProp(p, 999, f, 0, -120);
@@ -3545,8 +3625,22 @@ function drawScores(ctx, u, W, H) {
   }
 }
 
+// A phone's skill lock: corners round whoever the point skill would go to, closing in and out
+function drawPhoneLock(ctx, u, v) {
+  const k = renderer.scale, x = Math.round((v.x - renderer.left) * k), y = Math.round((v.y - 15 - renderer.top) * k);
+  const r = Math.round((15 + Math.sin(game.time * 8) * 1.5) * u), L = 4 * u;
+  for (const [col, o] of [['#050604', u], ['#7af0ff', 0]]) {
+    ctx.fillStyle = col;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      const cx = x + sx * r, cy = y + sy * r;
+      ctx.fillRect(Math.min(cx, cx - sx * L) - o, cy - o, L + u + o * 2, u + o * 2);
+      ctx.fillRect(cx - o, Math.min(cy, cy - sy * L) - o, u + o * 2, L + u + o * 2);
+    }
+  }
+}
 function drawCrosshair(ctx, u) {
   if (!input.mouse.active || online.watching || (touch && !touchCombat())) return;
+  if (phoneTarget?.alive) drawPhoneLock(ctx, u, phoneTarget);
   const d = renderer.dpr, x = Math.round(input.mouse.x * d), y = Math.round(input.mouse.y * d);
   const spread = player.weapon ? Math.round((2 + player.weapon.recoil * 1.2) * player.stanceKick) : 2;
   for (const [col, o] of [['#050604', 1], ['#e8ffd0', 0]]) {
@@ -4468,7 +4562,7 @@ const SKILL_INFO = [
   { key: 'cards', name: 'BUFF CARDS', img: CARDS_ICON, color: '#ffd25a', desc: 'THE RING AS IT LANDS: ALLIES IN IT SHARE IT, FOES GET THE OTHER SIDE - RED BURNS, BLUE THROWS BACK, PURPLE JAMS THEIR GUNS. DRAG TO A CARD: RED FULL MAG + FIRE RATE + HARDER SHOTS, GREEN HEAL + SHAKES OFF HACKS, BLUE FULL STAMINA + SPEED, PURPLE UNSEEN THEN A X1.8 HIT. SOMETIMES A JOKER: RED, GREEN AND BLUE AT ONCE. TEAMMATES NEAR SHARE IT' },
   { key: 'vampire', name: 'VAMPIRE', img: VAMPIRE_ICON, color: '#ff5a6a', desc: 'BATS DRAW BLOOD FOR YOU, AND YOU TURN TO SMOKE: UNTOUCHABLE, FAST, UNTIL YOU ATTACK OR ROLL' },
   { key: 'deflect', name: 'DEFLECT', img: DEFLECT_ICON, color: '#7affd0', desc: 'KATANA AT THE HIP: A FIELD TURNS SHOTS BACK WHERE YOU AIM, THEN DASH AND CUT' },
-  { key: 'chidori', name: 'CHIDORI', img: CHIDORI_ICON, color: '#9fe6ff', desc: 'LIGHTNING IN THE HAND, AND QUICKER FEET: RUN INTO A FOE TO DRIVE IT THROUGH THEM. Q: LUNGE' },
+  { key: 'chidori', name: 'CHIDORI', img: CHIDORI_ICON, color: '#9fe6ff', desc: 'LIGHTNING IN THE HAND, AND QUICKER FEET: RUN INTO A FOE TO DRIVE IT THROUGH THEM. CLICK OR Q: LUNGE TO THE MOUSE, ONCE - MISS AND IT STAYS IN HAND' },
   { key: 'octo', name: 'OCTO ARMS', img: OCTO_ICON, color: '#ff7a5a', desc: '4 S: FOUR STEEL ARMS GRAB GUNS FROM NOWHERE AND FIRE WHERE YOU AIM, NEVER EMPTY. Q: PUT AWAY. NO ROLLING' },
   { key: 'steal', name: 'SKILL THIEF', img: STEAL_ICON, color: '#ff6ad8', desc: 'HACK THE FOE NEAREST THE MOUSE: THEIR SKILL IS CUT OFF, AND YOURS TO USE ONCE' },
   { key: 'jumper', name: 'JUMPER', img: JUMPER_ICON, color: '#c08aff', desc: 'INTO THE OTHER PLACE: UNTOUCHABLE, FAST. Q AGAIN OPENS A RIFT BACK - ANYONE CAN GO THROUGH THE PAIR' },
@@ -4476,11 +4570,19 @@ const SKILL_INFO = [
   { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT 5 S, NO SHOOTING 1.6 S' },
   { key: 'fang', name: 'GOLDEN FANGS', img: FANG_ICON, color: '#ffd25a', desc: 'FIVE GOLD DAGGERS FANNED OUT, THROUGH WHOEVER THEY HIT - AND A SIXTH AT THE MOUSE THAT MARKS. Q AGAIN: ALL FLY HOME - AND WITH SOMEONE MARKED, YOU GO TO THEM, THROUGH WALLS, UNTOUCHABLE, AND CUT' },
   { key: 'aurum', name: 'AURUM', img: AURUM_ICON, color: '#d0a8ff', desc: 'A GOLD SNIPER BUILT IN YOUR HANDS: 5 HEAVY SHOTS THROUGH ANYONE IN LINE, A VIOLET STREAK BEHIND. 12 S, Q: PUT AWAY' },
-  { key: 'judge', name: 'JUDGEMENT CUT', img: JUDGE_ICON, color: '#5ad8ff', desc: 'THE STANCE, THEN THE SPACE WHERE YOU AIM IS CUT - WALLS NO MATTER: 12 CUTS ON ANYONE IN IT, HELD THERE, THEN IT BREAKS LIKE GLASS FOR 70. UP TO 200' },
-  { key: 'excal', name: 'EXCALIBUR', img: EXCAL_ICON, color: '#ffd24a', desc: 'THE SWORD UNVEILED, RAISED TO THE SKY: 1.75 S GATHERING LIGHT, ROOTED - THEN ONE STROKE, A WAVE OF LIGHT AS WIDE AS A WALL STRAIGHT DOWN THE AIM, THROUGH ALL. ITS FRONT HITS 110' },
-  { key: 'ea', name: 'ENUMA ELISH', img: EA_ICON, color: '#ff4a3a', desc: 'A SWORD OUT OF THE GOLD, RAISED TO THE SKY: 1.8 S CHARGING, ROOTED - THEN A BEAM OF RED WIND THROUGH WALLS AND ALL. IT FOLLOWS THE AIM, SLOWLY' },
+  { key: 'judge', name: 'JUDGEMENT CUT', img: JUDGE_ICON, color: '#5ad8ff', desc: 'THE STANCE, THEN THE SPACE WHERE YOU AIM IS CUT - WALLS NO MATTER: 12 CUTS ON ANYONE IN IT, HELD THERE, THEN IT BREAKS LIKE GLASS FOR 70. UP TO 200. TRUE DAMAGE: THROUGH SHIELDS, SMOKE, PHANTOMS AND THE OTHER PLACE - AND THE BREAK ENDS THEM' },
+  { key: 'excal', name: 'EXCALIBUR', img: EXCAL_ICON, color: '#ffd24a', desc: 'THE SWORD UNVEILED, RAISED TO THE SKY: 1.75 S GATHERING LIGHT, ROOTED - A GLITTERING THREAD SHOWS WHERE IT GOES - THEN ONE STROKE, A WAVE OF LIGHT AS WIDE AS A WALL STRAIGHT DOWN THE AIM, THROUGH ALL. ITS FRONT HITS 98' },
+  { key: 'ea', name: 'ENUMA ELISH', img: EA_ICON, color: '#ff4a3a', desc: 'A SWORD OUT OF THE GOLD, RAISED TO THE SKY: 1.8 S CHARGING, ROOTED - THEN A BEAM OF RED WIND THROUGH WALLS AND ALL, WEAKER FURTHER OUT. IT FOLLOWS THE AIM, SLOWLY' },
   { key: 'reap', name: 'SHADOW KILL', img: REAP_ICON, color: '#b06aff', desc: 'INTO SHADOW, UNTOUCHABLE: SHADOWS OF YOU CUT THE NEAREST FOE 12 TIMES - ANYONE WHO COMES CLOSE TO THEM MAY BE NEXT - THEN YOU ARE BEHIND THEM FOR THE LAST CUT. FEET ON THE FLOOR ONLY' },
 ];
+// (every skill in every list it should be in - any missing, said in the console: skills.js)
+checkSkills({
+  'SKILL_INFO (main.js)': SKILL_INFO.map((s) => s.key),
+  'YOUR SKILL (main.js OPTIONS)': OPTIONS.find((o) => o[0] === 'myskill')[2].map(([k]) => k),
+  'BOT SKILLS (main.js OPTIONS)': OPTIONS.find((o) => o[0] === 'botskill')[2].map(([k]) => k),
+  'SKILLS (online.js)': ONLINE_SKILLS.map(([k]) => k),
+  'BOT_SKILLS (ai.js)': Object.keys(BOT_USES),
+});
 // the choices for a pick list: each skill (with its wait), then none - and for the bots, RANDOM first
 function skillItems(forBots = false, room = settings) {
   const mul = room.cd ?? 1, bans = room.banSkills ?? [];

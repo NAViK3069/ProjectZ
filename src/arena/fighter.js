@@ -29,7 +29,7 @@ import { drawAurumCast, drawAurumHum } from './goldfx.js';
 import { drawReapDraw, drawReapIn, drawShades, drawReapMarks, drawReapFinish } from './shadefx.js';
 import { drawEaSword, drawEaRipple, drawEaCharge, drawEaBeam, drawEaBlast, EA_LEN, EA_SUPPORT } from './eafx.js';
 import { drawJcMark, drawJcSphere, drawJcWind, drawJcTrail, drawJcAura, drawJcShatter, drawJcShut, jcCutList } from './cutfx.js';
-import { drawExSword, drawExVeil, drawExCharge, drawExSlash, drawExWave, drawExBlast, drawExAfter, EX_LEN, EX_SUPPORT } from './holyfx.js';
+import { drawExSword, drawExVeil, drawExCharge, drawExSlash, drawExWave, drawExBlast, drawExAfter, drawExGuide, EX_LEN, EX_SUPPORT } from './holyfx.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawCardRange } from './skillfx.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
@@ -48,7 +48,8 @@ const ROLL_CROUCH_IN = 0.6;   // a roll heading in under something low stays dow
 // the grapple (skill, Q): the line's speed and reach, how hard it reels in and
 // how fast it can pull, how long it holds on at most, the wait between shots
 // (three shots saved up, one coming back each GRAPPLE_CD, a short gap between them; aim within this much of someone and it locks on)
-const GRAPPLE_SPEED = 1200, GRAPPLE_RANGE = 360, GRAPPLE_PULL = 2600, GRAPPLE_MAX = 430, GRAPPLE_TIME = 1.6, GRAPPLE_CD = 2.5, GRAPPLE_GAP = 0.2, GRAPPLE_LOCK = 26;
+export const GRAPPLE_RANGE = 360;
+const GRAPPLE_SPEED = 1200, GRAPPLE_PULL = 2600, GRAPPLE_MAX = 430, GRAPPLE_TIME = 1.6, GRAPPLE_CD = 2.5, GRAPPLE_GAP = 0.2, GRAPPLE_LOCK = 26;
 export const GRAPPLE_SHOTS = 2;
 const GRAPPLE_CUT = 48, SPIN_R = 30;   // reeled in through (or right up to) a foe: a spinning slash, this much to every foe this close
 const GRAPPLE_DRAIN = 0.8;   // (and this much of what it takes out of them comes back to you as health)
@@ -93,12 +94,15 @@ const CRYSTAL_BOW = (() => {
   return { img: c, cx: cx + 1, cy: cy + 1, tipY: limbY(14) - cy };
 })();
 // murasaki (skill, Q): red and blue come out (until RED_BLUE), close in and hit (MERGE), the purple builds (till MURA_CHARGE) and goes
-const RED_BLUE = 0.42, MERGE = 0.74, MURA_CHARGE = 1.1, MURA_CD = 18;
+const RED_BLUE = 0.42, MERGE = 0.74, MURA_CD = 18;
+export const MURA_CHARGE = 1.1;
 // flame fist (skill, Q): the fire builds on the fists (BLAZE_CHARGE), then the dash - this fast, this far at most -
 // and the punch, and a moment to come out of it; the punch's hit; the wait after
-const BLAZE_CHARGE = 0.7, BLAZE_SPEED = 560, BLAZE_RANGE = 180, BLAZE_RECOVER = 0.3, BLAZE_DMG = 150, BLAZE_CD = 9;
+export const BLAZE_CHARGE = 0.7, BLAZE_RANGE = 180;
+const BLAZE_SPEED = 560, BLAZE_RECOVER = 0.3, BLAZE_DMG = 150, BLAZE_CD = 9;
 // galaxy (skill, Q): the cast (at a point this far off at most - where you aim), the wait after; how far short of a wall it opens
-const GAL_CAST = 0.8, GAL_RANGE = 240, GAL_CD = 16, GAL_WALL = 8;
+export const GAL_CAST = 0.8, GAL_RANGE = 240;
+const GAL_CD = 16, GAL_WALL = 8;
 // the flying swords (skill, Q): the calling-up, the wait once they're all gone (the swords themselves: see main.js)
 const SUM_CAST = 0.6, SUM_CD = 15;
 // the blue shield (skill, Q): how much it takes, for how long, the wait after. Not a free pass: it's only so much, a blow
@@ -139,7 +143,8 @@ const PHASE_TIME = 4.5, PHASE_SPEED = 1.35, JUMPER_CD = 24;
 // skill thief (skill, Q): how far it reaches for someone, how far they can get before it snaps; how long the hack takes;
 // the wait after (and after a hack broken off); how long what's taken can be held unused; how long they lose their own
 // skill; slower on your feet hacking; skills that can't be taken
-const STEAL_RANGE = 150, STEAL_BREAK = 190, STEAL_LOCK = 0.9, STEAL_CD = 14, STEAL_AFTER = 1.15, STEAL_BROKE_CD = 3, STEAL_HOLD = 15, STEAL_HACK = 1.5, STEAL_SLOW = 0.55;
+export const STEAL_RANGE = 150;
+const STEAL_BREAK = 190, STEAL_LOCK = 0.9, STEAL_CD = 14, STEAL_AFTER = 1.15, STEAL_BROKE_CD = 3, STEAL_HOLD = 15, STEAL_HACK = 1.5, STEAL_SLOW = 0.55;
 // (STEAL_AFTER: a skill taken and done with, the wait's that skill's own, and this much longer)
 const UNSTEALABLE = ['grapple', 'steal'];   // (they can be hacked - cut off a moment - but there's nothing to take)
 // octo arms (skill, Q): reaching out for the guns, how long they're out at most, the wait after; how hard their shots
@@ -148,9 +153,11 @@ const OCTO_REACH = 0.9, OCTO_TIME = 4, OCTO_CD = 22, OCTO_DMG = 0.45, OCTO_GONE 
 // where each gun hangs, from the feet, facing right (x forward): two up over the head, two out behind; and which way each
 // arm reaches first, for its gun
 const OCTO_SLOTS = [[11, -45], [-9, -50], [-27, -35], [-27, -15]], OCTO_REACH_AT = [[30, -34], [-6, -58], [-44, -30], [-40, 4]];
-// chidori (skill, Q): gathering it, how long it's held, the wait after; how hard it goes in; how much quicker on your feet
-// with it; the lunge (Q again): how fast, how long
-const CHIDORI_CHARGE = 0.45, CHIDORI_TIME = 4, CHIDORI_CD = 16, CHIDORI_RUN = 1.3, CHIDORI_LUNGE = 520, CHIDORI_LUNGE_T = 0.3;
+// chidori (skill, Q): gathering it, how long it's held, the wait after; how much quicker on your feet
+// with it; the lunge (an attack, or Q again - the once): how fast, and how far at most (to the mouse, if that's nearer;
+// never less than CHIDORI_LUNGE_MIN of a moment)
+const CHIDORI_CHARGE = 0.45, CHIDORI_TIME = 4, CHIDORI_CD = 16, CHIDORI_RUN = 1.3, CHIDORI_LUNGE = 520, CHIDORI_LUNGE_T = 0.42, CHIDORI_LUNGE_MIN = 0.12;
+export const CHIDORI_REACH = CHIDORI_LUNGE * CHIDORI_LUNGE_T;
 const CHIDORI_STAB = 0.45;   // the moment it's in them: both held there, then they're thrown off it
 // deflect (skill, Q): how long the blade's up turning shots back, then the dash - how fast, how far, how hard - the wait after
 const DEFLECT_TIME = 1.5, DEFLECT_SPEED = 720, DEFLECT_REACH = 260, DEFLECT_CUT = 70, DEFLECT_CD = 14, DEFLECT_SLOW = 0.75, DEFLECT_FINISH = 0.24;
@@ -158,7 +165,8 @@ const HACK_HURT = 1.2;   // someone hacked takes this much more from everything
 const FROZEN_TURN = 9;   // caught in someone's Sandevistan: how fast it can turn (rad/s, of its slowed time)
 export const SWORD_COST = 20;   // the stamina each sword takes: Q takes the lot, and brings a sword for every 20 of it
 // the target lock (skill, Q): how long it lasts, the wait after, how far it reaches; what it takes off the gun's kick
-const LOCK_TIME = 5, LOCK_CD = 14, LOCK_RANGE = 480, LOCK_STICK = 18, LOCK_KICK = 0.65;
+const LOCK_TIME = 5, LOCK_CD = 14, LOCK_STICK = 18, LOCK_KICK = 0.65;
+export const LOCK_RANGE = 480;
 // (and with someone locked, a little missile off the shoulder at them every LOCK_EVERY - LOCK_MISSILES in all - once the
 // lock's held a moment; they can be got out of the way of: see main.js, updateMissiles)
 const LOCK_MISSILES = 4, LOCK_EVERY = 0.95, LOCK_SETTLE = 0.35;
@@ -179,21 +187,25 @@ const REAP_DRAW = 0.5;   // first, the sword drawn: stood still, there to be see
 // enuma elish (skill, Q): the sword drawn out of the gold and held up to the sky (EA_RAISE), the charge (EA_CHARGE) -
 // stood where you are all the while, there to be hit - then the beam (EA_FIRE), turning after the aim no faster than
 // EA_TURN, and a moment to lower it (EA_OUT); the wait after. (Its hits: main.js, eaBeam.)
-const EA_RAISE = 0.4, EA_CHARGE = 1.4, EA_FIRE = 1.2, EA_OUT = 0.4, EA_TURN = 1.1, EA_CD = 30;
-const EA_SWING = 0.1;   // the first of EA_FIRE: brought down from the sky to the aim, and only then the beam
+export const EA_RAISE = 0.4, EA_CHARGE = 1.4, EA_FIRE = 1.2;
+const EA_OUT = 0.4, EA_TURN = 0.6, EA_CD = 30;   // (EA_TURN: rad/s - slow, so it can be outrun)
+export const EA_SWING = 0.1;   // the first of EA_FIRE: brought down from the sky to the aim, and only then the beam
 const EA_T = { raise: EA_RAISE, charge: EA_CHARGE, swing: EA_SWING, out: EA_OUT };
 // excalibur (skill, Q): the sword unveiled out of the wind and raised (EX_RAISE), the light gathered to it (EX_CHARGE)
 // - rooted, there to be hit - then brought down (EX_SWING) and the wave of light goes, straight down the aim as it was
 // when the stroke began, out to EX_RANGE at EX_SPEED; how long it shines (EX_FIRE), the gold left fading (EX_OUT); the
-// wait after. (Its hits: main.js, xcBeam.)
-const EX_RAISE = 0.45, EX_CHARGE = 1.3, EX_SWING = 0.14, EX_FIRE = 0.9, EX_OUT = 0.7, EX_SPEED = 1900, EX_CD = 30;
+// wait after. (Its hits: main.js, xcBeam.) Before the stroke, the warning (EX_GUIDE): the aim's fixed, and a thin thread
+// of glittering light runs out down it (EX_GUIDE_SPEED) - where the wave's going, for anyone in the way to get out of it.
+export const EX_RAISE = 0.45, EX_CHARGE = 1.3, EX_SWING = 0.14, EX_FIRE = 0.9, EX_SPEED = 1900, EX_GUIDE = 0.45;
+const EX_OUT = 0.7, EX_CD = 30, EX_GUIDE_SPEED = 3400, EX_GUIDE_FADE = 0.5;   // (the thread: dying away over this, once the wave's gone)
 export const EX_RANGE = 1000;
 const EX_T = { raise: EX_RAISE, charge: EX_CHARGE, swing: EX_SWING, out: EX_OUT };
 // judgement cut (skill, Q): the stance, hand on the hilt (JC_STANCE: the mark goes where you aim, JC_RANGE at most,
 // walls no matter - it's space that's cut); the cuts there (JC_CUTS of them, one every JC_EVERY, each JC_HIT to anyone in
 // the sphere, JC_R); the sword put away (JC_END) - the sphere breaking first (JC_BREAK into it: JC_LAST), then the click;
 // the wait after. (Its hits: main.js, jcCut.)
-const JC_STANCE = 0.45, JC_CUTS = 12, JC_EVERY = 0.06, JC_END = 0.7, JC_BREAK = 0.15, JC_SHUT = JC_BREAK, JC_CD = 18;   // (the click and the break: the same moment)
+export const JC_STANCE = 0.45;
+const JC_CUTS = 12, JC_EVERY = 0.06, JC_END = 0.7, JC_BREAK = 0.15, JC_SHUT = JC_BREAK, JC_CD = 18;   // (the click and the break: the same moment)
 // (the sword by you meanwhile: drawn straight out of the scabbard - JC_DRAW - and spun round the hand three times right
 // there, fast - JC_SPIN - like a shotgun twirled, to come round lined up with the scabbard and go straight back in,
 // all but the last of it (JC_GAP still out, JC_SLIDE) - and snapped shut the very moment the sphere breaks
@@ -203,7 +215,7 @@ export const JC_R = 46, JC_RANGE = 300, JC_HIT = 11, JC_LAST = 70;
 const JC_CUT = JC_CUTS * JC_EVERY + 0.1;
 export const EA_RANGE = 900;
 export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD, judge: JC_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_GUIDE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -622,6 +634,10 @@ export class Fighter {
     // slowly as everything else
     const frozen = this.frozen;
     if (frozen) c = { ...c, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: !!c.skill && this.usingSkill === 'sande' };
+    // the chidori in someone: the two of you held there till it's done - no jumping, rolling, walking or climbing out
+    // of it, either of you (heldT: the one it's in - see main.js, chidoriHold)
+    if (this.heldT > 0) this.heldT -= dt;
+    if (this.chidori?.phase === 'stab' || this.heldT > 0) c = { ...c, move: 0, jump: false, jumpHeld: false, roll: false, sprint: false, up: false, down: false, crouch: false, drop: false };
     if (c.aim !== null && c.aim !== undefined) {
       if (frozen) { const d = Math.atan2(Math.sin(c.aim - this.aim), Math.cos(c.aim - this.aim)); this.aim += Math.max(-FROZEN_TURN * dt, Math.min(FROZEN_TURN * dt, d)); }
       else this.aim = c.aim;
@@ -1184,6 +1200,7 @@ export class Fighter {
     h.cut ??= new Set();
     const sp = Math.hypot(this.vx, this.vy), ux = sp > 1 ? this.vx / sp : this.facing, uy = sp > 1 ? this.vy / sp : 0;
     this.slashes.push({ kind: 'slash', spin: true, a: Math.atan2(uy, ux), dir: this.facing, arc: Math.PI * 1.98, r: 25, t: 0, grow: 0.13, life: 0.34 });
+    this.game.fx.vfx('slash', this.x, this.y - 14, { r: 28, a: Math.atan2(uy, ux) + Math.PI, sweep: 5.8, dir: this.facing, pal: 'ice', w: 7, tilt: 0.6, dur: 0.3 });
     let hit = false;
     for (const v of this.game.fighters) {
       if (v === this || !v.alive || v.vanish || h.cut.has(v) || !this.game.foes(this, v)) continue;
@@ -1334,6 +1351,7 @@ export class Fighter {
     this.hook = null;
     this.fade = { t: 0, dur: 0.45, out: true, seed: Math.random() * 100 };
     this.game.fx.motes(this.x, this.y, 16, ['#b89aff', '#8f6aff', '#e0d4ff']);
+    this.game.fx.vfx('glitter', this.x, this.y - 15, { r: 16, n: 10, pal: 'violet', size: 5, sq: 1.6, dur: 0.35 });
   }
   // back into view: the knife goes, what was in hand comes back
   uncloak() {
@@ -1346,6 +1364,7 @@ export class Fighter {
     this.skillCD = CLOAK_CD * (k.killed ? CLOAK_KILL : 1);
     this.settle = SETTLE_TIME;
     this.fade = { t: 0, dur: 0.3, out: false, seed: Math.random() * 100 };
+    this.game.fx.vfx('glitter', this.x, this.y - 15, { r: 14, n: 7, pal: 'violet', size: 4, sq: 1.6, dur: 0.25 });
     this.game.fx.motes(this.x, this.y, 10, ['#b89aff', '#8f6aff', '#e0d4ff']);
   }
   // The cloak's one stab, at v (out of a roll): turned to face them, a dash in
@@ -1412,6 +1431,7 @@ export class Fighter {
     if (!d) return;
     this.decoy = d;
     this.decoyLife = DECOY_LIFE;
+    this.game.fx.vfx('ring', this.x, this.y - 14, { r: 30, pal: 'ice', w: 4, sq: 1.3 });
     this.veil = { t: VEIL_TIME };
     this.hook = null;
     this.powered = { after: -1, hit: -1 };   // (the next hit counts for more: while the double's up, and a moment after)
@@ -1569,6 +1589,8 @@ export class Fighter {
     if (m.t >= MURA_CHARGE) {
       const p = this.muraPoints().front;
       this.game.hollowPurple?.(this, p.x, p.y, this.aim);
+      this.game.fx.vfx('ring', p.x, p.y, { r: 30, pal: 'void', w: 6 });
+      this.game.fx.vfx('star', p.x, p.y, { r: 20, pal: 'void', dur: 0.35 });
       this.vx -= Math.cos(this.aim) * 140;   // the kick of it
       this.skillCD = MURA_CD;
       this.mura = null;
@@ -1652,6 +1674,7 @@ export class Fighter {
         this.game.fx.smoke(this.x, this.y - 8, 4);
         this.game.lights.flash(this.x, this.y - 14, 70, '255, 140, 60', 0.15);
         this.game.blazeGo?.(this, this.x, this.y - 14, b.a);
+        this.game.fx.vfx('ring', this.x, this.y - 14, { r: 26, pal: 'fire', w: 5, sq: 0.8 });
         if (this.game.viewer === this) this.game.kick?.(-Math.cos(b.a) * 3, -Math.sin(b.a) * 3);
       }
     } else if (b.phase === 'hit' && b.t >= BLAZE_RECOVER) {
@@ -1815,6 +1838,8 @@ export class Fighter {
     m.t += dt;   // (where it's going was settled the moment Q went down)
     if (m.t >= GAL_CAST) {
       this.game.galaxy?.(this, m.x, m.y, m.seed);
+      this.game.fx.vfx('ring', m.x, m.y, { r: 46, pal: 'void', w: 5, dur: 0.4 });
+      this.game.fx.vfx('glitter', m.x, m.y, { r: 30, n: 10, pal: 'volt', size: 5, dur: 0.4 });
       this.gal = null;
       this.skillCD = GAL_CD;
     }
@@ -1851,6 +1876,7 @@ export class Fighter {
     if (!m) {
       if (c.skill && this.skillCD <= 0 && !this.swordsOut && !this.onLadder && !this.roll && this.alive && this.stamina >= SWORD_COST) {
         this.summon = { t: 0, seed: Math.random() * 100, n: Math.min(5, Math.floor(this.stamina / SWORD_COST)) };
+        this.game.fx.vfx('glitter', this.x, this.y - 40, { r: 26, n: 12, pal: 'volt', size: 6, sq: 0.6, dur: 0.6 });
         this.stamina = 0;
         this.sprinting = false;
         if (this.weapon?.reloading) this.weapon.cancelReload();
@@ -1894,6 +1920,7 @@ export class Fighter {
     if (!m) {
       if (c.skill && this.skillCD <= 0 && this.alive) {
         this.lockOn = { t: LOCK_TIME, k: 0, acq: 0, target: null, shots: 0, next: 0.6, px: this.x, py: this.y - 22 };
+        this.game.fx.vfx('ring', this.x, this.y - 22, { r: 22, pal: 'volt', w: 3 });
         this.game.fx.sparks(this.x + this.facing * 6, this.y - 18, 8, this.facing, 0, '#8fe8ff');
       }
       return;
@@ -2117,6 +2144,40 @@ export class Fighter {
     this.hackedT = time;
     if (this.flash !== undefined) this.flash = 0.06;
   }
+  // Nothing can touch them just now (bar true damage: see hurt) - and why. Any new skill that makes you untouchable goes
+  // in here (and in breakGuard, to be broken out of).
+  get untouchable() {
+    if (this.roll && this.roll.t < ROLL_SAFE && !this.blast) return 'roll';   // diving under it
+    if (this.shield > 0) return 'spawn';   // just beamed back in
+    if (this.guardT > 0) return 'guard';   // the blue shield just gone
+    if (this.phantom) return 'phantom';    // the purple card
+    if (this.wraith) return 'wraith';      // the vampire's smoke
+    if (this.phase || this.jump) return 'rift';   // jumper: the other place, or going along a rift's path as light
+    if (this.shade) return 'shade';        // shadow kill: gone into the shadows
+    if (this.fang?.dash) return 'fang';    // going to whoever's marked with the golden fangs
+    if (this.hook?.state === 'on') return 'hook';   // pulled along the grapple line
+    return null;
+  }
+  // Space broken round them (judgement cut's last cut): out of anything that kept them untouchable - the blue shield
+  // shattered, the smoke, the phantom, the other place, the rift, the shadows, all ended (and their waits started).
+  // Anything else they had going carries on.
+  breakGuard() {
+    let broke = false;
+    if (this.barrier) { this.breakBarrier(true); broke = true; }
+    this.guardT = 0;
+    this.shield = 0;
+    if (this.wraith) { this.wraith = null; broke = true; }
+    if (this.card && this.phantom) {
+      this.fade = { t: 0, dur: 0.2, out: false, seed: Math.random() * 100, rgb: '180, 110, 255' };
+      this.card = null;
+      this.skillCD = Math.max(this.skillCD, CARD_CD);
+      broke = true;
+    }
+    if (this.phase) { this.phase = null; this.skillCD = JUMPER_CD; broke = true; }   // (the rift's laid as far as it got: see main.js)
+    if (this.jump) { this.jump = null; this.riftCool = 0.6; broke = true; }   // (thrown out of the path, there)
+    if (this.reap && this.reap.phase !== 'out') { this.reap = null; this.skillCD = REAP_CD; broke = true; }   // (out of the shadows, where it was)
+    return broke;
+  }
 
   // ---------- Sandevistan (skill, Q) ----------
   // Q: for a moment of your own time - as long as the stamina you've got: SANDE_MIN_T on next to none, SANDE_MAX_T on a
@@ -2130,6 +2191,8 @@ export class Fighter {
       if (c.skill && this.skillCD <= 0 && this.alive && this.stamina >= SANDE_NEED) {
         const k = this.stamina / MAX_STAMINA, t = SANDE_MIN_T + (SANDE_MAX_T - SANDE_MIN_T) * k;
         this.sande = { t, total: t, age: 0, from: this.stamina };
+        this.game.fx.vfx('ring', this.x, this.y - 14, { r: 70, pal: 'mint', w: 7, dur: 0.4 });
+        this.game.fx.vfx('star', this.x, this.y - 14, { r: 20, pal: 'mint', dur: 0.3 });
       }
       return;
     }
@@ -2248,6 +2311,7 @@ export class Fighter {
       if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
         this.fang = { t: 0, back: false };
         this.game.throwFangs?.(this);
+        this.game.fx.vfx('spikes', this.shoulder.x, this.shoulder.y, { r: 26, n: 6, pal: 'holy', a: this.aim, spread: 0.9, dur: 0.25 });
       }
       return;
     }
@@ -2300,6 +2364,7 @@ export class Fighter {
       if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
         this.aurum = { t: 0 };
         this.game.aurumOn?.(this);
+        this.game.fx.vfx('glitter', this.x, this.y - 18, { r: 22, n: 12, pal: 'holy', size: 5, dur: 0.55 });
       }
       return;
     }
@@ -2354,6 +2419,8 @@ export class Fighter {
     if (m.phase === 'draw' && m.t >= REAP_DRAW) {
       // drawn: gone into shadow
       m.phase = 'in';
+      G.fx.vfx('ring', this.x, this.y - 14, { r: 36, pal: 'shade', w: 5, sq: 1.2 });
+      G.fx.vfx('spikes', this.x, this.y - 14, { r: 30, n: 8, pal: 'shade', dur: 0.35 });
       m.t = 0;
       G.fx.motes(this.x, this.y - 14, 16, ['#0a0412', '#3a0a5a', '#9a3aff', '#ff3a5a']);
       G.lights.flash(this.x, this.y - 14, 110, '160, 50, 255', 0.2);
@@ -2493,8 +2560,8 @@ export class Fighter {
     const over = { x: this.x + f, y: this.y + b - 31, a: upA };
     const toward = (p, q, k) => ({ x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k, a: turn(p.a, q.a, k) });
     if (m.phase === 'raise') return toward(fwd(ready), over, ease(m.t / T.raise));
-    if (m.phase === 'charge') {
-      const k = m.t / T.charge, sh = k > 0.4 ? Math.round(Math.sin(this.game.time * 53) * k) : 0;   // (shaking with it)
+    if (m.phase === 'charge' || m.phase === 'guide') {
+      const k = m.phase === 'guide' ? 1 : m.t / T.charge, sh = k > 0.4 ? Math.round(Math.sin(this.game.time * 53) * k) : 0;   // (shaking with it)
       return { ...over, x: over.x + sh };
     }
     if (m.phase === 'fire') return m.t >= T.swing ? fwd(m.a) : toward(over, fwd(m.a), ease(m.t / T.swing));   // (brought down from the sky to the aim)
@@ -2551,7 +2618,11 @@ export class Fighter {
       const k = Math.min(1, m.t / EX_CHARGE);
       if (Math.random() < dt * 12 * k) { const p = this.xcTip(); G.fx.sparks(p.x, p.y, 1 + Math.round(k * 2), 0, -1, Math.random() < 0.5 ? '#ffd24a' : '#ffffff'); }
       if (me) G.kick?.((Math.random() - 0.5) * 2 * k * k, (Math.random() - 0.5) * 2 * k * k);
-      if (m.t >= EX_CHARGE) { m.phase = 'fire'; m.t = 0; m.a = this.aim; }
+      if (m.t >= EX_CHARGE) { m.phase = 'guide'; m.t = 0; m.a = this.aim; m.glen = 0; }
+    } else if (m.phase === 'guide') {
+      // the aim's set now: the thread of light runs out along it, then the stroke
+      m.glen = Math.min(EX_RANGE, m.glen + EX_GUIDE_SPEED * dt);
+      if (m.t >= EX_GUIDE) { m.phase = 'fire'; m.t = 0; }
     } else if (m.phase === 'fire') {
       if (m.t - dt < EX_SWING && m.t >= EX_SWING) { const p = this.xcTip(); G.xcFire?.(this, p.x, p.y, m.a); }   // (the stroke's down: it goes)
       if (m.t >= EX_SWING) {
@@ -2577,7 +2648,7 @@ export class Fighter {
   // how much light is in the blade: gathering through the charge, all of it as it goes, draining after
   xcLight() {
     const m = this.xc;
-    return !m ? 0 : m.phase === 'raise' ? 0 : m.phase === 'charge' ? Math.min(1, m.t / EX_CHARGE) : m.phase === 'fire' ? 1 : 1 - m.t / EX_OUT;
+    return !m ? 0 : m.phase === 'raise' ? 0 : m.phase === 'charge' ? Math.min(1, m.t / EX_CHARGE) : m.phase === 'fire' || m.phase === 'guide' ? 1 : 1 - m.t / EX_OUT;
   }
   xcGrip() { return this.skySwordGrip(this.xc, EX_T); }
   xcTip(g = this.xcGrip()) {
@@ -2604,7 +2675,17 @@ export class Fighter {
         }
         ctx.restore();
       }
+    } else if (m.phase === 'guide') {
+      drawExCharge(ctx, p.x, p.y, g.x, g.y, this.x, this.y, 1, t, m.seed);
+      // the thread: from where the stroke will end, out along the aim
+      const from = this.xcTip(this.skySwordGrip({ phase: 'fire', t: EX_SWING, a: m.a }, EX_T));
+      drawExGuide(ctx, from.x, from.y, m.a, m.glen, m.t / EX_GUIDE, t, m.seed);
     } else if (m.phase === 'fire') {
+      // the thread, left there as the wave goes, dying away
+      if (m.t < EX_GUIDE_FADE && m.glen) {
+        const from = this.xcTip(this.skySwordGrip({ phase: 'fire', t: EX_SWING, a: m.a }, EX_T));
+        drawExGuide(ctx, from.x, from.y, m.a, m.glen, 1, t, m.seed, 1 - m.t / EX_GUIDE_FADE);
+      }
       if (m.t < EX_SWING + 0.2) drawExSlash(ctx, g.x, g.y, -Math.PI / 2, -Math.PI / 2 + wrapAngle(m.a + Math.PI / 2), Math.max(0, (m.t - EX_SWING * 0.5) / 0.25));
       drawExWave(ctx, p.x, p.y, m.a, m.len, this.xcWidth(), t, m.seed, m.len >= EX_RANGE);
       if (m.t >= EX_SWING && m.t < EX_SWING + 0.4) drawExBlast(ctx, p.x, p.y, (m.t - EX_SWING) / 0.4, t);
@@ -2885,13 +2966,16 @@ export class Fighter {
 
   // ---------- chidori (skill, Q) ----------
   // Q: a moment gathering it, then lightning crackling in the hand, and quicker on your feet: run into a foe and it's
-  // driven through them (see main.js: chidoriStrike). Q again: a lunge along the mouse, the hand out in front, once.
-  // No shooting with it in hand. Held too long, it goes out.
+  // driven through them (see main.js: chidoriStrike). An attack (click, the melee button) or Q again: a lunge to the
+  // mouse (CHIDORI_REACH at most), the hand out in front - once. Missed, it's still in hand till its time's up. No
+  // shooting with it in hand. Held too long, it goes out.
   updateChidori(dt, c) {
     const m = this.chidori;
+    const attack = !!(c.fire || c.melee), pressed = attack && m && !m.held;   // (a click, not the button still down from before)
+    if (m) m.held = attack;
     if (!m) {
       if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
-        this.chidori = { phase: 'charge', t: 0, a: this.aim, lunged: false };
+        this.chidori = { phase: 'charge', t: 0, a: this.aim, lunged: false, held: !!(c.fire || c.melee) };
         if (this.weapon?.reloading) this.weapon.cancelReload();
         this.hook = null;
       }
@@ -2914,6 +2998,9 @@ export class Fighter {
         m.phase = 'hold';
         m.t = CHIDORI_TIME;
         this.game.lights.flash(this.x, this.y - 14, 120, '150, 210, 255', 0.25);
+        const h = this.chidoriHand();
+        this.game.fx.vfx('star', h.x, h.y, { r: 14, pal: 'volt', dur: 0.3 });
+        for (let i = 0; i < 3; i++) { const a = Math.random() * Math.PI * 2; this.game.fx.vfx('bolt', h.x, h.y, { x1: h.x + Math.cos(a) * 22, y1: h.y + Math.sin(a) * 22, pal: 'volt', dur: 0.25, fork: 0 }); }
       }
       return;
     }
@@ -2921,15 +3008,17 @@ export class Fighter {
       if ((m.t -= dt) <= 0) { m.phase = 'hold'; m.t = Math.max(m.t, m.left); this.vx *= 0.3; this.vy = Math.min(this.vy, 0) * 0.3; }
     } else {
       if ((m.t -= dt) <= 0) return over();
-      if (c.skill && !m.lunged) {
+      if ((c.skill || pressed) && !m.lunged) {
+        const sx = this.x, sy = this.y - 14, to = this.aimTarget;
         m.phase = 'lunge';
         m.lunged = true;
         m.left = m.t;
-        m.t = CHIDORI_LUNGE_T;
-        m.a = this.aim;
+        m.a = to ? Math.atan2(to.y - sy, to.x - sx) : this.aim;
+        m.t = to ? Math.max(CHIDORI_LUNGE_MIN, Math.min(CHIDORI_LUNGE_T, Math.hypot(to.x - sx, to.y - sy) / CHIDORI_LUNGE)) : CHIDORI_LUNGE_T;
         this.onLadder = false;
         this.crouch = false;
         this.game.fx.sparks(this.x, this.y - 14, 10, -Math.cos(m.a), -Math.sin(m.a), '#9fe6ff');
+        this.game.fx.vfx('ring', this.x, this.y - 14, { r: 20, pal: 'volt', w: 4 });
       }
     }
     const v = this.game.chidoriStrike?.(this, m);
@@ -2955,6 +3044,7 @@ export class Fighter {
     if (!m) {
       if (c.skill && this.skillCD <= 0 && !this.onLadder && !this.roll && this.alive) {
         this.deflect = { phase: 'guard', t: DEFLECT_TIME, age: 0, spark: 0, ripples: [], a: this.aim, dist: 0, hit: [], trail: [] };
+        this.game.fx.vfx('ring', this.x, this.y - 14, { r: 30, pal: 'mint', w: 4, sq: 1.2 });
         if (this.weapon?.reloading) this.weapon.cancelReload();
         this.hook = null;
       }
@@ -3274,11 +3364,11 @@ export class Fighter {
 
   // ---------- being hit ----------
 
-  hurt(dmg, from, kx, ky, head = false) {
+  // true: true damage (judgement cut's - it's space itself that's cut): nothing's out of its reach - not a roll, the
+  // other place, wraith form, the phantom, the shadows - and no blue shield takes any of it.
+  hurt(dmg, from, kx, ky, head = false, pierce = false) {
     if (!this.alive || this.vanish) return false;
-    if (this.roll && this.roll.t < ROLL_SAFE && !this.blast) return false;   // diving under it
-    if (this.shield > 0 || this.phantom || this.wraith || this.phase || this.jump || this.guardT > 0 || this.shade) return false;   // just beamed back in; the purple card; the shield just gone
-    if (this.fang?.dash || this.hook?.state === 'on') return false;   // (going to whoever's marked with the golden fangs; pulled along the grapple line: nothing touches you on the way)
+    if (!pierce && this.untouchable) return false;
     if ((from?.owner ?? from)?.noDmg) { this.flash = 0.04; return true; }   // (training: a bot put in with its DAMAGE off - it lands, and nothing comes of it)
     let d = dmg * (head ? HEAD_MUL : 1) * (this.hackedT > 0 ? HACK_HURT : 1);
     // whoever hit them with a clone's charge on: it counts for more, the once (a shotgun's pellets all count as the one)
@@ -3290,7 +3380,7 @@ export class Fighter {
       charged = true;
     }
     // the shield takes it first, what's left of it - a melee blow counts double on it, a blast half as much again
-    const b = this.barrier;
+    const b = pierce ? null : this.barrier;
     if (b) {
       const worth = this.blast ? 1.5 : this.hitHow ? 2 : 1;
       b.hit = 1;
