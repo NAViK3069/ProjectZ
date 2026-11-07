@@ -18,7 +18,9 @@ import { SKINS, skinOf, skinName, skinParts, LOOK_ART, PARTS, COLOURS, lookOf, m
 import { placeProps, DEBRIS } from './props.js';
 import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
 import { drawGoldShot, drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot, drawVioletMuzzle, drawVioletTrace, drawFangMark, drawFangMarked, drawFangGuide, drawFangDash, drawFangCut } from './goldfx.js';
-import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST, EA_RANGE, JC_RANGE, ROAR_CAST, ROAR_R, ROAR_FEAR } from './fighter.js';
+import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST, EA_RANGE, JC_RANGE, ROAR_CAST, ROAR_R, ROAR_FEAR, TRUCK_DMG, TRUCK_RAM, TRUCK_SPLASH, TRUCK_FREEZE, TRUCK_LEN, TRUCK_FLARE, TRUCK_CALL, TRUCK_BOARD, TRUCK_WAIT, FLARE_UP, GUAN_CAST, GUAN_TIME, GUAN_OUT, GUAN_DMG, GUAN_R } from './fighter.js';
+import { drawGuanBody, drawGuanGlow, drawGuanArms, drawGuanStrikeGlow } from './guanyin.js';
+import { drawIceTruck, drawIceTruckGlow, drawFlareRise, drawFlareLight, drawTruckFan, drawTruckLock, drawIceGate, drawIceRoad, drawIceBlock, drawTruckWreck, truckToward, TRUCK_LEAN, TRUCK_PICK } from './icetruck.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier, BOT_SKILLS as BOT_USES } from './ai.js';
@@ -110,9 +112,9 @@ const OPTIONS = [
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
   ['skillmode', 'SKILL MODE', [['set', 'AS PICKED'], ['random', 'RANDOM EVERY LIFE'], ['pick', 'PICK WHEN YOU DIE']]],
   ['cd', 'SKILL COOLDOWN', [[0, 'NONE'], [0.25, '25%'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%'], [2, '200%'], [3, '300%']]],
-  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], ['roar', 'ROAR'], [null, 'NO SKILL']]],
+  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], ['roar', 'ROAR'], ['truck', 'ICE TRUCK'], ['guanyin', '100-TYPE GUANYIN'], [null, 'NO SKILL']]],
   ['skin', 'YOUR LOOK', SKINS.map((k) => [k.key, k.name])],   // (and in training: the wardrobe, to try them on)
-  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], ['roar', 'ROAR'], [null, 'NONE']]],
+  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], ['roar', 'ROAR'], ['truck', 'ICE TRUCK'], ['guanyin', '100-TYPE GUANYIN'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -341,6 +343,142 @@ const game = {
       o.fearX = f.x;
       this.fx.vfx('star', o.x, o.y - 32, { r: 9, pal: 'blood', dur: 0.3 });
     }
+  },
+  // ---------- ice truck (fighter.js: updateTruck, truckStep, truckOut; its looks: icetruck.js) ----------
+  // the flare fired off: a crack of light at the hand
+  truckFlare(f) {
+    const x = f.x + f.truck.fx, y = f.y + f.truck.fy;
+    this.fx.vfx('star', x, y - 4, { r: 10, pal: 'ice', dur: 0.25 });
+    this.fx.sparks(x, y - 4, 8, 0, -1, '#e0f4ff');
+    this.fx.puff(x, y - 2);
+    this.lights.flash(x, y, 70, '170, 220, 255', 0.3);
+  },
+  // ...bursting up in the sky: a star of it, a ring, glitter falling, the whole place lit blue for a moment
+  truckBurst(f, x, y) {
+    this.fx.vfx('star', x, y, { r: 34, pal: 'ice', dur: 0.5 });
+    this.fx.vfx('ring', x, y, { r: 60, pal: 'ice', w: 4, dur: 0.6 });
+    this.fx.vfx('glitter', x, y, { r: 50, n: 26, pal: 'ice', size: 4, dur: 1.2 });
+    this.fx.vfx('spikes', x, y, { r: 30, n: 12, pal: 'ice', dur: 0.4 });
+    this.lights.flash(x, y, 320, '160, 215, 255', 0.45);
+  },
+  // locked on: the gate tearing open behind them, the sight on whoever it's after
+  truckCall(f, v) {
+    const m = f.truck;
+    this.fx.vfx('ring', m.gx, f.y - 30, { r: 34, pal: 'ice', w: 5, sq: 1.8, dur: 0.5 });
+    this.fx.vfx('spikes', m.gx, f.y - 30, { r: 30, n: 10, pal: 'ice', dur: 0.4 });
+    this.fx.vfx('glitter', m.gx, f.y - 30, { r: 26, n: 14, pal: 'ice', size: 4, sq: 1.6, dur: 0.8 });
+    this.fx.vfx('star', v.x, v.y - 15, { r: 16, pal: 'blood', dur: 0.35 });
+    this.lights.flash(m.gx, f.y - 30, 160, '140, 200, 255', 0.4);
+    if (f === player) renderer.kick(0, 2);
+  },
+  // in they jump
+  truckBoard(f) {
+    this.fx.puff(f.x, f.y - 6);
+    this.fx.vfx('glitter', f.x, f.y - 20, { r: 16, n: 8, pal: 'ice', size: 3, dur: 0.4 });
+  },
+  // on the way: anyone else in its path knocked flying (the once each)
+  truckRam(f, m) {
+    for (const o of this.fighters) {
+      if (o === f || o === m.target || !o.alive || o.vanish || !this.foes(f, o) || m.hit.includes(o)) continue;
+      if (Math.abs(o.x - m.tx) > TRUCK_LEN / 2 + 4 || o.y < m.ty - 40 || o.y > m.ty + 34) continue;
+      m.hit.push(o);
+      if (o.adaptedTo?.('skill:truck')) { this.onAdapted(o, 'skill:truck'); continue; }
+      o.hitHow = 'ICE TRUCK';
+      if (!o.hurt(TRUCK_RAM, f, m.dir * 380, -260)) continue;
+      this.fx.vfx('star', o.x, o.y - 16, { r: 14, pal: 'ice', dur: 0.3 });
+      this.fx.sparks(o.x, o.y - 14, 14, m.dir, -0.5, '#e0f4ff');
+      if (o === player || f === player) renderer.kick(m.dir * 5, -3);
+    }
+  },
+  // The crash: at whoever it was after (v), or wherever it got to - the truck bursts apart in ice and steel, and they're
+  // frozen solid where they stand (their hp's hit first), then flung off as it shatters; anyone near is thrown too.
+  truckCrash(f, v, m) {
+    const x = m.tx + m.dir * TRUCK_LEN * 0.35, y = m.ty - 16;
+    this.bursts.push({ kind: 'truckwreck', x: m.tx, y: m.ty, dir: m.dir, t: 0, life: 1.5, seed: Math.random() * 100, road: m.road.slice(-24).map((p) => ({ x: p.x, y: p.y })) });
+    this.fx.vfx('blast', x, y, { r: 46, pal: 'ice', dur: 1 });
+    this.fx.vfx('ring', x, y, { r: 90, pal: 'ice', w: 8, sq: 0.6, dur: 0.6 });
+    this.fx.vfx('ring', x, y, { r: 56, pal: 'steel', w: 4, sq: 0.7, dur: 0.45, delay: 0.08 });
+    this.fx.vfx('spikes', x, y, { r: 56, n: 16, pal: 'ice', a: m.dir > 0 ? 0 : Math.PI, spread: 3.2, dur: 0.5 });
+    this.fx.vfx('star', x, y, { r: 40, pal: 'ice', dur: 0.4 });
+    this.fx.vfx('glitter', x, y, { r: 60, n: 30, pal: 'ice', size: 5, dur: 1.3 });
+    this.fx.vfx('lines', x, y, { r: 120, dir: m.dir, pal: 'ice', n: 30, dur: 0.45 });
+    this.fx.vfx('dust', x, m.ty, { r: 110, dur: 1 });
+    this.fx.debris(x, y, 10, ['#e2e9f1', '#bcc8d6', '#2a74d8', '#1c2026', '#cfeeff'], 1);
+    this.fx.sparks(x, y, 30, m.dir, -0.4, '#ffffff');
+    this.lights.flash(x, y, 280, '170, 225, 255', 0.6);
+    const near = Math.max(0, 1 - Math.hypot(player.x - x, player.y - y) / 320);
+    if (near > 0) renderer.kick(m.dir * 12 * near, -7 * near);
+    for (const o of this.fighters) {
+      if (o === f || !o.alive || o.vanish || !this.foes(f, o)) continue;
+      const hit = o === v, d = Math.hypot(o.x - x, o.y - 14 - y);
+      if (!hit && d > 56) continue;
+      if (o.adaptedTo?.('skill:truck')) { this.onAdapted(o, 'skill:truck'); continue; }
+      o.hitHow = 'ICE TRUCK';
+      if (!o.hurt(hit ? TRUCK_DMG : TRUCK_SPLASH, f, m.dir * (hit ? 60 : 340), hit ? -40 : -240)) continue;
+      if (!hit || !o.alive) continue;
+      o.iceT = TRUCK_FREEZE;   // (frozen where they are: fighter.js, update - then iceShatter)
+      o.iceDir = m.dir;
+      o.vx = o.vy = 0;
+      this.fx.vfx('spikes', o.x, o.y - 18, { r: 26, n: 10, pal: 'ice', dur: 0.4 });
+    }
+  },
+  // the ice they're frozen in bursts, and off they go
+  iceShatter(o) {
+    this.fx.vfx('spikes', o.x, o.y - 18, { r: 36, n: 14, pal: 'ice', dur: 0.45 });
+    this.fx.vfx('glitter', o.x, o.y - 18, { r: 24, n: 16, pal: 'ice', size: 4, dur: 0.8 });
+    this.fx.vfx('ring', o.x, o.y - 18, { r: 34, pal: 'ice', w: 4, dur: 0.4 });
+    this.fx.debris(o.x, o.y - 18, 8, ['#cfeeff', '#a8dcff', '#ffffff'], 0.8);
+    this.lights.flash(o.x, o.y - 18, 120, '170, 225, 255', 0.35);
+  },
+  // ---------- guanyin (fighter.js: updateGuan; its looks: guanyin.js) ----------
+  // the prayer: a clap of gold light at the joined hands, a ring going out
+  guanCall(f) {
+    this.fx.vfx('star', f.x, f.y - 20, { r: 16, pal: 'holy', dur: 0.4 });
+    this.fx.vfx('ring', f.x, f.y - 20, { r: 40, pal: 'holy', w: 3, dur: 0.5 });
+    this.fx.vfx('aura', f.x, f.y, { r: 14, h: 40, pal: 'holy', dur: GUAN_CAST });
+    this.lights.flash(f.x, f.y - 20, 120, '255, 220, 140', 0.3);
+  },
+  // risen: the whole of it flaring, light thrown wide, the floor shaken
+  guanRise(f) {
+    const m = f.guan, cy = m.ay - 120;
+    this.fx.vfx('star', m.ax, m.ay - 186, { r: 46, pal: 'holy', dur: 0.6 });
+    this.fx.vfx('ring', m.ax, cy, { r: 150, pal: 'holy', w: 8, sq: 1.1, dur: 0.8 });
+    this.fx.vfx('ring', m.ax, m.ay, { r: 110, pal: 'holy', w: 5, sq: 0.25, dur: 0.6 });
+    this.fx.vfx('glitter', m.ax, cy, { r: 80, n: 40, pal: 'holy', size: 5, dur: 1.4 });
+    this.fx.vfx('dust', m.ax, m.ay, { r: 140, dur: 1.1 });
+    this.fx.vfx('lines', m.ax, cy, { r: 170, dir: 0, pal: 'holy', n: 36, dur: 0.6 });
+    this.lights.flash(m.ax, cy, 360, '255, 215, 130', 0.55);
+    const near = Math.max(0, 1 - Math.hypot(player.x - f.x, player.y - f.y) / 360);
+    if (near > 0) renderer.kick((Math.random() - 0.5) * 8 * near, 6 * near);
+  },
+  // The slap, where its hand's come down (a: the arm): everyone under the palm hit and thrown off it - the air around it
+  // shaken out in gold, dust off the floor if it's down there.
+  guanSlap(f, a) {
+    const x = a.tx, y = a.ty, m = f.guan, dir = Math.sign(x - (m?.ax ?? f.x)) || f.facing;
+    this.fx.vfx('star', x, y, { r: 26, pal: 'holy', dur: 0.3 });
+    this.fx.vfx('ring', x, y, { r: 54, pal: 'holy', w: 6, sq: 0.8, dur: 0.45 });
+    this.fx.vfx('spikes', x, y, { r: 38, n: 12, pal: 'holy', dur: 0.35 });
+    this.fx.vfx('glitter', x, y, { r: 30, n: 12, pal: 'holy', size: 4, dur: 0.7 });
+    const floorY = Math.floor((y + 10) / T);
+    if (this.level.get(Math.floor(x / T), floorY) === SOLID) { this.fx.vfx('dust', x, floorY * T, { r: 60, dur: 0.8 }); this.fx.debris(x, y + 6, 6, ['#2b3a37', '#46584f', '#7a8a80'], 0.6); }
+    this.lights.flash(x, y, 160, '255, 215, 130', 0.4);
+    const near = Math.max(0, 1 - Math.hypot(player.x - x, player.y - y) / 260);
+    if (near > 0) renderer.kick(dir * 5 * near, 6 * near);
+    for (const o of this.fighters) {
+      if (o === f || !o.alive || o.vanish || !this.foes(f, o)) continue;
+      if (Math.hypot(o.x - x, o.y - 14 - y) > GUAN_R + 6) continue;
+      if (o.adaptedTo?.('skill:guanyin')) { this.onAdapted(o, 'skill:guanyin'); continue; }
+      o.hitHow = 'GUANYIN';
+      if (!o.hurt(GUAN_DMG, f, dir * 330, -230)) continue;
+      this.fx.sparks(o.x, o.y - 14, 16, dir, -0.5, '#fff6d0');
+    }
+  },
+  // gone: up into light
+  guanEnd(f) {
+    const m = f.guan ?? { ax: f.x, ay: f.y };
+    this.fx.vfx('glitter', m.ax, m.ay - 120, { r: 80, n: 34, pal: 'holy', size: 4, dur: 1.2 });
+    this.fx.vfx('star', m.ax, m.ay - 186, { r: 30, pal: 'holy', dur: 0.4 });
+    this.lights.flash(m.ax, m.ay - 120, 200, '255, 215, 130', 0.25);
   },
   // ---------- adaptation (fighter.js: updateAdapt; the wheel: adapt.js) ----------
   // the wheel starts turning
@@ -1268,12 +1406,20 @@ function playerControl() {
   phoneTarget = touch && input.mouse.active ? phoneLock(f, game, true) : null;
   const lock = touch && input.mouse.active ? phoneLock(f, game, c.skill) : null;
   if (lock) c.target = { x: lock.x, y: lock.y - 14 };
+  // a phone: the bodhisattva's hands go to the nearest foe in its reach by themselves (the fire button still says when)
+  if (touch && f.guan?.phase === 'on') { const to = f.guanPrey(); if (to) c.target = to; }
   // the buff cards fanned out: they're held still on the screen where the mouse was, and the mouse leans from there
   if (f.card?.pick && input.mouse.active) {
     cardPin ??= { x: input.mouse.x, y: input.mouse.y };
     const k = renderer.dpr / renderer.scale, dx = (input.mouse.x - cardPin.x) * k, dy = (input.mouse.y - cardPin.y) * k, d = Math.hypot(dx, dy);
     c.cardHover = d > CARD_LEAN ? cardToward(dx, dy) : null;
     c.cardPick = d >= CARD_PICK ? c.cardHover : null;
+  } else if (f.truck?.phase === 'pick' && f.truck.slots && input.mouse.active) {
+    // the ice truck's faces dealt out: held still where the mouse was, the same way
+    cardPin ??= { x: input.mouse.x, y: input.mouse.y };
+    const k = renderer.dpr / renderer.scale, dx = (input.mouse.x - cardPin.x) * k, dy = (input.mouse.y - cardPin.y) * k, d = Math.hypot(dx, dy);
+    c.truckHover = d > TRUCK_LEAN ? truckToward(f.truck.slots, dx, dy) : -1;
+    c.truckPick = d >= TRUCK_PICK ? c.truckHover : -1;
   } else if (!f.card?.fly) cardPin = null;
   return c;
 }
@@ -2502,11 +2648,12 @@ function jcCut(f, x, y, r, dmg, last) {
 
 function updateBursts(dt) {
   for (const b of game.bursts) b.t += dt;
-  game.bursts = game.bursts.filter((b) => b.t < BURST_LIFE);
+  game.bursts = game.bursts.filter((b) => b.t < (b.life ?? BURST_LIFE));   // (a burst may have its own life: the ice truck's wreck)
 }
 function drawBursts(ctx) {
   for (const b of game.bursts) {
-    const k = b.t / BURST_LIFE;
+    const k = b.t / (b.life ?? BURST_LIFE);
+    if (b.kind === 'truckwreck') continue;   // (drawn with the fighters, lit as they are: drawTrucks)
     if (b.kind === 'shield') drawShieldBurst(ctx, b.x, b.y, k, game.time, b.seed, b.r);
     else if (b.kind === 'cut') drawDeflectCut(ctx, b.x0, b.y0, b.x, b.y, k, b.seed);
     else if (b.kind === 'chidori') drawChidoriHit(ctx, b.x, b.y, b.a, k, b.seed);
@@ -2523,6 +2670,83 @@ function drawBursts(ctx) {
     else if (b.kind === 'steal') drawStealBurst(ctx, b.x, b.y, b.owner?.alive ? b.owner.x : b.x0, b.owner?.alive ? b.owner.y - 17 : b.y0, k, b.seed);
     else drawHackWave(ctx, b.x, b.y, k, game.time, b.seed, b.r, b.links);
   }
+}
+
+// ---------- guanyin (fighter.js: updateGuan; its looks: guanyin.js) ----------
+// how far risen it is, and how far gone
+const guanK = (m) => ({ rise: m.phase === 'pray' ? Math.min(1, m.t / GUAN_CAST) : 1, fade: m.phase === 'out' ? Math.max(0, 1 - m.t / GUAN_OUT) : 1 });
+// In with the world, behind everyone: the bodhisattva itself (lit as everything is)
+function drawGuanBodies(ctx) {
+  for (const f of game.fighters) {
+    if (!f.alive || !f.guan) continue;
+    const m = f.guan, k = guanK(m);
+    // its arms behind it - unfolding from its sides once the body's up past them - then the body, then the praying
+    // pair in front of it (each arm out striking drawn where it's got to, on its own side of the body as ever)
+    const strikes = new Map(m.arms.map((a) => [a.slot, a]));
+    drawGuanArms(ctx, m.ax, m.ay, game.time, m.phase === 'pray' ? Math.max(0, (k.rise - 0.55) / 0.45) : 1, strikes, false, k.fade);
+    drawGuanBody(ctx, m.ax, m.ay, k.rise, k.fade);
+    drawGuanArms(ctx, m.ax, m.ay, game.time, k.rise > 0.72 ? 1 : 0, strikes, true, k.fade);
+  }
+}
+// After the lighting: its light, its halo - and the arms out, over everything, the hands coming down
+function drawGuanLit(ctx) {
+  for (const f of game.fighters) {
+    if (!f.alive || !f.guan) continue;
+    const m = f.guan, k = guanK(m);
+    drawGuanGlow(ctx, m.ax, m.ay, k.rise, game.time, m.seed, k.fade);
+    for (const a of m.arms) drawGuanStrikeGlow(ctx, m.ax, m.ay, a, game.time);
+  }
+}
+
+// ---------- the ice truck (fighter.js: updateTruck; its looks: icetruck.js) ----------
+// In with the fighters, lit as they are: the truck - rolling out of its gate (only what's through it), driving, the
+// driver in the window - and the wrecks of crashed ones flying apart.
+function drawTrucks(ctx) {
+  for (const f of game.fighters) {
+    const m = f.truck;
+    if (!f.alive || !m || (m.phase !== 'call' && m.phase !== 'ride')) continue;
+    drawIceTruck(ctx, m.tx, m.ty, m.dir, m.phase === 'ride' ? m.tilt : 0, m.tx / 7, m.inside ? f.parts.head : null, game.time, m.phase === 'call' ? m.gx : null);
+  }
+  for (const b of game.bursts) if (b.kind === 'truckwreck') drawTruckWreck(ctx, b.x, b.y, b.dir, b.t, b.life, b.seed);
+}
+// After the lighting: the flare going up and its light hanging there; the faces dealt out to pick from; the gate; the
+// sight on whoever it's after; the ice road, the headlight, the cold off it, speed streaking past; the frozen in their ice.
+function drawTrucksLit(ctx) {
+  const t = game.time;
+  for (const f of game.fighters) {
+    const m = f.truck;
+    if (!f.alive || !m) continue;
+    if (m.phase === 'flare') drawFlareRise(ctx, f.x + m.fx, f.y + m.fy, FLARE_UP, m.t / TRUCK_FLARE, t, m.seed);
+    if (m.bx !== undefined && m.phase === 'pick') drawFlareLight(ctx, m.bx, m.by, m.t, t, m.seed);
+    if (m.bx !== undefined && m.phase === 'call') drawFlareLight(ctx, m.bx, m.by, (m.pt ?? 0) + m.t, t, m.seed, Math.max(0, 1 - m.t / TRUCK_CALL));
+    if (m.phase === 'pick' && m.pick) {
+      const pin = f === player ? game.cardPin?.(f) : null;
+      drawTruckFan(ctx, pin ? pin.x : f.x + m.pick.x, pin ? pin.y : f.y + m.pick.y, m.t, m.slots, m.foes, m.pick.hover, t);
+      const h = m.foes[m.pick.hover];
+      if (h?.alive) drawTruckLock(ctx, h.x, h.y, t, 0.6);
+    }
+    if (m.phase === 'call' || m.phase === 'ride') {
+      const gate = m.phase === 'call' ? 1 : Math.max(0, 1 - m.t / 0.45);
+      if (gate > 0) drawIceGate(ctx, m.gx, m.gy, m.phase === 'call' ? m.t / 0.3 : 1, t, m.seed, gate);
+      if (m.target?.alive) drawTruckLock(ctx, m.target.x, m.target.y, t);
+      drawIceTruckGlow(ctx, m.tx, m.ty, m.dir, t, m.phase === 'call' ? Math.min(1, m.t / 0.4) : 1);
+    }
+    if (m.phase === 'ride') {
+      drawIceRoad(ctx, m.road, t);
+      // speed: streaks of frost blown back off it
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 10; i++) {
+        const ph = (t * 3 + i / 10) % 1, sx = m.tx - m.dir * (30 + ph * 60), sy = m.ty - 4 - ((i * 7) % 38);
+        ctx.globalAlpha = 0.5 * (1 - ph);
+        ctx.fillStyle = i % 3 ? '#a8dcff' : '#ffffff';
+        ctx.fillRect(Math.round(sx - (m.dir > 0 ? 8 : 0)), Math.round(sy), 8, 1);
+      }
+      ctx.restore();
+    }
+  }
+  for (const f of game.fighters) if (f.alive && f.iceT > 0) drawIceBlock(ctx, f.x, f.y, 1 - f.iceT / TRUCK_FREEZE, t, (f.nid ?? 1) * 1.7);
+  for (const b of game.bursts) if (b.kind === 'truckwreck' && b.road) drawIceRoad(ctx, b.road, t, Math.max(0, 1 - b.t / (b.life * 0.6)));
 }
 
 // ---------- roar: the breath before it, and the afraid ----------
@@ -3202,9 +3426,11 @@ function drawWorld() {
   const seen = (f) => !f.hidden || f === player;
   for (const f of game.fighters) if (f.alive && f.onGround && seen(f)) ctx.fillRect(Math.round(f.x) - 5, Math.round(f.y) - 1, 11, 1);
   drawWardrobe(ctx);
+  drawGuanBodies(ctx);
   for (const f of game.fighters) if (!f.alive) f.draw(ctx);
   for (const f of game.fighters) if (f.alive && f !== player) f.draw(ctx);
   if (player.alive && !onMenu()) player.draw(ctx);   // (the menus' backdrop is the map alone)
+  drawTrucks(ctx);
   for (const f of game.fighters) f.drawHook(ctx);
   drawGrenades(ctx);
   game.fx.viewer = player;
@@ -3221,6 +3447,15 @@ function drawWorld() {
   for (const f of game.fighters) if (f.hook && f.hook.state !== 'back') extra.push({ x: f.hook.x, y: f.hook.y, r: 22, rgb: '120, 210, 255', k: 0.4 });
   for (const d of game.swordSets) extra.push({ x: d.owner?.x ?? d.x, y: (d.owner?.y ?? d.y) - 30, r: 56, rgb: '110, 190, 255', k: 0.35 });
   for (const d of game.fangs) extra.push({ x: d.x, y: d.y, r: 18, rgb: '255, 200, 90', k: 0.35 });
+  // the bodhisattva: the light of it
+  for (const f of game.fighters) if (f.alive && f.guan) { const m = f.guan, k = guanK(m); extra.push({ x: m.ax, y: m.ay - 120, r: 220, rgb: '255, 210, 130', k: 0.22 * k.rise * k.fade }); for (const a of m.arms) extra.push({ x: a.tx, y: a.ty, r: 60, rgb: '255, 220, 140', k: 0.35 }); }
+  // the ice truck: its flare's light hanging up there, the gate, the headlight
+  for (const f of game.fighters) if (f.alive && f.truck) {
+    const m = f.truck;
+    if (m.bx !== undefined && (m.phase === 'pick' || m.phase === 'call')) extra.push({ x: m.bx, y: m.by, r: 260, rgb: '150, 210, 255', k: 0.3 });
+    if (m.phase === 'call') extra.push({ x: m.gx, y: m.gy - 30, r: 90, rgb: '120, 190, 255', k: 0.5 });
+    if (m.phase === 'call' || m.phase === 'ride') extra.push({ x: m.tx + m.dir * 50, y: m.ty - 18, r: 70, rgb: '255, 240, 200', k: 0.45 });
+  }
   for (const f of game.fighters) if (f.alive && f.ea && !f.hidden) {
     const m = f.ea, p = f.eaTip();
     if (m.phase === 'charge') { const k = Math.min(1, m.t / 1.4); extra.push({ x: p.x, y: p.y, r: 40 + 80 * k, rgb: '255, 40, 40', k: 0.2 + 0.4 * k }); }
@@ -3274,6 +3509,8 @@ function drawWorld() {
   for (const f of game.fighters) f.drawHookGlow(ctx);
   drawAdapt(ctx);
   drawRoar(ctx);
+  drawTrucksLit(ctx);
+  drawGuanLit(ctx);
   drawStealMarks(ctx);
   drawCloakSense(ctx);
   drawShields(ctx);
@@ -3674,7 +3911,7 @@ function drawCards(ctx, u, W) {
       const sk = f.usingSkill, k = sk === 'grapple' && f.charges > 0 ? 1 : Math.max(0, Math.min(1, 1 - f.skillCD / cdTotal(f))), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
-      if (on) { const left = Math.max(0, f.roarCast ? 1 - f.roarCast.t / ROAR_CAST : f.adaptCast ? 1 - f.adaptCast.t / ADAPT_SPIN : f.jc ? (f.jc.phase === 'end' ? 0 : 1) : f.xc ? (f.xc.phase === 'fire' ? 1 - f.xc.t / 0.9 : f.xc.phase === 'out' ? 0 : 1) : f.ea ? (f.ea.phase === 'fire' ? 1 - f.ea.t / 1.2 : f.ea.phase === 'out' ? 0 : 1) : f.fang ? (f.fang.back ? 0.1 : 1 - f.fang.t / SKILL_TIME.fang) : f.aurum ? 1 - f.aurum.t / SKILL_TIME.aurum : f.reap ? 1 : f.phase ? f.phase.t / SKILL_TIME.jumper : f.steal ? 1 - f.steal.t / SKILL_TIME.steal : f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.octo ? (f.octo.gone >= 0 ? 0 : f.octo.on ? f.octo.left / SKILL_TIME.octo : 1) : f.chidori ? (f.chidori.phase === 'charge' ? 1 : (f.chidori.phase === 'lunge' ? f.chidori.left : f.chidori.phase === 'stab' ? 0 : f.chidori.t) / SKILL_TIME.chidori) : f.wraith ? f.wraith.t / f.wraith.total : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / f.sande.total : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
+      if (on) { const left = Math.max(0, f.guan ? (f.guan.phase === 'pray' ? f.guan.t / GUAN_CAST : f.guan.phase === 'on' ? 1 - f.guan.t / GUAN_TIME : 0) : f.truck ? (f.truck.phase === 'pick' ? 1 - f.truck.t / TRUCK_WAIT : f.truck.phase === 'ride' ? 1 : f.truck.phase === 'call' ? f.truck.t / TRUCK_CALL : f.truck.t / TRUCK_FLARE) : f.roarCast ? 1 - f.roarCast.t / ROAR_CAST : f.adaptCast ? 1 - f.adaptCast.t / ADAPT_SPIN : f.jc ? (f.jc.phase === 'end' ? 0 : 1) : f.xc ? (f.xc.phase === 'fire' ? 1 - f.xc.t / 0.9 : f.xc.phase === 'out' ? 0 : 1) : f.ea ? (f.ea.phase === 'fire' ? 1 - f.ea.t / 1.2 : f.ea.phase === 'out' ? 0 : 1) : f.fang ? (f.fang.back ? 0.1 : 1 - f.fang.t / SKILL_TIME.fang) : f.aurum ? 1 - f.aurum.t / SKILL_TIME.aurum : f.reap ? 1 : f.phase ? f.phase.t / SKILL_TIME.jumper : f.steal ? 1 - f.steal.t / SKILL_TIME.steal : f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.octo ? (f.octo.gone >= 0 ? 0 : f.octo.on ? f.octo.left / SKILL_TIME.octo : 1) : f.chidori ? (f.chidori.phase === 'charge' ? 1 : (f.chidori.phase === 'lunge' ? f.chidori.left : f.chidori.phase === 'stab' ? 0 : f.chidori.t) / SKILL_TIME.chidori) : f.wraith ? f.wraith.t / f.wraith.total : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / f.sande.total : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.guan ? '#c89a3a' : f.truck ? '#3a8ad8' : f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
       else if (!ready) px(x + 16, y + 18 + 7 * (1 - k), 8, 7 * k, '#22343a');
       text('Q', x + 19, y + 19, on ? '#d8c8ff' : ready ? '#8ff0ff' : '#4a5a5c');
     }
@@ -3738,7 +3975,7 @@ function drawCards(ctx, u, W) {
 // The whole of the wait a skill's on: its own - or, for the skill thief after a hack, however long that one is.
 const cdTotal = (f) => (f.usingSkill === 'steal' && f.stealWait ? Math.max(f.stealWait, 0.01) : SKILL_CD[f.usingSkill]);
 // A skill going (cast, out, or what it called up still about).
-const skillOn = (f) => !!f.roarCast || !!f.adaptCast || !!f.fang || !!f.aurum || !!f.reap || !!f.ea || !!f.xc || !!f.jc || !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.wraith || !!f.chidori || !!f.octo || !!f.steal || !!f.phase || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
+const skillOn = (f) => !!f.guan || !!f.truck || !!f.roarCast || !!f.adaptCast || !!f.fang || !!f.aurum || !!f.reap || !!f.ea || !!f.xc || !!f.jc || !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.wraith || !!f.chidori || !!f.octo || !!f.steal || !!f.phase || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
 
 // Your skill, bottom right: its picture and name, Q, and how it stands - READY (lit, with a
 // flash the moment it comes ready), going, or the wait left as a bar filling back up.
@@ -3781,7 +4018,7 @@ function drawSkillBox(u, W, H, f) {
       kit.rect(px + u, y + 18 * u, 3 * u * k, 3 * u, info.color);
     }
   } else if (hacked) kit.text(`HACKED  -  ${f.hackedT.toFixed(1)} S${f.jamT > 0 ? '  -  GUN DEAD' : ''}`, x + 31 * u, y + 17 * u, { small: true, color: '#3aff8a' });
-  else if (on) kit.text(f.roarCast ? 'DRAWING BREATH...' : f.adaptCast ? `ADAPTING TO ${harmName(f.adaptCast.key)}...` : f.fang ? (f.fang.back ? 'COMING HOME...' : `Q: CALL THEM BACK  -  ${Math.max(0, SKILL_TIME.fang - f.fang.t).toFixed(1)} S`) : f.aurum ? (f.aurum.t < AURUM_CAST ? 'BUILDING...' : `${f.gun?.def.skillGun ? f.gun.ammo : 0} SHOTS  -  Q: PUT AWAY  -  ${Math.max(0, SKILL_TIME.aurum - f.aurum.t).toFixed(1)} S`) : f.reap ? 'SHADOW KILL!' : f.jc ? (f.jc.phase === 'stance' ? 'AIM IT - WALLS NO MATTER' : f.jc.phase === 'cut' ? 'JUDGEMENT CUT!' : '...') : f.xc ? (f.xc.phase === 'fire' ? 'EXCALIBUR!' : f.xc.phase === 'out' ? '...' : f.xc.phase === 'raise' ? 'UNVEILED...' : 'GATHERING THE LIGHT - AIM IT') : f.ea ? (f.ea.phase === 'fire' ? 'ENUMA ELISH!' : f.ea.phase === 'out' ? '...' : 'CHARGING - HOLD THE AIM ON THEM') : f.phase ? `THE OTHER PLACE  -  Q: OPEN THE WAY BACK  -  ${f.phase.t.toFixed(1)} S` : f.steal ? `HACKING ${Math.round(Math.min(1, f.steal.t / SKILL_TIME.steal) * 100)}%` : f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.octo ? (f.octo.gone >= 0 ? 'ARMS IN' : f.octo.on ? `HOLD TO FIRE  -  Q: PUT AWAY  -  ${f.octo.left.toFixed(1)} S` : 'GRABBING...') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.max(0, Math.ceil(f.barrier.hp))}  -  BLAST ${Math.round(Math.max(0, 1 - f.barrier.hp / f.barrier.max) * 100)}%  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  else if (on) kit.text(f.guan ? (f.guan.phase === 'pray' ? 'PRAYING...' : f.guan.phase === 'out' ? '...' : `CLICK: STRIKE  -  Q: DISMISS  -  ${Math.max(0, GUAN_TIME - f.guan.t).toFixed(1)} S`) : f.truck ? (f.truck.phase === 'flare' ? 'FLARE UP...' : f.truck.phase === 'pick' ? `DRAG TO WHO IT'S AFTER  -  ${Math.max(0, TRUCK_WAIT - f.truck.t).toFixed(1)} S` : f.truck.phase === 'call' ? (f.truck.inside ? 'IN!' : 'HERE IT COMES...') : `AFTER ${f.truck.target?.name ?? 'THEM'}!`) : f.roarCast ? 'DRAWING BREATH...' : f.adaptCast ? `ADAPTING TO ${harmName(f.adaptCast.key)}...` : f.fang ? (f.fang.back ? 'COMING HOME...' : `Q: CALL THEM BACK  -  ${Math.max(0, SKILL_TIME.fang - f.fang.t).toFixed(1)} S`) : f.aurum ? (f.aurum.t < AURUM_CAST ? 'BUILDING...' : `${f.gun?.def.skillGun ? f.gun.ammo : 0} SHOTS  -  Q: PUT AWAY  -  ${Math.max(0, SKILL_TIME.aurum - f.aurum.t).toFixed(1)} S`) : f.reap ? 'SHADOW KILL!' : f.jc ? (f.jc.phase === 'stance' ? 'AIM IT - WALLS NO MATTER' : f.jc.phase === 'cut' ? 'JUDGEMENT CUT!' : '...') : f.xc ? (f.xc.phase === 'fire' ? 'EXCALIBUR!' : f.xc.phase === 'out' ? '...' : f.xc.phase === 'raise' ? 'UNVEILED...' : 'GATHERING THE LIGHT - AIM IT') : f.ea ? (f.ea.phase === 'fire' ? 'ENUMA ELISH!' : f.ea.phase === 'out' ? '...' : 'CHARGING - HOLD THE AIM ON THEM') : f.phase ? `THE OTHER PLACE  -  Q: OPEN THE WAY BACK  -  ${f.phase.t.toFixed(1)} S` : f.steal ? `HACKING ${Math.round(Math.min(1, f.steal.t / SKILL_TIME.steal) * 100)}%` : f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.octo ? (f.octo.gone >= 0 ? 'ARMS IN' : f.octo.on ? `HOLD TO FIRE  -  Q: PUT AWAY  -  ${f.octo.left.toFixed(1)} S` : 'GRABBING...') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.max(0, Math.ceil(f.barrier.hp))}  -  BLAST ${Math.round(Math.max(0, 1 - f.barrier.hp / f.barrier.max) * 100)}%  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
   else if (puffed && cd <= 0) kit.text('NOT ENOUGH STAMINA', x + 31 * u, y + 17 * u, { small: true, color: '#ffa080' });
   else {
     // the wait: a bar filling back up, the seconds left beside it
@@ -4812,6 +5049,21 @@ const ROAR_ICON = sprite(13, 12, (g) => {
   rect(g, '#7a1010', 3, 6, 2, 2);
   for (const [r, c] of [[3, '#ff9a6a'], [6, '#ff5a3a'], [9, '#c8302a']]) for (let a = -0.9; a <= 0.9; a += 0.15) rect(g, c, Math.round(4 + Math.cos(a) * r + 2), Math.round(5.5 + Math.sin(a) * r), 1, 1);
 });
+const GUAN_ICON = sprite(13, 12, (g) => {
+  // a golden figure on a lotus, a halo behind its head, arms fanned out round it
+  for (let i = 0; i < 9; i++) { const a = Math.PI + 0.3 + (i / 8) * (Math.PI - 0.6); rect(g, '#d88a1a', Math.round(6 + Math.cos(a) * 5.5), Math.round(5 + Math.sin(a) * 4.5), 1, 1); }
+  for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; rect(g, '#fff6d0', Math.round(6 + Math.cos(a) * 2.5), Math.round(3 + Math.sin(a) * 2.5), 1, 1); }
+  rect(g, '#ffc23a', 5, 2, 3, 3); rect(g, '#ffe08a', 4, 5, 5, 4); rect(g, '#ffc23a', 3, 8, 7, 2);
+  rect(g, '#d88a1a', 1, 10, 11, 2); rect(g, '#ffe08a', 2, 10, 2, 1); rect(g, '#ffe08a', 6, 10, 2, 1); rect(g, '#ffe08a', 10, 10, 1, 1);
+});
+const TRUCK_ICON = sprite(13, 12, (g) => {
+  // a little white truck with a box on the back, a blue band, a snowflake on it, frost over it
+  rect(g, '#06080c', 0, 1, 9, 9); rect(g, '#e2e9f1', 1, 2, 7, 7); rect(g, '#f6f9fc', 1, 2, 7, 1);
+  rect(g, '#2a74d8', 1, 6, 7, 1); rect(g, '#5aa8ff', 3, 3, 1, 3); rect(g, '#5aa8ff', 2, 4, 3, 1);
+  rect(g, '#06080c', 8, 4, 5, 6); rect(g, '#e2e9f1', 9, 5, 3, 4); rect(g, '#24384e', 9, 5, 2, 2); rect(g, '#fff6c8', 11, 7, 1, 1);
+  rect(g, '#06080c', 1, 9, 3, 3); rect(g, '#c8d0da', 2, 10, 1, 1); rect(g, '#06080c', 9, 9, 3, 3); rect(g, '#c8d0da', 10, 10, 1, 1);
+  rect(g, '#ffffff', 2, 1, 1, 1); rect(g, '#a8dcff', 5, 1, 1, 1);
+});
 const ADAPT_ICON = sprite(13, 12, (g) => {
   // the dharma wheel, face on: a gold rim, eight spokes, a knob at the end of each
   for (let j = 0; j < 12; j++) for (let i = 0; i < 13; i++) {
@@ -4860,6 +5112,8 @@ const SKILL_INFO = [
   { key: 'fang', name: 'GOLDEN FANGS', img: FANG_ICON, color: '#ffd25a', desc: 'FIVE GOLD DAGGERS FANNED OUT, THROUGH WHOEVER THEY HIT - AND A SIXTH AT THE MOUSE THAT MARKS. Q AGAIN: ALL FLY HOME - AND WITH SOMEONE MARKED, YOU GO TO THEM, THROUGH WALLS, UNTOUCHABLE, AND CUT' },
   { key: 'aurum', name: 'AURUM', img: AURUM_ICON, color: '#d0a8ff', desc: 'A GOLD SNIPER BUILT IN YOUR HANDS: 5 HEAVY SHOTS THROUGH ANYONE IN LINE, A VIOLET STREAK BEHIND. 12 S, Q: PUT AWAY' },
   { key: 'roar', name: 'ROAR', img: ROAR_ICON, color: '#ff6a4a', desc: 'A BREATH IN, THEN A ROAR: EVERY FOE NEAR, NOT BEHIND A WALL, IS AFRAID - FOR 1.8 S THEY CAN ONLY WALK AWAY FROM YOU, SLOWLY, AND DO NOTHING ELSE' },
+  { key: 'truck', name: 'ICE TRUCK', img: TRUCK_ICON, color: '#8ad8ff', desc: 'A FLARE UP INTO THE SKY, THEN THE FACE OF EVERY FOE ROUND THE MOUSE: DRAG TO ONE TO LOCK ON. AN ICE TRUCK OUT OF A GATE, IN YOU GET AND IT CHARGES THEM - FROZEN SOLID, THEN FLUNG' },
+  { key: 'guanyin', name: '100-TYPE GUANYIN', img: GUAN_ICON, color: '#ffd25a', desc: 'HANDS JOINED IN PRAYER, A GOLDEN BODHISATTVA RISES BEHIND YOU: FOR 5 S HOLD THE CLICK AND ITS ARMS SLAP DOWN WHERE THE MOUSE IS - Q TO DISMISS IT' },
   { key: 'adapt', name: 'ADAPTATION', img: ADAPT_ICON, color: '#ffd27a', desc: 'A WHEEL TURNS OVER YOUR HEAD: Q ADAPTS TO THE LAST THING DONE TO YOU - A SORT OF GUN, A BLADE, A GRENADE, A DRUM, A SKILL - AND IT DOES NOTHING TO YOU AGAIN. 3 AT ONCE: A 4TH PUSHES THE FIRST OUT. CAUGHT IN A SANDEVISTAN: MOVE IN IT. A BLUE SHIELD: HIT THROUGH IT. A CLONE, A CLOAK: SEE THEM' },
   { key: 'judge', name: 'JUDGEMENT CUT', img: JUDGE_ICON, color: '#5ad8ff', desc: 'THE STANCE, THEN THE SPACE WHERE YOU AIM IS CUT - WALLS NO MATTER: 12 CUTS ON ANYONE IN IT, HELD THERE, THEN IT BREAKS LIKE GLASS FOR 70. UP TO 200. TRUE DAMAGE: THROUGH SHIELDS, SMOKE, PHANTOMS AND THE OTHER PLACE - AND THE BREAK ENDS THEM' },
   { key: 'excal', name: 'EXCALIBUR', img: EXCAL_ICON, color: '#ffd24a', desc: 'THE SWORD UNVEILED, RAISED TO THE SKY: 1.75 S GATHERING LIGHT, ROOTED - A GLITTERING THREAD SHOWS WHERE IT GOES - THEN ONE STROKE, A WAVE OF LIGHT AS WIDE AS A WALL STRAIGHT DOWN THE AIM, THROUGH ALL. ITS FRONT HITS 98' },
@@ -5498,7 +5752,7 @@ const touch = isPhone ? new TouchControls(input, {
   scroll: () => !!locker || !!picker,
   showEsc: () => (['fight', 'end', 'training'].includes(state) && !player.alive && !paused && !online.menuOpen),
   skill: () => ({ has: !!player.skill, cd: skillShown() }),
-  pin: () => (player?.card?.pick && cardPin ? { ...cardPin, k: renderer.scale / renderer.dpr } : null),   // (the cards fanned out: the aim stick leans toward one, from their middle)
+  pin: () => ((player?.card?.pick || player?.truck?.phase === 'pick') && cardPin ? { ...cardPin, k: renderer.scale / renderer.dpr } : null),   // (the cards fanned out: the aim stick leans toward one, from their middle)
   aimFrom: () => {
     const s = player.shoulder, k = renderer.scale / renderer.dpr;
     return { x: (s.x - renderer.left) * k, y: (s.y - renderer.top) * k, k };

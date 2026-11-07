@@ -21,8 +21,9 @@
 
 import {
   SKILL_CD, GRAPPLE_RANGE, GAL_CAST, GAL_RANGE, LOCK_RANGE, STEAL_RANGE, CHIDORI_REACH, JC_RANGE, JC_R, JC_STANCE,
-  EA_RANGE, EA_CHARGE, EA_SWING, EX_RANGE, EX_CHARGE, EX_SWING, EX_SPEED, EX_GUIDE, MURA_CHARGE, BLAZE_CHARGE, BLAZE_RANGE, ROAR_R, ROAR_CAST,
+  EA_RANGE, EA_CHARGE, EA_SWING, EX_RANGE, EX_CHARGE, EX_SWING, EX_SPEED, EX_GUIDE, MURA_CHARGE, BLAZE_CHARGE, BLAZE_RANGE, ROAR_R, ROAR_CAST, TRUCK_LEN, GUAN_R,
 } from './fighter.js';
+import { ARM_WIND, ARM_GO } from './guanyin.js';
 
 const chest = (f) => ({ x: f.x, y: f.y - 14 });
 
@@ -92,6 +93,14 @@ export const SKILLS = {
   roar: {
     aim: 'self',
     danger: (f) => f.roarCast ? [{ x: f.x, y: f.y - 14, r: ROAR_R, t: ROAR_CAST - f.roarCast.t, los: true }] : null,   // (los: only in sight of it - a wall's cover)
+  },
+  // (Q fires the flare; who it goes after is picked from the faces after - so the bot just knows to get clear of it)
+  truck: { hits: ['ICE TRUCK'], aim: 'self',
+    danger: (f) => f.truck?.phase === 'ride' ? [{ x: f.truck.tx + f.truck.dir * TRUCK_LEN * 0.3, y: f.truck.ty - 18, r: 44, t: 0 }] : null,
+  },
+  // (Q calls it; the click's where its hands come down - each hand on its way is somewhere to be out of)
+  guanyin: { hits: ['GUANYIN'], aim: 'self',
+    danger: (f) => f.guan?.arms.filter((a) => !a.hit).map((a) => ({ x: a.tx, y: a.ty, r: GUAN_R + 8, t: Math.max(0, ARM_WIND + ARM_GO - a.t) })) ?? null,
   },
 };
 

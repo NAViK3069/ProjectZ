@@ -69,7 +69,7 @@ const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost thei
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
-  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], ['roar', 'ROAR'], [null, 'NO SKILL'],
+  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], ['roar', 'ROAR'], ['truck', 'ICE TRUCK'], ['guanyin', '100-TYPE GUANYIN'], [null, 'NO SKILL'],
 ];
 
 const N = {
@@ -535,7 +535,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'heldT', 'adaptCast', 'adapted', 'lastHarm', 'adaptTurns', 'adaptPop', 'roarCast', 'fearT', 'fearX', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'steal', 'stolen', 'phase', 'jump', 'riftCool', 'deflect', 'hook', 'skillCD', 'fang', 'aurum', 'reap', 'ea', 'xc', 'jc'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'heldT', 'adaptCast', 'adapted', 'lastHarm', 'adaptTurns', 'adaptPop', 'roarCast', 'fearT', 'fearX', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'steal', 'stolen', 'phase', 'jump', 'riftCool', 'deflect', 'hook', 'skillCD', 'fang', 'aurum', 'reap', 'ea', 'xc', 'jc', 'truck', 'iceT', 'iceDir', 'guan'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
@@ -612,10 +612,11 @@ function encodeCmd(c) {
   let b = (Math.sign(c.move || 0) + 1) << 16;
   BITS.forEach((k, i) => { if (c[k]) b |= 1 << i; });
   const out = [c.seq, b, c.aim === null || c.aim === undefined ? null : Math.round(c.aim * 1000), c.target ? Math.round(c.target.x) : null, c.target ? Math.round(c.target.y) : null];
-  const card = cardCode(c);
-  if (c.slot || c.cycle || c.prey !== undefined || card) out.push(c.slot || 0, c.cycle || 0);
-  if (c.prey !== undefined || card) out.push(c.prey ?? null);   // (the cloak's stab: who at, on this screen; 0 for nobody)
-  if (card) out.push(card);   // (the buff cards: which one's leant to, which taken - worked out on the player's own screen)
+  const card = cardCode(c), truck = truckCode(c);
+  if (c.slot || c.cycle || c.prey !== undefined || card || truck) out.push(c.slot || 0, c.cycle || 0);
+  if (c.prey !== undefined || card || truck) out.push(c.prey ?? null);   // (the cloak's stab: who at, on this screen; 0 for nobody)
+  if (card || truck) out.push(card || 0);   // (the buff cards: which one's leant to, which taken - worked out on the player's own screen)
+  if (truck) out.push(truck);   // (the ice truck's faces: the same, by their place round the ring)
   return out;
 }
 // (the host) what came in, as a command - nothing in it taken on trust
@@ -629,8 +630,14 @@ function decodeCmd(r) {
   c.cycle = r[6] === 1 || r[6] === -1 ? r[6] : 0;
   if (Number.isInteger(r[7])) c.prey = r[7];
   if (Number.isInteger(r[8]) && r[8] > 0 && r[8] < 25) { c.cardHover = CARD_KINDS[(r[8] % 5) - 1] ?? null; c.cardPick = CARD_KINDS[Math.floor(r[8] / 5) - 1] ?? null; }
+  if (Number.isInteger(r[9]) && r[9] > 0 && r[9] < 144) { c.truckHover = (r[9] % 16) - 1; c.truckPick = Math.floor(r[9] / 16) - 1; }
   return c;
 }
+// (the ice truck's pick: the face leant to and the one taken, as places round the ring 0..7 - or none)
+const truckCode = (c) => {
+  const ok = (i) => (Number.isInteger(i) && i >= 0 && i < 8 ? i + 1 : 0);
+  return ok(c.truckHover) + 16 * ok(c.truckPick);
+};
 const cardCode = (c) => (CARD_KINDS.indexOf(c.cardHover) + 1) + 5 * (CARD_KINDS.indexOf(c.cardPick) + 1);
 function ctlOf(peer) {
   let e = N.ctl.get(peer);
@@ -803,7 +810,7 @@ export function clientFrame(dt) {
   for (const o of g.galaxies) if (typeof o?.t === 'number') o.t += wdt;
   for (const name in LIFE) {
     for (const o of g[name]) o.t += wdt;
-    g[name] = g[name].filter((o) => o.t < LIFE[name]);
+    g[name] = g[name].filter((o) => o.t < (o.life ?? LIFE[name]));   // (a burst may have its own life)
   }
   g.feed = g.feed.filter((k) => k.t > 0);
   g.fx.update(wdt);
@@ -905,7 +912,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'cloakStab', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist', 'drain', 'throwFangs', 'recallFangs', 'aurumOn', 'aurumOff', 'reapCut', 'fangDash', 'lockMissile', 'blazeGo', 'eaFire', 'eaBeam', 'xcFire', 'xcBeam', 'jcOpen', 'jcCut', 'adaptStart', 'adaptDone', 'adaptNothing', 'onAdapted', 'roarBurst']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'cloakStab', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist', 'drain', 'throwFangs', 'recallFangs', 'aurumOn', 'aurumOff', 'reapCut', 'fangDash', 'lockMissile', 'blazeGo', 'eaFire', 'eaBeam', 'xcFire', 'xcBeam', 'jcOpen', 'jcCut', 'adaptStart', 'adaptDone', 'adaptNothing', 'onAdapted', 'roarBurst', 'truckFlare', 'truckBurst', 'truckCall', 'truckBoard', 'truckRam', 'truckCrash', 'iceShatter', 'guanCall', 'guanRise', 'guanSlap', 'guanEnd']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)

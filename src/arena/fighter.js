@@ -31,6 +31,7 @@ import { drawEaSword, drawEaRipple, drawEaCharge, drawEaBeam, drawEaBlast, EA_LE
 import { drawJcMark, drawJcSphere, drawJcWind, drawJcTrail, drawJcAura, drawJcShatter, drawJcShut, jcCutList } from './cutfx.js';
 import { drawExSword, drawExVeil, drawExCharge, drawExSlash, drawExWave, drawExBlast, drawExAfter, drawExGuide, EX_LEN, EX_SUPPORT } from './holyfx.js';
 import { GUN_ART } from '../combat/gunart.js';
+import { GUAN_ARMS, armRest, ARM_WIND, ARM_GO, ARM_T } from './guanyin.js';
 import { drawCardRange } from './skillfx.js';
 import { ADAPT_MAX, ADAPT_SPIN, ADAPT_CD, ADAPT_RECENT, harmFrom } from './adapt.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
@@ -220,8 +221,27 @@ export const EA_RANGE = 900;
 // after. (Its burst: main.js, roarBurst.)
 export const ROAR_CAST = 0.4, ROAR_R = 150, ROAR_FEAR = 1.8;
 const ROAR_CD = 16, FEAR_SLOW = 0.42;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD, judge: JC_CD, adapt: ADAPT_CD, roar: ROAR_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_GUIDE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK, adapt: ADAPT_SPIN, roar: ROAR_CAST };
+// ice truck (skill, Q): a flare shot up into the sky (TRUCK_FLARE), and where it bursts every foe's face is dealt out
+// round the mouse - a drag toward one locks on to them (TRUCK_WAIT to choose; Q again or none picked: put away, no
+// wait). Locked on: an ice gate tears open behind you and the ice truck rolls out of it (TRUCK_CALL) - in you jump
+// (TRUCK_BOARD) - and it charges straight at them, faster and faster (TRUCK_SPEED, after them wherever they go, an ice
+// road under it, for TRUCK_RIDE at most), bowling over anyone else in the way (TRUCK_RAM). It hits them: TRUCK_DMG,
+// frozen solid in a block of ice for TRUCK_FREEZE, then flung off as it shatters (and anyone near the crash, TRUCK_SPLASH).
+// The truck goes to pieces, you somersault out of it. Inside it nothing touches you. (Its looks: icetruck.js; what it
+// does to others: main.js, truckCall / truckRam / truckCrash / iceShatter.)
+export const TRUCK_FLARE = 0.6, TRUCK_WAIT = 5, TRUCK_CALL = 0.95, TRUCK_BOARD = 0.6, TRUCK_SPEED = 620, TRUCK_RIDE = 2.4;
+export const TRUCK_DMG = 165, TRUCK_RAM = 45, TRUCK_SPLASH = 55, TRUCK_FREEZE = 0.9, TRUCK_LEN = 84;
+const TRUCK_CD = 24, TRUCK_ACCEL = 900, TRUCK_FIZZLE = 3, ICE_FLING = 430, ICE_LIFT = 300;
+export const FLARE_UP = 150;   // (how high the flare goes before it bursts)
+// guanyin (skill, Q): hands joined in prayer (GUAN_CAST, held still) as a towering golden bodhisattva rises up behind
+// you. Then for GUAN_TIME the click is its: held, one of its arms after another slaps down where the mouse is (one every
+// GUAN_EVERY, as far as GUAN_REACH) - GUAN_DMG to anyone under the palm (GUAN_R), thrown off; you're slowed, and your
+// own gun's quiet. Q again (or the time's up) and it goes back into light. (Its looks: guanyin.js; the slap: main.js,
+// guanSlap.)
+export const GUAN_CAST = 0.8, GUAN_TIME = 5, GUAN_OUT = 0.6, GUAN_DMG = 34, GUAN_R = 30, GUAN_REACH = 330;
+const GUAN_CD = 28, GUAN_EVERY = 0.28;
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD, judge: JC_CD, adapt: ADAPT_CD, roar: ROAR_CD, truck: TRUCK_CD, guanyin: GUAN_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_GUIDE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK, adapt: ADAPT_SPIN, roar: ROAR_CAST, truck: TRUCK_FLARE + TRUCK_CALL + TRUCK_RIDE, guanyin: GUAN_CAST + GUAN_TIME };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -406,7 +426,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, xc: null, jc: null, jamT: 0, adaptCast: null, adapted: [], lastHarm: null, adaptTurns: 0, adaptPop: null, heldT: 0, roarCast: null, fearT: 0, fearX: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, xc: null, jc: null, jamT: 0, adaptCast: null, adapted: [], lastHarm: null, adaptTurns: 0, adaptPop: null, heldT: 0, roarCast: null, fearT: 0, fearX: 0, truck: null, iceT: 0, iceDir: 0, guan: null,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -658,6 +678,18 @@ export class Fighter {
       const dir = Math.sign(this.x - this.fearX) || this.facing;
       c = { ...c, move: this.fearSafe(dir) ? dir : 0, sprint: false, jump: false, jumpHeld: false, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: false, up: false, down: false, crouch: false, drop: false, aim: dir > 0 ? 0 : Math.PI, target: null };
     }
+    // frozen solid (the ice truck's crash): held where it is, doing nothing at all; then the ice bursts and off they go
+    if (this.iceT > 0) {
+      this.iceT -= dt;
+      c = { ...c, move: 0, sprint: false, jump: false, jumpHeld: false, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: false, up: false, down: false, crouch: false, drop: false, aim: null, target: null, pickup: false, reload: false };
+      if (this.iceT <= 0) { this.vx = this.iceDir * ICE_FLING; this.vy = -ICE_LIFT; this.onGround = false; this.game.iceShatter?.(this); }
+    }
+    // the ice truck called: stood still for it - and once in it, driven (nothing in hand till you're out)
+    const tk = this.truck;
+    if (tk && (tk.phase === 'call' || tk.phase === 'ride')) c = { ...c, move: 0, sprint: false, jump: false, jumpHeld: false, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, up: false, down: false, crouch: false, drop: false, pickup: false };
+    // the bodhisattva risen: the click is its (guanFire), not your gun's; praying, held still
+    const gn = this.guan;
+    if (gn) c = { ...c, guanFire: c.fire, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, roll: false, ...(gn.phase === 'pray' ? { move: 0, jump: false, jumpHeld: false, sprint: false } : {}) };
     if (this.heldT > 0) this.heldT -= dt;
     if (this.chidori?.phase === 'stab' || this.heldT > 0) c = { ...c, move: 0, jump: false, jumpHeld: false, roll: false, sprint: false, up: false, down: false, crouch: false, drop: false };
     if (c.aim !== null && c.aim !== undefined) {
@@ -705,7 +737,7 @@ export class Fighter {
     // ladders: grab one by pushing up / down in front of it
     const ladderHere = this.overLadder();
     this.ladderCool -= dt;
-    if (!this.onLadder && !this.octo && !this.steal && !this.reap && !this.ea && !this.xc && !this.jc && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
+    if (!this.onLadder && !this.octo && !this.steal && !this.reap && !this.ea && !this.xc && !this.jc && !this.guan && !(this.bow && !this.bow.fired) && ladderHere && ((c.up && this.ladderAt() && this.ladderCool <= 0) || (c.down && !this.onGround) || (c.down && this.ladderBelow())) && !this.roll) {
       this.onLadder = true;
       this.x += (ladderHere.x - this.x) * 0.6;
       this.vx = 0;
@@ -776,6 +808,8 @@ export class Fighter {
     else if (sk === 'judge') this.updateJudge(dt, c);
     else if (sk === 'adapt') this.updateAdapt(dt, c);
     else if (sk === 'roar') this.updateRoar(dt, c);
+    else if (sk === 'truck') this.updateTruck(dt, c);
+    else if (sk === 'guanyin') this.updateGuan(dt, c);
     if (this.jc || (this.reap && this.reap.phase !== 'out') || (this.ea && this.ea.phase !== 'out') || (this.xc && this.xc.phase !== 'out')) c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (drawing the sword, or a shadow, or the sword up to the sky: held where it is)
     // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
     const st = this.stolen;
@@ -844,7 +878,7 @@ export class Fighter {
         this.wall = null;
       }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.sande ? SANDE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (this.fearT > 0 ? FEAR_SLOW : 1) * (this.roarCast ? 0.4 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (1 + CARD_BURST * this.cardBurst()) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.sande ? SANDE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (this.fearT > 0 ? FEAR_SLOW : 1) * (this.roarCast ? 0.4 : 1) * (this.guan ? 0.45 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (1 + CARD_BURST * this.cardBurst()) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -905,12 +939,13 @@ export class Fighter {
       if (this.vy > 100) this.dropT = 0.1;   // (down through a catwalk too)
     }
     // enuma elish set off in the air: held up there, still, the whole time (and down after)
-    const hover = this.ea?.air || (this.xc?.air && this.xc.phase !== 'out') || this.jc?.air || !!this.fang?.dash;
+    const hover = this.ea?.air || (this.xc?.air && this.xc.phase !== 'out') || this.jc?.air || !!this.fang?.dash || !!this.truck?.inside || this.iceT > 0;
     if (hover) { this.vy = 0; this.vx *= Math.exp(-10 * dt); }
     if (!this.onLadder && !this.lunge && !dashing && !cutting && !lunging && !this.wall && !hover) this.vy = Math.min(MAX_FALL, this.vy + GRAVITY * (reeling ? 0.25 : 1) * dt);
 
     const wasGround = this.onGround, fall = this.vy, px = this.x, py = this.y;
     if (this.fang?.dash) this.fangDashStep(dt);
+    else if (this.truck?.inside) this.truckStep(dt);
     else this.move(dt);
     if (dashing) this.blazeStep(Math.hypot(this.x - px, this.y - py), dt);
     if (cutting) this.deflectStep(Math.hypot(this.x - px, this.y - py), dt);
@@ -2153,6 +2188,8 @@ export class Fighter {
     this.noteHarm(src, src.slice(6));
     if (this.adaptCast) { this.adaptCast = null; this.skillCD = ADAPT_CD; }   // (the wheel stopped mid-turn)
     if (this.roarCast) { this.roarCast = null; this.skillCD = ROAR_CD; }   // (the roar choked off)
+    if (this.truck) this.truckOff();   // (the flare, the gate or the truck: gone)
+    if (this.guan) this.guanOff();   // (the bodhisattva gone back into light)
     this.hook = null;
     if (this.cloak) this.uncloak();
     if (this.decoy) this.dropDecoy();
@@ -2197,6 +2234,7 @@ export class Fighter {
     if (this.phase || this.jump) return 'rift';   // jumper: the other place, or going along a rift's path as light
     if (this.shade) return 'shade';        // shadow kill: gone into the shadows
     if (this.fang?.dash) return 'fang';    // going to whoever's marked with the golden fangs
+    if (this.truck?.inside) return 'truck';   // in the ice truck
     if (this.hook?.state === 'on') return 'hook';   // pulled along the grapple line
     return null;
   }
@@ -2209,6 +2247,7 @@ export class Fighter {
     this.guardT = 0;
     this.shield = 0;
     if (this.wraith) { this.wraith = null; broke = true; }
+    if (this.truck?.inside) { this.truckOut(null); broke = true; }   // (the truck broken open round you)
     if (this.card && this.phantom) {
       this.fade = { t: 0, dur: 0.2, out: false, seed: Math.random() * 100, rgb: '180, 110, 255' };
       this.card = null;
@@ -2339,7 +2378,7 @@ export class Fighter {
   // it would be left with nothing to finish it.
   get skillBusy() {
     return !!(this.cloak || this.decoy || this.veil || this.lunge || this.bow || this.mura || this.blaze || this.gal || this.summon || this.batCast || this.wraith || this.chidori || this.octo
-      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea || this.xc || this.jc || this.adaptCast || this.roarCast);
+      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea || this.xc || this.jc || this.adaptCast || this.roarCast || this.truck || this.guan);
   }
 
   // ---------- golden fangs (skill, Q) ----------
@@ -2906,6 +2945,213 @@ export class Fighter {
     this.skillCD = ROAR_CD;
     this.game.roarBurst?.(this);
   }
+  // ---------- ice truck (skill, Q) ----------
+  // Q: the flare, up into the sky. It bursts: every foe there is, their faces dealt out round the mouse - held still on
+  // your own screen where the mouse was, a drag toward one locks on (main.js: c.truckHover, c.truckPick, as the buff
+  // cards are); everyone else sees them held that far from you. Locked on: the gate behind you, the truck out of it, in
+  // you get, and off it goes at them (truckStep) - crash (main.js: truckCrash).
+  updateTruck(dt, c) {
+    const m = this.truck;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll && !this.onLadder) {
+        const s = this.shoulder;
+        this.truck = { phase: 'flare', t: 0, seed: Math.random() * 100, fx: s.x - this.x, fy: s.y - this.y, dir: this.facing };
+        if (this.weapon?.reloading) this.weapon.cancelReload();
+        this.hook = null;
+        this.game.truckFlare?.(this);
+      }
+      return;
+    }
+    m.t += dt;
+    if (m.phase === 'flare') {
+      if (m.t < TRUCK_FLARE) return;
+      m.bx = this.x + m.fx;   // (where it burst: its light hangs there, drifting down, till the truck's come)
+      m.by = this.y + m.fy - FLARE_UP;
+      this.game.truckBurst?.(this, m.bx, m.by);
+      // whoever there is to go after (a shadow clone too - fooled) - the eight nearest - their faces round the ring in
+      // the order they're round you, the first one the way it really is
+      const foes = this.game.fighters.filter((o) => o !== this && o.alive && !o.vanish && this.game.foes(this, o) && !(o.hidden && !o.glimpsed))
+        .map((o) => ({ o, a: Math.atan2(o.y - this.y, o.x - this.x), d: Math.hypot(o.x - this.x, o.y - this.y) }))
+        .sort((p, q) => p.d - q.d).slice(0, 8).sort((p, q) => p.a - q.a);
+      if (!foes.length) { this.truck = null; this.skillCD = TRUCK_FIZZLE; return; }   // (nobody to go after: the flare wasted)
+      const n = foes.length, a0 = foes[0].a;
+      const at = this.bot ? { x: this.x, y: this.y - 50 } : c.target ?? { x: this.x + Math.cos(this.aim) * 60, y: this.y - 14 + Math.sin(this.aim) * 60 };
+      Object.assign(m, { phase: 'pick', t: 0, foes: foes.map((p) => p.o), slots: foes.map((p, i) => (n === 1 ? p.a : a0 + (i * Math.PI * 2) / n)), pick: { x: at.x - this.x, y: at.y - this.y, hover: -1 } });
+      return;
+    }
+    if (m.phase === 'pick') {
+      const p = m.pick;
+      let take = -1;
+      if (this.bot) {
+        // it makes up its mind - whoever's nearest it can see, else nearest - leans to them and takes them
+        p.want ??= this.botTruckPick(m.foes);
+        p.hover = m.t > 0.15 ? p.want : -1;
+        take = m.t > 0.55 ? p.want : -1;
+      } else {
+        p.hover = Number.isInteger(c.truckHover) ? c.truckHover : -1;
+        if (Number.isInteger(c.truckPick) && c.truckPick >= 0 && m.t > 0.12) take = c.truckPick;
+      }
+      if (take >= 0 && !(m.foes[take]?.alive && !m.foes[take].vanish)) take = -1;   // (gone meanwhile: theirs can't be taken)
+      if (take < 0 && ((c.skill && m.t > 0.2) || m.t > TRUCK_WAIT)) { this.truck = null; return; }   // put away: no wait
+      if (take < 0) return;
+      const v = m.foes[take], dir = Math.sign(v.x - this.x) || this.facing;
+      // the gate: behind you, on the floor - or where you are, if there's a wall there
+      const gx = this.hits(this.x - dir * 34 - HALF_W, this.y - HEIGHT, this.x - dir * 34 + HALF_W, this.y) ? this.x : this.x - dir * 34;
+      Object.assign(m, { phase: 'call', pt: m.t, t: 0, target: v, slot: take, pick: null, dir, gx, gy: this.y, tx: gx - dir * TRUCK_LEN / 2, ty: this.y, tilt: 0, speed: 0, inside: false, hit: [], road: [] });
+      this.facing = dir;
+      this.game.truckCall?.(this, v);
+      return;
+    }
+    if (m.phase === 'call') {
+      // out of the gate it rolls, slowing to a stop with its middle where you are; you jump in on the way
+      const k = Math.min(1, m.t / (TRUCK_CALL * 0.8)), e = 1 - Math.pow(1 - k, 3);
+      const from = m.gx - m.dir * TRUCK_LEN / 2;
+      m.tx = from + (this.x - from) * e;
+      m.ty = this.y;
+      if (!m.inside && m.t >= TRUCK_BOARD) { m.inside = true; this.game.truckBoard?.(this); }
+      if (m.t >= TRUCK_CALL) Object.assign(m, { phase: 'ride', t: 0, speed: 160, lx: m.target.x, ly: m.target.y });
+    }
+  }
+  // Riding it: straight at them, quicker and quicker, after them wherever they go - through anything; an ice road laid
+  // under it as it goes. There (or out of time): the crash.
+  truckStep(dt) {
+    const m = this.truck;
+    this.vx = 0;
+    this.vy = 0;
+    this.onGround = false;
+    if (m.phase !== 'ride') { this.x = m.tx; this.y = m.ty; return; }
+    const v = m.target?.alive && !m.target.vanish ? m.target : null;
+    if (v) { m.lx = v.x; m.ly = v.y; }
+    const front = m.tx + m.dir * TRUCK_LEN * 0.3, dx = m.lx - front, dy = m.ly - m.ty, d = Math.hypot(dx, dy) || 1;
+    m.speed = Math.min(TRUCK_SPEED, m.speed + TRUCK_ACCEL * dt);
+    const step = Math.min(d, m.speed * dt);
+    m.tx += (dx / d) * step;
+    m.ty += (dy / d) * step;
+    if (Math.abs(dx) > 6) m.dir = Math.sign(dx);
+    m.tilt += (Math.max(-0.45, Math.min(0.45, Math.atan2(dy, Math.abs(dx) + 1))) - m.tilt) * Math.min(1, dt * 8);
+    m.road.push({ x: m.tx, y: m.ty, t: this.game.time });
+    if (m.road.length > 40) m.road.shift();
+    this.x = m.tx;
+    this.y = m.ty;
+    this.facing = m.dir;
+    this.game.truckRam?.(this, m);
+    if (!this.truck) return;   // (broken open on the way)
+    const there = v ? Math.abs(v.x - front) < 18 && v.y - m.ty > -40 && v.y - m.ty < 30 : d - step < 4;
+    if (there || m.t > TRUCK_RIDE) this.truckOut(v && there ? v : null);
+  }
+  // Out of it: the crash, at them (v) or wherever it got to - the truck goes to pieces and you're thrown clear, head over
+  // heels, up out of anything it went into.
+  truckOut(v) {
+    const m = this.truck;
+    if (!m) return;
+    this.truck = null;
+    this.skillCD = TRUCK_CD;
+    for (let i = 0; i < 40 && this.hits(this.x - HALF_W, this.y - HEIGHT, this.x + HALF_W, this.y); i++) this.y -= 1;
+    this.vx = -m.dir * 110;
+    this.vy = -270;
+    this.onGround = false;
+    this.flipT = 0;
+    this.flipDir = -m.dir;
+    this.game.truckCrash?.(this, v, m);
+  }
+  // Cut off (a hack, dying): whatever it got to, gone - out of the truck if you were in it.
+  truckOff() {
+    if (this.truck?.inside) return this.truckOut(null);
+    this.truck = null;
+    this.skillCD = Math.max(this.skillCD, TRUCK_FIZZLE);
+  }
+  // A bot's pick: whoever's nearest that it can see; failing that, whoever's nearest.
+  botTruckPick(foes) {
+    let best = -1, bd = Infinity;
+    for (const seeing of [true, false]) {
+      foes.forEach((o, i) => {
+        const d = Math.hypot(o.x - this.x, o.y - this.y);
+        if (o.alive && d < bd && (!seeing || this.game.los?.(this.x, this.y - 14, o.x, o.y - 14))) { bd = d; best = i; }
+      });
+      if (best >= 0) return best;
+    }
+    return 0;
+  }
+
+  // ---------- guanyin (skill, Q) ----------
+  // Q: prayer, and the bodhisattva rising up behind you (it keeps behind you as you go). Then the click: held, one arm
+  // after another - from whichever shoulder's free and nearest - reaches out to the mouse and slaps down there (the
+  // slap: main.js, guanSlap, as the hand lands). A bot slaps at the nearest foe in reach. Q again, or its time, and it
+  // goes - once the arms out have come back.
+  updateGuan(dt, c) {
+    const m = this.guan;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll && !this.onLadder) {
+        this.guan = { phase: 'pray', t: 0, seed: Math.random() * 100, ax: this.x - this.facing * 16, ay: this.y, arms: [], next: 0, last: -1 };
+        if (this.weapon?.reloading) this.weapon.cancelReload();
+        this.hook = null;
+        this.game.guanCall?.(this);
+      }
+      return;
+    }
+    m.t += dt;
+    // it keeps behind you
+    const k = Math.min(1, dt * 6);
+    m.ax += (this.x - this.facing * 16 - m.ax) * k;
+    m.ay += (this.y - m.ay) * k;
+    // the arms out: each slaps as its hand lands
+    for (const a of m.arms) {
+      a.t += dt;
+      if (!a.hit && a.t >= ARM_WIND + ARM_GO) { a.hit = true; this.game.guanSlap?.(this, a); }
+    }
+    m.arms = m.arms.filter((a) => a.t < ARM_T);
+    if (m.phase === 'pray') {
+      if (m.t >= GUAN_CAST) { m.phase = 'on'; m.t = 0; this.game.guanRise?.(this); }
+      return;
+    }
+    if (m.phase === 'out') {
+      if (m.t >= GUAN_OUT && !m.arms.length) { this.guan = null; this.skillCD = GUAN_CD; }
+      return;
+    }
+    if ((c.skill && m.t > 0.3) || m.t >= GUAN_TIME) { m.phase = 'out'; m.t = 0; this.game.guanEnd?.(this); return; }
+    if ((m.next -= dt) > 0) return;
+    let to = null;
+    if (this.bot) to = this.guanPrey();
+    else if (c.guanFire) to = c.target ?? { x: this.x + Math.cos(this.aim) * 200, y: this.y - 14 + Math.sin(this.aim) * 200 };
+    if (to) this.guanStrike(to);
+  }
+  // Where its hands go by themselves (a bot's, or on a phone - main.js, playerControl): the nearest foe in its reach,
+  // a little ahead of where they're going. None in reach: null.
+  guanPrey() {
+    const m = this.guan;
+    if (!m) return null;
+    let bd = GUAN_REACH, to = null;
+    for (const o of this.game.fighters) {
+      if (o === this || !o.alive || o.vanish || !this.game.foes(this, o) || (o.hidden && !o.glimpsed)) continue;
+      const d = Math.hypot(o.x - m.ax, o.y - 14 - (m.ay - 140));
+      if (d < bd) { bd = d; to = { x: o.x + o.vx * 0.2, y: o.y - 12 }; }
+    }
+    return to;
+  }
+  // An arm out at `to`: of those not out already, the one whose hand at rest is nearest it (not the one just used, if
+  // there's another as near), as far as it reaches from its shoulder.
+  guanStrike(to) {
+    const m = this.guan, busy = new Set(m.arms.map((a) => a.slot)), t = this.game.time;
+    let best = -1, bd = Infinity;
+    GUAN_ARMS.forEach((A, i) => {
+      if (busy.has(i)) return;
+      const r = armRest(i, m.ax, m.ay, t), d = Math.hypot(r.hx - to.x, r.hy - to.y) + (i === m.last ? 40 : 0);
+      if (d < bd) { bd = d; best = i; }
+    });
+    if (best < 0) return;
+    const r = armRest(best, m.ax, m.ay, t), ox = r.sx, oy = r.sy, dx = to.x - ox, dy = to.y - oy, d = Math.hypot(dx, dy) || 1, k = Math.min(1, GUAN_REACH / d);
+    m.arms.push({ slot: best, t: 0, tx: ox + dx * k, ty: oy + dy * k, hit: false, seed: Math.random() * 100 });
+    m.last = best;
+    m.next = GUAN_EVERY;
+  }
+  // Cut off (a hack): it goes, there and then.
+  guanOff() {
+    if (!this.guan) return;
+    this.guan = null;
+    this.skillCD = GUAN_CD;
+    this.game.guanEnd?.(this);
+  }
+
   // Afraid, walking that way: is there anything under the next step but acid? (A drop's all right; the acid isn't.)
   fearSafe(dir) {
     const L = this.game.level, cx = Math.floor((this.x + dir * 10) / T);
@@ -3577,6 +3823,9 @@ export class Fighter {
     this.adaptPop = null;
     this.roarCast = null;
     this.fearT = 0;
+    this.truck = null;
+    this.iceT = 0;
+    this.guan = null;
     this.jamT = 0;
     this.alive = false;
     this.hp = 0;
@@ -3813,6 +4062,7 @@ export class Fighter {
       ctx.globalAlpha = 1;
       return;
     }
+    if (this.truck?.inside) return;   // (in the ice truck: it's what's drawn - main.js, drawTrucks)
     const shake = this.fearT > 0 || this.roarCast ? (Math.floor(this.game.time * 28) % 2 ? 1 : -1) : 0;   // (trembling: afraid, or drawing the breath to roar)
     const P = this.parts, white = this.flash > 0, x = Math.round(this.x) + shake, y = Math.round(this.y), pose = this.pose;
     const part = (k) => (white ? P[k + 'W'] : P[k]);

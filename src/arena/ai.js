@@ -1318,6 +1318,19 @@ export const BOT_SKILLS = {
       return inReach.length >= 2 || inReach.some((o) => Math.hypot(o.x - s.f.x, o.y - s.f.y) < 80) || (inReach.length === 1 && s.hpK < 0.6);
     },
   },
+  truck: {
+    // a foe it can see, a fair way off (up close the gun does as well), and it's not losing too badly to take the time
+    use(s) {
+      return s.hpK > 0.3 && s.enemies.some((o) => { const d = Math.hypot(o.x - s.f.x, o.y - s.f.y); return d > 90 && d < 520 && s.G.los(s.f.x, s.f.y - 14, o.x, o.y - 14); });
+    },
+  },
+  guanyin: {
+    // a foe in its reach (or two near), and not going under: it'll be stood there a moment praying
+    use(s) {
+      const near = s.enemies.filter((o) => Math.hypot(o.x - s.f.x, o.y - s.f.y) < 300);
+      return s.hpK > 0.35 && (near.length >= 2 || near.some((o) => Math.hypot(o.x - s.f.x, o.y - s.f.y) < 220));
+    },
+  },
   adapt: {
     // whatever's just done something to it, while it's still at it: adapted to (a skill or a blast at once - they're
     // what hurt; a gun once it's been hit a while by it, or it's getting low)
