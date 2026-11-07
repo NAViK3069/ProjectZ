@@ -215,8 +215,13 @@ const JC_DRAW = 0.18, JC_SPIN = 0.36, JC_SLIDE = 0.2, JC_MOUTH = 22, JC_GAP = 5,
 export const JC_R = 46, JC_RANGE = 300, JC_HIT = 11, JC_LAST = 70;
 const JC_CUT = JC_CUTS * JC_EVERY + 0.1;
 export const EA_RANGE = 900;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD, judge: JC_CD, adapt: ADAPT_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_GUIDE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK, adapt: ADAPT_SPIN };
+// roar (skill, Q): a breath drawn in (ROAR_CAST, slowed), then the roar: every foe within ROAR_R is afraid - for
+// ROAR_FEAR they're made to walk away from where it came from, slowly (FEAR_SLOW), and can do nothing else. The wait
+// after. (Its burst: main.js, roarBurst.)
+export const ROAR_CAST = 0.4, ROAR_R = 150, ROAR_FEAR = 1.8;
+const ROAR_CD = 16, FEAR_SLOW = 0.42;
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD, judge: JC_CD, adapt: ADAPT_CD, roar: ROAR_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_GUIDE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK, adapt: ADAPT_SPIN, roar: ROAR_CAST };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -399,7 +404,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, xc: null, jc: null, jamT: 0, adaptCast: null, adapted: [], lastHarm: null, adaptTurns: 0, adaptPop: null, heldT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, xc: null, jc: null, jamT: 0, adaptCast: null, adapted: [], lastHarm: null, adaptTurns: 0, adaptPop: null, heldT: 0, roarCast: null, fearT: 0, fearX: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -644,6 +649,13 @@ export class Fighter {
     if (frozen) c = { ...c, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: !!c.skill && this.usingSkill === 'sande' };
     // the chidori in someone: the two of you held there till it's done - no jumping, rolling, walking or climbing out
     // of it, either of you (heldT: the one it's in - see main.js, chidoriHold)
+    // afraid (someone's roar): walking away from it, slowly, facing away - nothing else (no jumping, rolling, fighting,
+    // skills) till it wears off; and not on into the acid
+    if (this.fearT > 0) {
+      this.fearT -= dt;
+      const dir = Math.sign(this.x - this.fearX) || this.facing;
+      c = { ...c, move: this.fearSafe(dir) ? dir : 0, sprint: false, jump: false, jumpHeld: false, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: false, up: false, down: false, crouch: false, drop: false, aim: dir > 0 ? 0 : Math.PI, target: null };
+    }
     if (this.heldT > 0) this.heldT -= dt;
     if (this.chidori?.phase === 'stab' || this.heldT > 0) c = { ...c, move: 0, jump: false, jumpHeld: false, roll: false, sprint: false, up: false, down: false, crouch: false, drop: false };
     if (c.aim !== null && c.aim !== undefined) {
@@ -761,6 +773,7 @@ export class Fighter {
     else if (sk === 'excal') this.updateExcal(dt, c);
     else if (sk === 'judge') this.updateJudge(dt, c);
     else if (sk === 'adapt') this.updateAdapt(dt, c);
+    else if (sk === 'roar') this.updateRoar(dt, c);
     if (this.jc || (this.reap && this.reap.phase !== 'out') || (this.ea && this.ea.phase !== 'out') || (this.xc && this.xc.phase !== 'out')) c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (drawing the sword, or a shadow, or the sword up to the sky: held where it is)
     // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
     const st = this.stolen;
@@ -808,6 +821,9 @@ export class Fighter {
       this.vy = uy * along + (this.vy - uy * along) * damp + uy * GRAPPLE_PULL * dt;
       const sp = Math.hypot(this.vx, this.vy);
       if (sp > GRAPPLE_MAX) { this.vx *= GRAPPLE_MAX / sp; this.vy *= GRAPPLE_MAX / sp; }
+      // (pulled down off the catwalk it was shot from: through that one - only that one, and only while still at it,
+      // so it comes down onto the one it's hooked to rather than through it)
+      if (uy > 0.35 && h.passRow >= 0 && Math.floor((this.y + 1) / T) <= h.passRow) this.dropT = Math.max(this.dropT, 0.03);
     } else if (this.wall) {
       const w = this.wall;
       this.vx = w.dir * 20;   // (kept up against it)
@@ -826,7 +842,7 @@ export class Fighter {
         this.wall = null;
       }
     } else {
-      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.sande ? SANDE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (1 + CARD_BURST * this.cardBurst()) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
+      const top = WALK * (this.sprinting ? SPRINT : 1) * (this.stealthed ? CLOAK_SPEED : 1) * (this.bow && !this.bow.fired ? 0.5 : 1) * (this.mura ? 0.3 : 1) * (this.blaze ? (this.blaze.phase === 'charge' ? 0.25 : 0.5) : 1) * (this.gal ? 0.35 : 1) * (this.summon ? 0.3 : 1) * (this.deflect ? DEFLECT_SLOW : 1) * (this.chidori ? (this.chidori.phase === 'charge' ? 0.35 : CHIDORI_RUN) : 1) * (this.batCast ? 0.5 : 1) * (this.wraith ? WRAITH_SPEED : 1) * (this.steal ? STEAL_SLOW : 1) * (this.phase ? PHASE_SPEED : 1) * (this.sande ? SANDE_SPEED : 1) * (this.barrier ? BARRIER_SLOW : 1) * (this.hackCast ? 0.5 : 1) * (this.fearT > 0 ? FEAR_SLOW : 1) * (this.roarCast ? 0.4 : 1) * (1 + (CARD_SPEED - 1) * this.cardPower('blue')) * (1 + CARD_BURST * this.cardBurst()) * (this.crouch ? 0.45 : 1) * (this.meleeOut && this.melee.t >= 0 ? 0.55 : 1) * (this.held?.def.speedMul ?? 1);
       const want = c.move * top, d = want - this.vx;
       const a = (this.onGround ? (c.move ? ACCEL : DECEL) : AIR_ACCEL) * dt;
       this.vx += Math.max(-a, Math.min(a, d));
@@ -1077,7 +1093,8 @@ export class Fighter {
   anchorAt(x, y, px, py) {
     const L = this.game.level, solid = (sx, sy) => L.solidAt(sx, sy) || this.game.props.some((p) => p.solid && !p.dead && sx > p.box.l && sx < p.box.r && sy > p.box.t && sy < p.box.b);
     const cy = Math.floor(y / T);
-    if (L.get(Math.floor(x / T), cy) === PLAT && y - cy * T < 4) return { x: 0, y: -1 };   // a catwalk: always up onto it
+    // a catwalk: always up onto it - not the one you're stood on, though: a line shot down from it goes on through it
+    if (L.get(Math.floor(x / T), cy) === PLAT && y - cy * T < 4 && cy !== this.hook?.passRow) return { x: 0, y: -1 };
     if (!solid(x, y)) return null;
     // which way it came in decides the face it hit
     if (solid(px, y) || !solid(x, py)) return { x: 0, y: y > py ? -1 : 1 };
@@ -1113,7 +1130,8 @@ export class Fighter {
     if (c.skill && this.charges > 0 && this.hookGap <= 0 && !this.onLadder && !this.roll) {
       // (on a line already: the next one straight off it)
       const s = this.lineFrom(), lock = this.hookTarget();
-      h = this.hook = { state: 'fly', x: s.x, y: s.y, dx: Math.cos(this.aim), dy: Math.sin(this.aim), len: 0, t: 0, slow: 0, snap: 9, lock, onUnseen: !!lock?.hidden };   // (onUnseen: caught as they glitched - it stays on them when that's over)
+      h = this.hook = { state: 'fly', x: s.x, y: s.y, dx: Math.cos(this.aim), dy: Math.sin(this.aim), len: 0, t: 0, slow: 0, snap: 9, lock, onUnseen: !!lock?.hidden,   // (onUnseen: caught as they glitched - it stays on them when that's over)
+        passRow: this.onGround && this.standingOnPlat() ? Math.floor((this.y + 1) / T) : -1 };   // (the catwalk underfoot: shot down, it goes through)
       this.charges--;
       this.hookGap = GRAPPLE_GAP;
       if (this.skillCD <= 0) this.skillCD = GRAPPLE_CD;
@@ -2132,6 +2150,7 @@ export class Fighter {
     if (this.adaptedTo(src)) { this.game.onAdapted?.(this, src); return; }   // (adapted to it: nothing)
     this.noteHarm(src, src.slice(6));
     if (this.adaptCast) { this.adaptCast = null; this.skillCD = ADAPT_CD; }   // (the wheel stopped mid-turn)
+    if (this.roarCast) { this.roarCast = null; this.skillCD = ROAR_CD; }   // (the roar choked off)
     this.hook = null;
     if (this.cloak) this.uncloak();
     if (this.decoy) this.dropDecoy();
@@ -2318,7 +2337,7 @@ export class Fighter {
   // it would be left with nothing to finish it.
   get skillBusy() {
     return !!(this.cloak || this.decoy || this.veil || this.lunge || this.bow || this.mura || this.blaze || this.gal || this.summon || this.batCast || this.wraith || this.chidori || this.octo
-      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea || this.xc || this.jc || this.adaptCast);
+      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea || this.xc || this.jc || this.adaptCast || this.roarCast);
   }
 
   // ---------- golden fangs (skill, Q) ----------
@@ -2865,6 +2884,35 @@ export class Fighter {
     if (!m) return base;
     const k = Math.min(1, m.t / ADAPT_SPIN), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
     return base + e * (Math.PI * 2 + Math.PI / 4);
+  }
+
+  // ---------- roar (skill, Q) ----------
+  // Q: a breath drawn in, head back (ROAR_CAST - slowed, there to be hit), then the roar - every foe near it afraid
+  // (main.js: roarBurst; being afraid: update, fearT).
+  updateRoar(dt, c) {
+    const m = this.roarCast;
+    if (!m) {
+      if (c.skill && this.skillCD <= 0 && this.alive && !this.roll) {
+        this.roarCast = { t: 0, seed: Math.random() * 100 };
+        if (this.weapon?.reloading) this.weapon.cancelReload();
+        this.hook = null;
+      }
+      return;
+    }
+    if ((m.t += dt) < ROAR_CAST) return;
+    this.roarCast = null;
+    this.skillCD = ROAR_CD;
+    this.game.roarBurst?.(this);
+  }
+  // Afraid, walking that way: is there anything under the next step but acid? (A drop's all right; the acid isn't.)
+  fearSafe(dir) {
+    const L = this.game.level, cx = Math.floor((this.x + dir * 10) / T);
+    for (let cy = Math.floor(this.y / T); cy < Math.floor(this.y / T) + 14; cy++) {
+      const v = L.get(cx, cy);
+      if (v === ACID) return false;
+      if (v === SOLID || v === PLAT) return true;
+    }
+    return true;
   }
 
   // ---------- jumper (skill, Q) ----------
@@ -3525,6 +3573,8 @@ export class Fighter {
     this.adapted = [];   // (a life's adapting: gone with it)
     this.lastHarm = null;
     this.adaptPop = null;
+    this.roarCast = null;
+    this.fearT = 0;
     this.jamT = 0;
     this.alive = false;
     this.hp = 0;
@@ -3761,7 +3811,8 @@ export class Fighter {
       ctx.globalAlpha = 1;
       return;
     }
-    const P = this.parts, white = this.flash > 0, x = Math.round(this.x), y = Math.round(this.y), pose = this.pose;
+    const shake = this.fearT > 0 || this.roarCast ? (Math.floor(this.game.time * 28) % 2 ? 1 : -1) : 0;   // (trembling: afraid, or drawing the breath to roar)
+    const P = this.parts, white = this.flash > 0, x = Math.round(this.x) + shake, y = Math.round(this.y), pose = this.pose;
     const part = (k) => (white ? P[k + 'W'] : P[k]);
     const ox = -ORIGIN_X, oy = -ORIGIN_Y;
     if (this.roll) return this.drawRoll(ctx, x, y);

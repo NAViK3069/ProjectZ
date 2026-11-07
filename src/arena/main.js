@@ -18,7 +18,7 @@ import { SKINS, skinOf } from './skins.js';
 import { placeProps, DEBRIS } from './props.js';
 import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
 import { drawGoldShot, drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot, drawVioletMuzzle, drawVioletTrace, drawFangMark, drawFangMarked, drawFangGuide, drawFangDash, drawFangCut } from './goldfx.js';
-import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST, EA_RANGE, JC_RANGE } from './fighter.js';
+import { Fighter, JC_R, MAX_STAMINA, DAMAGE, gunMul, GUN_HANDLING, HEAD_MUL, SKILL_CD, SKILL_TIME, BACKSTAB, SHADOW, GRAPPLE_SHOTS, SWORD_COST, HACK_LOCK, SANDE_WORLD, SANDE_NEED, LUNGE_RANGE, CARD_LAST, CARD_ALLY, AURUM_CAST, EA_RANGE, JC_RANGE, ROAR_CAST, ROAR_R, ROAR_FEAR } from './fighter.js';
 import { Fx } from './fx.js';
 import { Lights } from './light.js';
 import { Nav, Bot, gunTier, BOT_SKILLS as BOT_USES } from './ai.js';
@@ -109,9 +109,9 @@ const OPTIONS = [
   ['skills', 'SKILLS (Q)', [[1, 'ON'], [0, 'OFF']]],
   ['skillmode', 'SKILL MODE', [['set', 'AS PICKED'], ['random', 'RANDOM EVERY LIFE'], ['pick', 'PICK WHEN YOU DIE']]],
   ['cd', 'SKILL COOLDOWN', [[0, 'NONE'], [0.25, '25%'], [0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%'], [2, '200%'], [3, '300%']]],
-  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], [null, 'NO SKILL']]],
+  ['myskill', 'YOUR SKILL', [['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], ['roar', 'ROAR'], [null, 'NO SKILL']]],
   ['skin', 'YOUR LOOK', SKINS.map((k) => [k.key, k.name])],   // (and in training: the wardrobe, to try them on)
-  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], [null, 'NONE']]],
+  ['botskill', 'BOT SKILLS', [['random', 'RANDOM'], ['grapple', 'GRAPPLE LINE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'], ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], ['roar', 'ROAR'], [null, 'NONE']]],
   ['lives', 'LIVES', [[1, '1'], [2, '2'], [3, '3'], [5, '5']]],
   ['hp', 'HEALTH', [[100, '100'], [200, '200'], [300, '300'], [500, '500']]],
   ['dmg', 'GUN DAMAGE', [[0.5, '50%'], [0.75, '75%'], [1, '100%'], [1.5, '150%']]],
@@ -308,6 +308,38 @@ const game = {
     this.fx.vfx('spikes', p.x, p.y - 14, { r: 40, n: 9, pal: 'volt', a, spread: 2.2 });
     this.lights.flash(p.x, p.y - 14, 160, '150, 210, 255', 0.35);
     if (f === player || v === player) renderer.kick(Math.cos(a) * 8, Math.sin(a) * 8);
+  },
+  // ---------- roar (fighter.js: updateRoar; being afraid: Fighter.update, fearT) ----------
+  // The roar: waves of sound out of the mouth, the air shaken, dust off the floor - and every foe within ROAR_R
+  // afraid of it, if there's no wall between (as for a shot) - not through anything that keeps them untouchable, nor
+  // if they've adapted to it.
+  roarBurst(f) {
+    const mx = f.x + f.facing * 6, my = f.y + f.pose.head - 15;
+    this.fx.vfx('aura', f.x, f.y, { r: 13, h: 46, pal: 'blood', dur: 0.75 });   // (the power of it flaring up off them)
+    this.fx.vfx('lines', mx, my, { r: ROAR_R * 1.1, dir: f.facing, pal: 'blood', n: 34, dur: 0.5 });   // (the air thrown back)
+    this.fx.vfx('roar', mx, my, { r: ROAR_R * 1.15, dir: f.facing, pal: 'blood', n: 4 });
+    this.fx.vfx('roar', mx, my, { r: ROAR_R * 0.8, dir: f.facing, pal: 'fire', n: 3, delay: 0.12 });
+    this.fx.vfx('dust', f.x, f.y, { r: ROAR_R * 0.9, dur: 1.1 });   // (and the dust off the floor, rolling out both ways)
+    this.fx.vfx('star', mx, my, { r: 22, pal: 'fire', dur: 0.35 });
+    this.fx.debris(f.x, f.y, 6, ['#2b3a37', '#46584f', '#7a8a80'], 0.6);
+    this.fx.vfx('ring', f.x, f.y - 14, { r: ROAR_R, pal: 'fire', w: 7, sq: 0.7, dur: 0.55 });
+    this.fx.vfx('ring', f.x, f.y - 14, { r: ROAR_R * 0.7, pal: 'blood', w: 4, sq: 0.7, dur: 0.5, delay: 0.1 });
+    this.fx.vfx('spikes', mx, my, { r: 34, n: 8, pal: 'fire', a: f.facing > 0 ? 0 : Math.PI, spread: 1.7, dur: 0.32 });
+    this.fx.dust(f.x - 12, f.y, 7);
+    this.fx.dust(f.x + 12, f.y, 7);
+    this.lights.flash(mx, my, 170, '255, 80, 40', 0.4);
+    const near = Math.max(0, 1 - Math.hypot(player.x - f.x, player.y - f.y) / 260);
+    if (near > 0) renderer.kick((Math.random() - 0.5) * 9 * near, -5 * near);
+    for (const o of this.fighters) {
+      if (o === f || !o.alive || o.vanish || !this.foes(f, o) || Math.hypot(o.x - f.x, o.y - f.y) > ROAR_R) continue;
+      if (!this.los(f.x, f.y - 14, o.x, o.y - 14) && !this.los(mx, my, o.x, o.y - 24)) continue;   // (a wall between: it doesn't reach them, as a shot wouldn't)
+      if (o.untouchable) continue;
+      if (o.adaptedTo?.('skill:roar')) { this.onAdapted(o, 'skill:roar'); continue; }
+      o.noteHarm?.('skill:roar', 'roar');
+      o.fearT = ROAR_FEAR;
+      o.fearX = f.x;
+      this.fx.vfx('star', o.x, o.y - 32, { r: 9, pal: 'blood', dur: 0.3 });
+    }
   },
   // ---------- adaptation (fighter.js: updateAdapt; the wheel: adapt.js) ----------
   // the wheel starts turning
@@ -2492,6 +2524,69 @@ function drawBursts(ctx) {
   }
 }
 
+// ---------- roar: the breath before it, and the afraid ----------
+// After the lighting. Drawing the breath: the air streaking in to the mouth, the eyes lit red. Afraid: a cold dark
+// glow round them, lines of dread hanging over the face, a shiver either side of the head, a drop of sweat running
+// down - all fading as it wears off.
+function drawRoar(ctx) {
+  const t = game.time;
+  for (const f of game.fighters) {
+    if (!f.alive || (f.hidden && !f.seesThrough) || f.wraith || f.phase || f.jump || f.shade) continue;
+    const hx = Math.round(f.x), hy = Math.round(f.y + f.pose.head);
+    const m = f.roarCast;
+    if (m) {
+      const k = Math.min(1, m.t / ROAR_CAST), mx = hx + f.facing * 6, my = hy - 15;
+      glowAt(ctx, mx, my, 16 + 30 * k, [[0, `rgba(255, 110, 60, ${0.25 + 0.55 * k})`], [1, 'rgba(255, 40, 20, 0)']]);
+      ctx.save();
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2 + m.seed, d = (1 - ((k * 2.4 + i * 0.37) % 1)) * 40 + 5;
+        ctx.globalAlpha = 0.5 + 0.5 * k;
+        for (let j = 0; j < 7; j++) {
+          ctx.fillStyle = j < 2 ? '#ffffff' : i % 3 ? '#ffb07a' : '#ff5a3a';
+          ctx.fillRect(Math.round(mx + Math.cos(a) * (d + j * 1.5)), Math.round(my + Math.sin(a) * (d + j * 1.5) * 0.8), 1, 1);
+        }
+      }
+      // the eyes, lit
+      ctx.globalAlpha = 0.6 + 0.4 * k;
+      ctx.fillStyle = '#ff3a2a';
+      for (const ex of [4, 9]) ctx.fillRect(hx + (f.facing > 0 ? ex - 6 : 6 - ex - 1), hy - 17, 2, 1);
+      ctx.restore();
+    }
+    if (f.fearT > 0) {
+      const k = Math.min(1, f.fearT / 0.4), x = hx, top = hy - 30;
+      glowAt(ctx, x, f.y - 14, 26, [[0, `rgba(120, 50, 190, ${(0.45 + 0.15 * Math.sin(t * 12)) * k})`], [1, 'rgba(60, 20, 100, 0)']]);
+      ctx.save();
+      ctx.globalAlpha = k;
+      // lines of dread, hanging over the face
+      ctx.fillStyle = '#3a1a5a';
+      for (let i = 0; i < 4; i++) {
+        const lx = x + (f.facing > 0 ? 1 + i * 2 : -2 - i * 2), len = 3 + ((i * 7 + Math.floor(t * 6)) % 3);
+        ctx.fillRect(lx, hy - 23, 1, len);
+      }
+      // the shiver, either side of the head: zigzags, flickering
+      const sh = Math.floor(t * 20) % 2;
+      for (const side of [-1, 1]) for (let j = 0; j < 4; j++) {
+        ctx.fillStyle = j % 2 ? '#a88aff' : '#efe6ff';
+        ctx.fillRect(x + side * (12 + ((j + sh) % 2) * 2), top + 3 + j * 3, 2, 2);
+      }
+      // over the head: a dread mark, wobbling - a jagged purple scribble
+      const wob = Math.round(Math.sin(t * 9) * 1);
+      ctx.fillStyle = '#c070ff';
+      for (const [dx, dy] of [[-3, 0], [-2, -1], [-1, 0], [0, -1], [1, 0], [2, -1], [3, 0]]) ctx.fillRect(x + dx + wob, top - 5 + dy, 1, 1);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x + wob, top - 6, 1, 1);
+      // a drop of sweat, running down the side of the head
+      const run = (t * 0.9) % 1, sx = x - f.facing * 9, sy = top + 4 + Math.round(run * 10);
+      ctx.fillStyle = '#8ad8ff';
+      ctx.fillRect(sx, sy, 1, 1);
+      ctx.fillRect(sx - 1, sy + 1, 3, 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx - 1, sy + 1, 1, 1);
+      ctx.restore();
+    }
+  }
+}
+
 // ---------- adaptation: the wheel over the head, and what it's adapted to ----------
 const BARREL_ICON = sprite(9, 11, (g) => {
   // a red drum, a warning band round it
@@ -3177,6 +3272,7 @@ function drawWorld() {
   game.fx.drawGlow(ctx);
   for (const f of game.fighters) f.drawHookGlow(ctx);
   drawAdapt(ctx);
+  drawRoar(ctx);
   drawStealMarks(ctx);
   drawCloakSense(ctx);
   drawShields(ctx);
@@ -3577,7 +3673,7 @@ function drawCards(ctx, u, W) {
       const sk = f.usingSkill, k = sk === 'grapple' && f.charges > 0 ? 1 : Math.max(0, Math.min(1, 1 - f.skillCD / cdTotal(f))), ready = k >= 1, on = skillOn(f);
       px(x + 15, y + 17, 10, 9, HUDC.frame);
       px(x + 16, y + 18, 8, 7, on ? '#2a2240' : ready ? '#1d3a44' : '#161b19');
-      if (on) { const left = Math.max(0, f.adaptCast ? 1 - f.adaptCast.t / ADAPT_SPIN : f.jc ? (f.jc.phase === 'end' ? 0 : 1) : f.xc ? (f.xc.phase === 'fire' ? 1 - f.xc.t / 0.9 : f.xc.phase === 'out' ? 0 : 1) : f.ea ? (f.ea.phase === 'fire' ? 1 - f.ea.t / 1.2 : f.ea.phase === 'out' ? 0 : 1) : f.fang ? (f.fang.back ? 0.1 : 1 - f.fang.t / SKILL_TIME.fang) : f.aurum ? 1 - f.aurum.t / SKILL_TIME.aurum : f.reap ? 1 : f.phase ? f.phase.t / SKILL_TIME.jumper : f.steal ? 1 - f.steal.t / SKILL_TIME.steal : f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.octo ? (f.octo.gone >= 0 ? 0 : f.octo.on ? f.octo.left / SKILL_TIME.octo : 1) : f.chidori ? (f.chidori.phase === 'charge' ? 1 : (f.chidori.phase === 'lunge' ? f.chidori.left : f.chidori.phase === 'stab' ? 0 : f.chidori.t) / SKILL_TIME.chidori) : f.wraith ? f.wraith.t / f.wraith.total : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / f.sande.total : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
+      if (on) { const left = Math.max(0, f.roarCast ? 1 - f.roarCast.t / ROAR_CAST : f.adaptCast ? 1 - f.adaptCast.t / ADAPT_SPIN : f.jc ? (f.jc.phase === 'end' ? 0 : 1) : f.xc ? (f.xc.phase === 'fire' ? 1 - f.xc.t / 0.9 : f.xc.phase === 'out' ? 0 : 1) : f.ea ? (f.ea.phase === 'fire' ? 1 - f.ea.t / 1.2 : f.ea.phase === 'out' ? 0 : 1) : f.fang ? (f.fang.back ? 0.1 : 1 - f.fang.t / SKILL_TIME.fang) : f.aurum ? 1 - f.aurum.t / SKILL_TIME.aurum : f.reap ? 1 : f.phase ? f.phase.t / SKILL_TIME.jumper : f.steal ? 1 - f.steal.t / SKILL_TIME.steal : f.deflect ? (f.deflect.phase === 'guard' ? f.deflect.t / SKILL_TIME.deflect : 0.1) : f.octo ? (f.octo.gone >= 0 ? 0 : f.octo.on ? f.octo.left / SKILL_TIME.octo : 1) : f.chidori ? (f.chidori.phase === 'charge' ? 1 : (f.chidori.phase === 'lunge' ? f.chidori.left : f.chidori.phase === 'stab' ? 0 : f.chidori.t) / SKILL_TIME.chidori) : f.wraith ? f.wraith.t / f.wraith.total : f.batCast ? Math.min(1, f.batCast.t / SKILL_TIME.vampire) : f.sande ? f.sande.t / f.sande.total : f.barrier ? f.barrier.t / SKILL_TIME.shield : f.card ? (f.card.on ? f.card.left / f.card.total : 1) : f.hackCast ? Math.min(1, f.hackCast.t / SKILL_TIME.hack) : f.lockOn ? f.lockOn.t / SKILL_TIME.lock : f.skill === 'demon' ? (f.summon ? Math.min(1, f.summon.t / SKILL_TIME.demon) : (() => { const d = game.swordSets.find((q) => q.owner === f); return d ? d.swords.length / d.total : 0; })()) : f.gal ? Math.min(1, f.gal.t / SKILL_TIME.galaxy) : f.blaze ? (f.blaze.phase === 'charge' ? Math.min(1, f.blaze.t / SKILL_TIME.blaze) : 1) : f.mura ? Math.min(1, f.mura.t / SKILL_TIME.murasaki) : f.bow ? Math.min(1, f.bow.t / SKILL_TIME.archery) : f.cloak ? f.cloak.t / SKILL_TIME.cloak : f.veil ? f.veil.t / SKILL_TIME.veil : f.decoyLife / SKILL_TIME.decoy); px(x + 16, y + 18 + 7 * (1 - left), 8, 7 * left, f.deflect ? '#2ac88a' : f.batCast ? '#b01828' : f.sande ? '#2ad08a' : f.barrier ? '#2a7ad0' : f.card ? '#a88a3a' : f.hackCast ? '#1a9a5a' : f.lockOn ? '#2a9ad0' : f.skill === 'demon' ? '#2a7ad0' : f.gal ? '#3a2aa0' : f.blaze ? '#b8481a' : f.mura ? '#6a2aa0' : f.bow ? '#2a8a4a' : f.cloak ? '#5a4a90' : '#46588a'); }
       else if (!ready) px(x + 16, y + 18 + 7 * (1 - k), 8, 7 * k, '#22343a');
       text('Q', x + 19, y + 19, on ? '#d8c8ff' : ready ? '#8ff0ff' : '#4a5a5c');
     }
@@ -3641,7 +3737,7 @@ function drawCards(ctx, u, W) {
 // The whole of the wait a skill's on: its own - or, for the skill thief after a hack, however long that one is.
 const cdTotal = (f) => (f.usingSkill === 'steal' && f.stealWait ? Math.max(f.stealWait, 0.01) : SKILL_CD[f.usingSkill]);
 // A skill going (cast, out, or what it called up still about).
-const skillOn = (f) => !!f.adaptCast || !!f.fang || !!f.aurum || !!f.reap || !!f.ea || !!f.xc || !!f.jc || !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.wraith || !!f.chidori || !!f.octo || !!f.steal || !!f.phase || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
+const skillOn = (f) => !!f.roarCast || !!f.adaptCast || !!f.fang || !!f.aurum || !!f.reap || !!f.ea || !!f.xc || !!f.jc || !!f.cloak || !!f.decoy || (!!f.bow && !f.bow.fired) || !!f.mura || !!f.blaze || !!f.gal || !!f.summon || !!f.batCast || !!f.wraith || !!f.chidori || !!f.octo || !!f.steal || !!f.phase || !!f.deflect || !!f.sande || !!f.lockOn || !!f.barrier || !!f.card || !!f.hackCast || game.swordSets.some((d) => d.owner === f) || !!f.swordsOut;
 
 // Your skill, bottom right: its picture and name, Q, and how it stands - READY (lit, with a
 // flash the moment it comes ready), going, or the wait left as a bar filling back up.
@@ -3684,7 +3780,7 @@ function drawSkillBox(u, W, H, f) {
       kit.rect(px + u, y + 18 * u, 3 * u * k, 3 * u, info.color);
     }
   } else if (hacked) kit.text(`HACKED  -  ${f.hackedT.toFixed(1)} S${f.jamT > 0 ? '  -  GUN DEAD' : ''}`, x + 31 * u, y + 17 * u, { small: true, color: '#3aff8a' });
-  else if (on) kit.text(f.adaptCast ? `ADAPTING TO ${harmName(f.adaptCast.key)}...` : f.fang ? (f.fang.back ? 'COMING HOME...' : `Q: CALL THEM BACK  -  ${Math.max(0, SKILL_TIME.fang - f.fang.t).toFixed(1)} S`) : f.aurum ? (f.aurum.t < AURUM_CAST ? 'BUILDING...' : `${f.gun?.def.skillGun ? f.gun.ammo : 0} SHOTS  -  Q: PUT AWAY  -  ${Math.max(0, SKILL_TIME.aurum - f.aurum.t).toFixed(1)} S`) : f.reap ? 'SHADOW KILL!' : f.jc ? (f.jc.phase === 'stance' ? 'AIM IT - WALLS NO MATTER' : f.jc.phase === 'cut' ? 'JUDGEMENT CUT!' : '...') : f.xc ? (f.xc.phase === 'fire' ? 'EXCALIBUR!' : f.xc.phase === 'out' ? '...' : f.xc.phase === 'raise' ? 'UNVEILED...' : 'GATHERING THE LIGHT - AIM IT') : f.ea ? (f.ea.phase === 'fire' ? 'ENUMA ELISH!' : f.ea.phase === 'out' ? '...' : 'CHARGING - HOLD THE AIM ON THEM') : f.phase ? `THE OTHER PLACE  -  Q: OPEN THE WAY BACK  -  ${f.phase.t.toFixed(1)} S` : f.steal ? `HACKING ${Math.round(Math.min(1, f.steal.t / SKILL_TIME.steal) * 100)}%` : f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.octo ? (f.octo.gone >= 0 ? 'ARMS IN' : f.octo.on ? `HOLD TO FIRE  -  Q: PUT AWAY  -  ${f.octo.left.toFixed(1)} S` : 'GRABBING...') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.max(0, Math.ceil(f.barrier.hp))}  -  BLAST ${Math.round(Math.max(0, 1 - f.barrier.hp / f.barrier.max) * 100)}%  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
+  else if (on) kit.text(f.roarCast ? 'DRAWING BREATH...' : f.adaptCast ? `ADAPTING TO ${harmName(f.adaptCast.key)}...` : f.fang ? (f.fang.back ? 'COMING HOME...' : `Q: CALL THEM BACK  -  ${Math.max(0, SKILL_TIME.fang - f.fang.t).toFixed(1)} S`) : f.aurum ? (f.aurum.t < AURUM_CAST ? 'BUILDING...' : `${f.gun?.def.skillGun ? f.gun.ammo : 0} SHOTS  -  Q: PUT AWAY  -  ${Math.max(0, SKILL_TIME.aurum - f.aurum.t).toFixed(1)} S`) : f.reap ? 'SHADOW KILL!' : f.jc ? (f.jc.phase === 'stance' ? 'AIM IT - WALLS NO MATTER' : f.jc.phase === 'cut' ? 'JUDGEMENT CUT!' : '...') : f.xc ? (f.xc.phase === 'fire' ? 'EXCALIBUR!' : f.xc.phase === 'out' ? '...' : f.xc.phase === 'raise' ? 'UNVEILED...' : 'GATHERING THE LIGHT - AIM IT') : f.ea ? (f.ea.phase === 'fire' ? 'ENUMA ELISH!' : f.ea.phase === 'out' ? '...' : 'CHARGING - HOLD THE AIM ON THEM') : f.phase ? `THE OTHER PLACE  -  Q: OPEN THE WAY BACK  -  ${f.phase.t.toFixed(1)} S` : f.steal ? `HACKING ${Math.round(Math.min(1, f.steal.t / SKILL_TIME.steal) * 100)}%` : f.deflect ? (f.deflect.phase === 'guard' ? `Q: DASH  -  ${f.deflect.t.toFixed(1)} S` : 'CUT!') : f.octo ? (f.octo.gone >= 0 ? 'ARMS IN' : f.octo.on ? `HOLD TO FIRE  -  Q: PUT AWAY  -  ${f.octo.left.toFixed(1)} S` : 'GRABBING...') : f.chidori ? (f.chidori.phase === 'charge' ? 'GATHERING...' : f.chidori.phase === 'lunge' ? 'LUNGE!' : f.chidori.phase === 'stab' ? 'CHIDORI!' : `RUN INTO THEM${f.chidori.lunged ? '' : '  -  Q: LUNGE'}  -  ${f.chidori.t.toFixed(1)} S`) : f.sande ? `ACTIVE  -  ${f.sande.t.toFixed(1)} S` : f.lockOn ? `LOCKED ON  -  ${f.lockOn.t.toFixed(1)} S` : f.barrier ? `SHIELD ${Math.max(0, Math.ceil(f.barrier.hp))}  -  BLAST ${Math.round(Math.max(0, 1 - f.barrier.hp / f.barrier.max) * 100)}%  -  ${f.barrier.t.toFixed(1)} S` : f.card?.on ? `${CARDS[f.card.kind].name}  -  ${f.card.left.toFixed(1)} S` : f.card?.pick ? 'DRAG TO A CARD' : f.card ? 'DRAWING...' : f.powered ? 'NEXT HIT X1.8' : 'IN USE', x + 31 * u, y + 17 * u, { small: true, color: '#d8c8ff' });
   else if (puffed && cd <= 0) kit.text('NOT ENOUGH STAMINA', x + 31 * u, y + 17 * u, { small: true, color: '#ffa080' });
   else {
     // the wait: a bar filling back up, the seconds left beside it
@@ -4707,6 +4803,14 @@ const EXCAL_ICON = sprite(13, 12, (g) => {
   }
   rect(g, '#ffffff', 12, 0, 1, 1); rect(g, '#fff0a8', 11, 0, 1, 1); rect(g, '#fff0a8', 12, 1, 1, 1);
 });
+const ROAR_ICON = sprite(13, 12, (g) => {
+  // a mouth open wide in a roar, fangs, and the waves of it going out
+  rect(g, '#2a0a0a', 1, 3, 6, 6);
+  rect(g, '#c8302a', 2, 4, 4, 4);
+  rect(g, '#ffffff', 2, 4, 1, 1); rect(g, '#ffffff', 5, 4, 1, 1); rect(g, '#ffffff', 2, 7, 1, 1); rect(g, '#ffffff', 5, 7, 1, 1);
+  rect(g, '#7a1010', 3, 6, 2, 2);
+  for (const [r, c] of [[3, '#ff9a6a'], [6, '#ff5a3a'], [9, '#c8302a']]) for (let a = -0.9; a <= 0.9; a += 0.15) rect(g, c, Math.round(4 + Math.cos(a) * r + 2), Math.round(5.5 + Math.sin(a) * r), 1, 1);
+});
 const ADAPT_ICON = sprite(13, 12, (g) => {
   // the dharma wheel, face on: a gold rim, eight spokes, a knob at the end of each
   for (let j = 0; j < 12; j++) for (let i = 0; i < 13; i++) {
@@ -4754,6 +4858,7 @@ const SKILL_INFO = [
   { key: 'hack', name: 'HACK', img: HACK_ICON, color: '#3aff8a', desc: 'A WAVE CUTS OFF EVERY FOE NEAR: SKILLS STOP, THE UNSEEN SHOW, NO SKILLS AND +20% HURT 5 S, NO SHOOTING 1.6 S' },
   { key: 'fang', name: 'GOLDEN FANGS', img: FANG_ICON, color: '#ffd25a', desc: 'FIVE GOLD DAGGERS FANNED OUT, THROUGH WHOEVER THEY HIT - AND A SIXTH AT THE MOUSE THAT MARKS. Q AGAIN: ALL FLY HOME - AND WITH SOMEONE MARKED, YOU GO TO THEM, THROUGH WALLS, UNTOUCHABLE, AND CUT' },
   { key: 'aurum', name: 'AURUM', img: AURUM_ICON, color: '#d0a8ff', desc: 'A GOLD SNIPER BUILT IN YOUR HANDS: 5 HEAVY SHOTS THROUGH ANYONE IN LINE, A VIOLET STREAK BEHIND. 12 S, Q: PUT AWAY' },
+  { key: 'roar', name: 'ROAR', img: ROAR_ICON, color: '#ff6a4a', desc: 'A BREATH IN, THEN A ROAR: EVERY FOE NEAR, NOT BEHIND A WALL, IS AFRAID - FOR 1.8 S THEY CAN ONLY WALK AWAY FROM YOU, SLOWLY, AND DO NOTHING ELSE' },
   { key: 'adapt', name: 'ADAPTATION', img: ADAPT_ICON, color: '#ffd27a', desc: 'A WHEEL TURNS OVER YOUR HEAD: Q ADAPTS TO THE LAST THING DONE TO YOU - A SORT OF GUN, A BLADE, A GRENADE, A DRUM, A SKILL - AND IT DOES NOTHING TO YOU AGAIN. 3 AT ONCE: A 4TH PUSHES THE FIRST OUT. CAUGHT IN A SANDEVISTAN: MOVE IN IT. A BLUE SHIELD: HIT THROUGH IT. A CLONE, A CLOAK: SEE THEM' },
   { key: 'judge', name: 'JUDGEMENT CUT', img: JUDGE_ICON, color: '#5ad8ff', desc: 'THE STANCE, THEN THE SPACE WHERE YOU AIM IS CUT - WALLS NO MATTER: 12 CUTS ON ANYONE IN IT, HELD THERE, THEN IT BREAKS LIKE GLASS FOR 70. UP TO 200. TRUE DAMAGE: THROUGH SHIELDS, SMOKE, PHANTOMS AND THE OTHER PLACE - AND THE BREAK ENDS THEM' },
   { key: 'excal', name: 'EXCALIBUR', img: EXCAL_ICON, color: '#ffd24a', desc: 'THE SWORD UNVEILED, RAISED TO THE SKY: 1.75 S GATHERING LIGHT, ROOTED - A GLITTERING THREAD SHOWS WHERE IT GOES - THEN ONE STROKE, A WAVE OF LIGHT AS WIDE AS A WALL STRAIGHT DOWN THE AIM, THROUGH ALL. ITS FRONT HITS 98' },

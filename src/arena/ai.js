@@ -1311,6 +1311,13 @@ export const BOT_SKILLS = {
   },
   lock: { use: (s) => s.vis && !!s.f.bestGun() && s.dist < 360 },   // someone in sight to shoot at, with a gun to do it
   demon: { use: (s) => s.f.stamina >= 60 && s.f.onGround && ((s.vis && s.dist < 320) || s.near.length >= 2) },   // a fight coming, and stamina for three swords
+  roar: {
+    // foes close: two or more in reach, or one right up close, or one near and it's hurting - then it gets clear
+    use(s) {
+      const inReach = s.enemies.filter((o) => Math.hypot(o.x - s.f.x, o.y - s.f.y) < 130 && !o.fearT && s.G.los(s.f.x, s.f.y - 14, o.x, o.y - 14));   // (none through a wall)
+      return inReach.length >= 2 || inReach.some((o) => Math.hypot(o.x - s.f.x, o.y - s.f.y) < 80) || (inReach.length === 1 && s.hpK < 0.6);
+    },
+  },
   adapt: {
     // whatever's just done something to it, while it's still at it: adapted to (a skill or a blast at once - they're
     // what hurt; a gun once it's been hit a while by it, or it's getting low)

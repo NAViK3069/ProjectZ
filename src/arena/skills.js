@@ -21,7 +21,7 @@
 
 import {
   SKILL_CD, GRAPPLE_RANGE, GAL_CAST, GAL_RANGE, LOCK_RANGE, STEAL_RANGE, CHIDORI_REACH, JC_RANGE, JC_R, JC_STANCE,
-  EA_RANGE, EA_CHARGE, EA_SWING, EX_RANGE, EX_CHARGE, EX_SWING, EX_SPEED, EX_GUIDE, MURA_CHARGE, BLAZE_CHARGE, BLAZE_RANGE,
+  EA_RANGE, EA_CHARGE, EA_SWING, EX_RANGE, EX_CHARGE, EX_SWING, EX_SPEED, EX_GUIDE, MURA_CHARGE, BLAZE_CHARGE, BLAZE_RANGE, ROAR_R, ROAR_CAST,
 } from './fighter.js';
 
 const chest = (f) => ({ x: f.x, y: f.y - 14 });
@@ -89,6 +89,10 @@ export const SKILLS = {
     danger: (f) => f.jc?.phase === 'stance' ? [{ x: f.jc.x, y: f.jc.y, r: JC_R + 14, t: JC_STANCE - f.jc.t }] : null,
   },
   adapt: { aim: 'self' },
+  roar: {
+    aim: 'self',
+    danger: (f) => f.roarCast ? [{ x: f.x, y: f.y - 14, r: ROAR_R, t: ROAR_CAST - f.roarCast.t, los: true }] : null,   // (los: only in sight of it - a wall's cover)
+  },
 };
 
 // Every skill's danger to `me` that's on its way: [{ d, f, t, eta }] - d the shape, eta how long till it reaches them.
@@ -103,7 +107,7 @@ export function dangersTo(me, G) {
         const ux = Math.cos(d.a), uy = Math.sin(d.a), dx = cx - d.x, dy = cy - d.y, along = dx * ux + dy * uy;
         if (along < -10 || along > d.len || Math.abs(dx * uy - dy * ux) > d.w + 8) continue;
         out.push({ d, f, eta: d.t + Math.max(0, along - d.front) / d.speed });
-      } else if (Math.hypot(cx - d.x, cy - d.y) < d.r + 8) out.push({ d, f, eta: d.t });
+      } else if (Math.hypot(cx - d.x, cy - d.y) < d.r + 8 && (!d.los || G.los(d.x, d.y, cx, cy))) out.push({ d, f, eta: d.t });
     }
   }
   return out;

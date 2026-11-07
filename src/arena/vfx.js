@@ -15,6 +15,10 @@
 //   bolt   - lightning from (x, y) to (o.x1, o.y1): a white core in a coloured sheath, branching, then curling off
 //            into fading wisps. o: { x1, y1, pal, dur, fork }
 //   spikes - a burst of sharp shards out from the middle (a crystal crack, an impact). o: { r, n, pal, dur, a, spread }
+//   roar   - waves of sound out from a mouth, fat ahead, thin behind. o: { r, dir (1 / -1), pal, n }
+//   lines  - speed lines bursting out from a point, the way it faces most. o: { r, dir (1 / -1 / 0), pal, n }
+//   aura   - power flaring up off a body, tongues of light. (x, y): the feet. o: { r (wide), h (tall), pal }
+//   dust   - a wave of dust rolling out along the floor both ways. (x, y): on the floor. o: { r (how far), pal }
 //
 // pal: a name from PAL (light to dark) - fire, holy, void, volt, blood, mint, violet, shade, ice, steel, smoke.
 
@@ -387,8 +391,111 @@ function drawSpikes(ctx, e, k) {
   ctx.restore();
 }
 
-const DRAW = { blast: drawBlast, ring: drawRing, star: drawStar, slash: drawSlash, bolt: drawBolt, spikes: drawSpikes };
-const DUR = { blast: 1.3, ring: 0.45, star: 0.35, slash: 0.32, bolt: 0.4, spikes: 0.45 };
+// ---------- roar ----------
+// A roar going out from a mouth: waves of sound one after another, fat bright arcs thrown forward the way it faces
+// and thinner ones round behind, each widening as it goes, thinning and fading; between them the air shimmering
+// (bright and dark bands). o: { r (how far it carries), dir (1 / -1: the way it faces), pal, n (waves) }
+function drawRoar(ctx, e, k) {
+  const pal = e.pal ?? 'blood', P = PAL[pal] ?? PAL.blood, R = e.r, n = e.n ?? 4, dir = e.dir ?? 1, x0 = Math.round(e.x), y0 = Math.round(e.y);
+  glow(ctx, x0 + dir * 10, y0, R * 0.6, pal, 2, 0.5 * Math.pow(1 - k, 2));
+  for (let w = 0; w < n; w++) {
+    const q = (k - w * 0.11) / (1 - (n - 1) * 0.11);   // (each wave a beat after the last)
+    if (q <= 0 || q >= 1) continue;
+    const r = 8 + (R - 8) * ease(q), fade = Math.pow(1 - q, 1.2), th = Math.max(1, Math.round((5 - w) * (1 - q) + 1));
+    glow(ctx, x0, y0, Math.max(3, th * 2.5), pal, 2, 0.35 * fade, 0.85, r);
+    ctx.save();
+    ctx.globalAlpha = fade;
+    // forward: a fat arc the way it's facing, its middle brightest; behind, a thin one
+    const steps = Math.ceil(r * 3.4);
+    for (let i = 0; i <= steps; i++) {
+      const a = -Math.PI + (i / steps) * Math.PI * 2, fw = Math.cos(a) * dir;   // (1 straight ahead .. -1 straight behind)
+      if (fw < -0.3 && (i + w) % 3) continue;   // (behind it: broken, faint)
+      const t = fw > 0.2 ? th : 1, col = fw > 0.75 ? P[q < 0.4 ? 0 : 1] : fw > 0.2 ? P[2] : P[3];
+      ctx.fillStyle = col;
+      for (let j = 0; j < t; j++) ctx.fillRect(Math.round(x0 + Math.cos(a) * (r - j)), Math.round(y0 + Math.sin(a) * (r - j) * 0.85), 1, 1);
+    }
+    // the air shimmering between the waves: a dark band just inside the bright one, ahead
+    ctx.fillStyle = P[5];
+    ctx.globalAlpha = fade * 0.5;
+    for (let i = 0; i <= steps; i++) {
+      const a = -Math.PI + (i / steps) * Math.PI * 2;
+      if (Math.cos(a) * dir < 0.4) continue;
+      ctx.fillRect(Math.round(x0 + Math.cos(a) * (r - th - 1)), Math.round(y0 + Math.sin(a) * (r - th - 1) * 0.85), 1, 1);
+    }
+    ctx.restore();
+  }
+}
+
+// ---------- lines ----------
+// Speed lines bursting out from a point: dozens of thin streaks racing outward, white at their heads, the colour
+// behind, more of them (and longer) the way it faces - the air itself thrown back. o: { r, dir (1 / -1, or 0: all
+// round), pal, n }
+function drawLines(ctx, e, k) {
+  const pal = e.pal ?? 'blood', P = PAL[pal] ?? PAL.blood, R = e.r, n = e.n ?? 28, dir = e.dir ?? 0, seed = e.seed;
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const h = hash(i, seed), a = dir ? (dir > 0 ? 0 : Math.PI) + (h - 0.5) * Math.PI * (hash(i, seed, 5) < 0.75 ? 1.1 : 2) : h * Math.PI * 2;
+    const fw = dir ? Math.max(0, Math.cos(a) * dir) : 1, delay = hash(i, seed, 1) * 0.25, q = (k - delay) / (1 - delay);
+    if (q <= 0 || q >= 1) continue;
+    const r0 = 6 + R * ease(q) * (0.5 + 0.5 * fw), L = (8 + 22 * fw) * (1 - q * 0.6), ux = Math.cos(a), uy = Math.sin(a) * 0.85;
+    ctx.globalAlpha = Math.pow(1 - q, 0.8);
+    for (let j = 0; j < L; j++) {
+      ctx.fillStyle = j < 2 ? P[0] : j < L * 0.4 ? P[1] : j < L * 0.75 ? P[2] : P[3];
+      ctx.fillRect(Math.round(e.x + ux * (r0 - j)), Math.round(e.y + uy * (r0 - j)), 1, 1);
+    }
+  }
+  ctx.restore();
+}
+
+// ---------- aura ----------
+// Power flaring up off a body: tongues of light licking up round it, white at the heart, the colour outside, dark at
+// their tips, flickering, rising and dying down. (x, y): the feet. o: { r (how wide), h (how tall), pal }
+function drawAura(ctx, e, k) {
+  const pal = e.pal ?? 'blood', P = PAL[pal] ?? PAL.blood, w = e.r ?? 12, H = (e.h ?? 40) * Math.sin(Math.PI * Math.min(1, k * 1.4)), seed = e.seed;
+  if (H < 1) return;
+  glow(ctx, e.x, e.y - H * 0.4, w + H * 0.5, pal, 2, 0.45 * (1 - k));
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, (1 - k) * 1.6);
+  const tick = Math.floor(e.t * 24);
+  for (let x = -w; x <= w; x++) {
+    const edge = Math.abs(x) / w, tall = H * (1 - edge * edge * 0.7) * (0.55 + 0.45 * hash(x, tick, seed)) + Math.sin(x * 0.9 + e.t * 18) * 3;
+    for (let y = 0; y < tall; y++) {
+      const q = y / Math.max(1, tall), inner = 1 - edge;
+      const idx = q > 0.85 ? 4 : q > 0.6 ? 3 : inner > 0.6 && q < 0.4 ? 0 : inner > 0.3 ? 1 : 2;
+      if (q > 0.6 && hash(x, y + tick, seed) < (q - 0.6) * 1.4) continue;   // (the tips breaking up)
+      ctx.fillStyle = P[idx];
+      ctx.fillRect(Math.round(e.x + x), Math.round(e.y - y), 1, 1);
+    }
+  }
+  ctx.restore();
+}
+
+// ---------- dust ----------
+// A wave of dust rolling out along the floor both ways from a blast or a shout: billows riding the front, swelling,
+// rising a little and thinning away. (x, y): where it starts, on the floor. o: { r (how far it rolls), pal }
+function drawDust(ctx, e, k) {
+  const P = RGB[e.pal ?? 'smoke'] ?? RGB.smoke, R = e.r ?? 120, seed = e.seed;
+  const W = size(R + 12), b = buffer(W), c = W / 2, u = b.u;
+  for (const side of [-1, 1]) for (let i = 0; i < 9; i++) {
+    const lag = i / 9, q = Math.max(0, ease(k * 1.25 - lag * 0.35));
+    if (q <= 0) continue;
+    const bx = side * (6 + (R - 6) * q * (0.55 + 0.45 * hash(i, seed, side))), r = (3 + 5 * q) * (0.7 + 0.5 * hash(i, seed, 3)), by = -r * 0.7 - q * 6 * hash(i, seed, 4);
+    const A = Math.round(220 * Math.pow(1 - k, 0.9) * (1 - lag * 0.4));
+    for (let y = Math.floor(by - r); y <= Math.ceil(by + r); y++) for (let x = Math.floor(bx - r); x <= Math.ceil(bx + r); x++) {
+      const d = Math.hypot(x - bx, (y - by) * 1.3) / r;
+      if (d > 1 || Math.abs(x) >= c || Math.abs(y) >= c) continue;
+      const lit = -(x - bx) * 0.2 - (y - by) * 0.6;
+      const col = P[Math.max(0, Math.min(4, Math.round(1.5 - lit / r * 2 + d * 1.5)))], a = Math.round(A * (1 - d * d));   // (pale, to show on a dark floor)
+      const i2 = (c + y) * W + c + x;
+      if (a > (u[i2] >>> 24)) u[i2] = rgba(col, a);
+    }
+  }
+  b.g.putImageData(b.img, 0, 0);
+  ctx.drawImage(b.c, Math.round(e.x - c), Math.round(e.y - c));
+}
+
+const DRAW = { blast: drawBlast, ring: drawRing, star: drawStar, slash: drawSlash, bolt: drawBolt, spikes: drawSpikes, roar: drawRoar, lines: drawLines, aura: drawAura, dust: drawDust };
+const DUR = { blast: 1.3, ring: 0.45, star: 0.35, slash: 0.32, bolt: 0.4, spikes: 0.45, roar: 0.7, lines: 0.5, aura: 0.7, dust: 1.0 };
 
 // The live ones: a list of { kind, x, y, t, dur, ...o }.
 export class VfxList {
