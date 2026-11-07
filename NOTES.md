@@ -49,6 +49,12 @@ frame for a grenade's). `game.fx.vfx(kind, x, y, {...})` with kind blast, ring, 
 spikes (the top of vfx.js says what each takes; glitter goes round a point, or along a line with x1, y1). They go
 to every screen online by themselves (`vfx` is in online.js's `FX_CALLS`).
 
+Adaptation (`src/arena/adapt.js`) can adapt to anything that hurts, so a new skill's hits need to say whose they
+are: set `v.hitHow` to the skill's name before `v.hurt(...)` (or list the hitHow it uses in skills.js,
+`SKILLS[k].hits`). A gun's shot, a blade, a grenade or a drum says what it is by itself (`hitSrc`, `hitRef`). If the
+skill does something that isn't damage (a pull, a freeze, a hack, hiding someone), call `v.noteHarm('skill:<key>')`
+where it happens and check `v.adaptedTo('skill:<key>')` there to let an adapted fighter off it.
+
 If it makes you untouchable: in `Fighter.untouchable`, and in `breakGuard` so judgement cut's break ends it.
 Judgement cut is true damage (`hurt(..., pierce)`): nothing untouchable is out of its reach, and the blue shield
 takes none of it.

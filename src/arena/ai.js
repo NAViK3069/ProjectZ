@@ -315,7 +315,7 @@ export class Bot {
     if (this.biasT <= 0) this.rebias();
 
     // a cloaked fighter isn't seen at all - unless it's right up against the bot
-    const unseen = (o) => o.hidden && !o.glimpsed && Math.hypot(o.x - f.x, o.y - f.y) > 22;   // (a cloak glitching shows them for a moment)
+    const unseen = (o) => o.hidden && !o.glimpsed && !f.adaptSees?.(o) && Math.hypot(o.x - f.x, o.y - f.y) > 22;   // (a cloak glitching shows them for a moment; adapted to it, it doesn't hide them)
     const enemies = G.fighters.filter((o) => o.alive && G.foes(f, o) && !unseen(o));
     // hit by someone: it knows roughly where from (even if it can't see them)
     if (f.hurtT < 0.1 && f.hitBy?.alive && G.foes(f, f.hitBy)) this.known.set(f.hitBy, { x: f.hitBy.x, y: f.hitBy.y, t: G.time });
@@ -344,7 +344,9 @@ export class Bot {
     const dist = t ? Math.hypot(t.x - f.x, aimY - s.y) : Infinity;
     this.seen = vis ? this.seen + dt : 0;
     this.unseen = vis ? 0 : (this.unseen ?? 9) + dt;
-    const w = f.cloak ? null : f.bestGun(), armed = !!w;   // the gun, while it has ammo (cloaked: the knife, for a stab)
+    // the gun, while it has ammo (cloaked: the knife, for a stab) - and not one of a sort its target's adapted to (its
+    // shots would do nothing): fists and blades for them, then
+    const w0 = f.cloak ? null : f.bestGun(), w = w0 && this.target?.adaptedTo?.('gun:' + w0.def.cls) ? null : w0, armed = !!w;
     const hpK = f.hp / f.maxHp;
 
     // ---- what to do ----
@@ -1309,4 +1311,13 @@ export const BOT_SKILLS = {
   },
   lock: { use: (s) => s.vis && !!s.f.bestGun() && s.dist < 360 },   // someone in sight to shoot at, with a gun to do it
   demon: { use: (s) => s.f.stamina >= 60 && s.f.onGround && ((s.vis && s.dist < 320) || s.near.length >= 2) },   // a fight coming, and stamina for three swords
+  adapt: {
+    // whatever's just done something to it, while it's still at it: adapted to (a skill or a blast at once - they're
+    // what hurt; a gun once it's been hit a while by it, or it's getting low)
+    use(s) {
+      const { f, G, hpK } = s, h = f.lastHarm;
+      if (!h || G.time - h.at > 3 || f.adaptedTo(h.key)) return false;
+      return !h.key.startsWith('gun:') || hpK < 0.75 || f.hurtT < 0.3;
+    },
+  },
 };

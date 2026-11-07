@@ -16,6 +16,8 @@
 //      (s; 0: it's going), its front got to `front` and running on at `speed` (Infinity: all at once)
 //   { x, y, r, t } - a circle, going in t
 // (only for skills that are worth getting out of the way of, and can be.)
+// hits: the names its hits go by (a hit's hitHow) - how adaptation knows a hit for the skill's (adapt.js). One named
+// after the skill itself needn't be listed.
 
 import {
   SKILL_CD, GRAPPLE_RANGE, GAL_CAST, GAL_RANGE, LOCK_RANGE, STEAL_RANGE, CHIDORI_REACH, JC_RANGE, JC_R, JC_STANCE,
@@ -25,19 +27,19 @@ import {
 const chest = (f) => ({ x: f.x, y: f.y - 14 });
 
 export const SKILLS = {
-  grapple: { aim: 'dir', reach: GRAPPLE_RANGE },
-  cloak: { aim: 'self' },
+  grapple: { hits: ['GRAPPLE'], aim: 'dir', reach: GRAPPLE_RANGE },
+  cloak: { hits: ['BACKSTAB'], aim: 'self' },
   decoy: { aim: 'self' },
-  archery: { aim: 'self' },   // (it locks on to whoever's in reach by itself)
-  murasaki: {
+  archery: { hits: ['ARROW'], aim: 'self' },   // (it locks on to whoever's in reach by itself)
+  murasaki: { hits: ['MURASAKI'],
     aim: 'dir',
     danger: (f) => f.mura && f.mura.t > MURA_CHARGE * 0.4 ? [{ line: true, ...chest(f), a: f.aim, w: 22, len: 600, t: MURA_CHARGE - f.mura.t, front: 0, speed: 760 }] : null,
   },
-  blaze: {
+  blaze: { hits: ['FLAME FIST'],
     aim: 'dir', reach: BLAZE_RANGE,
     danger: (f) => f.blaze?.phase === 'charge' ? [{ line: true, ...chest(f), a: f.aim, w: 18, len: BLAZE_RANGE + 20, t: BLAZE_CHARGE - (f.blaze.t ?? 0), front: 0, speed: 560 }] : null,
   },
-  galaxy: {
+  galaxy: { hits: ['GALAXY'],
     aim: 'point', reach: GAL_RANGE,
     danger: (f, G) => {
       const out = [];
@@ -46,22 +48,22 @@ export const SKILLS = {
       return out;
     },
   },
-  demon: { aim: 'self' },
-  lock: { aim: 'pick', reach: LOCK_RANGE, aiming: (f) => !!f.lockOn },
-  shield: { aim: 'self' },
-  cards: { aim: 'self' },
+  demon: { hits: ['FLYING SWORDS'], aim: 'self' },
+  lock: { hits: ['TARGET LOCK'], aim: 'pick', reach: LOCK_RANGE, aiming: (f) => !!f.lockOn },
+  shield: { hits: ['BLUE SHIELD'], aim: 'self' },
+  cards: { hits: ['BUFF CARDS'], aim: 'self' },
   hack: { aim: 'self' },
   sande: { aim: 'self' },
-  vampire: { aim: 'self' },
-  deflect: { aim: 'dir' },
-  chidori: { aim: 'point', reach: CHIDORI_REACH, aiming: (f) => !!f.chidori && !f.chidori.lunged },
+  vampire: { hits: ['BATS'], aim: 'self' },
+  deflect: { hits: ['DEFLECT'], aim: 'dir' },
+  chidori: { hits: ['CHIDORI'], aim: 'point', reach: CHIDORI_REACH, aiming: (f) => !!f.chidori && !f.chidori.lunged },
   octo: { aim: 'dir' },
   steal: { aim: 'pick', reach: STEAL_RANGE },
-  jumper: { aim: 'self' },
-  fang: { aim: 'dir', reach: 420 },
+  jumper: { hits: ['RIFT'], aim: 'self' },
+  fang: { hits: ['GOLDEN FANGS'], aim: 'dir', reach: 420 },
   aurum: { aim: 'dir' },
-  reap: { aim: 'self' },
-  ea: {
+  reap: { hits: ['SHADOW KILL'], aim: 'self' },
+  ea: { hits: ['ENUMA ELISH'],
     aim: 'dir', reach: EA_RANGE,
     danger: (f) => {
       const m = f.ea;
@@ -71,7 +73,7 @@ export const SKILLS = {
       return null;
     },
   },
-  excal: {
+  excal: { hits: ['EXCALIBUR'],
     aim: 'dir', reach: EX_RANGE,
     danger: (f) => {
       const m = f.xc;
@@ -82,10 +84,11 @@ export const SKILLS = {
       return null;
     },
   },
-  judge: {
+  judge: { hits: ['JUDGEMENT CUT'],
     aim: 'point', reach: JC_RANGE, aiming: (f) => f.jc?.phase === 'stance',
     danger: (f) => f.jc?.phase === 'stance' ? [{ x: f.jc.x, y: f.jc.y, r: JC_R + 14, t: JC_STANCE - f.jc.t }] : null,
   },
+  adapt: { aim: 'self' },
 };
 
 // Every skill's danger to `me` that's on its way: [{ d, f, t, eta }] - d the shape, eta how long till it reaches them.

@@ -69,7 +69,7 @@ const SEAT_HOLD = 20;   // gone from a match this long (s) and they've lost thei
 const LEFT_SHOW = 1.2;   // a fighter whose player has left: this long (s) as a body, then gone from the game
 export const SKILLS = [
   ['grapple', 'GRAPPLE'], ['cloak', 'CLOAK'], ['decoy', 'SHADOW CLONE'], ['archery', 'ARCHERY'], ['murasaki', 'MURASAKI'],
-  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], [null, 'NO SKILL'],
+  ['blaze', 'FLAME FIST'], ['galaxy', 'GALAXY'], ['demon', 'FLYING SWORDS'], ['lock', 'TARGET LOCK'], ['shield', 'BLUE SHIELD'], ['cards', 'BUFF CARDS'], ['hack', 'HACK'], ['sande', 'SANDEVISTAN'], ['vampire', 'VAMPIRE'], ['deflect', 'DEFLECT'], ['chidori', 'CHIDORI'], ['octo', 'OCTO ARMS'], ['steal', 'SKILL THIEF'], ['jumper', 'JUMPER'], ['fang', 'GOLDEN FANGS'], ['aurum', 'AURUM'], ['reap', 'SHADOW KILL'], ['ea', 'ENUMA ELISH'], ['excal', 'EXCALIBUR'], ['judge', 'JUDGEMENT CUT'], ['adapt', 'ADAPTATION'], [null, 'NO SKILL'],
 ];
 
 const N = {
@@ -535,7 +535,7 @@ function askResync() {
 // where it is, and how its feet stand (the stand-in has those; the host's word goes to it - see reconcile)
 const AUTH_KEYS = ['padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT', 'roll', 'sprinting'];
 // its skill (the stand-in has that as well, and the fighter shows it)
-const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'heldT', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'steal', 'stolen', 'phase', 'jump', 'riftCool', 'deflect', 'hook', 'skillCD', 'fang', 'aurum', 'reap', 'ea', 'xc', 'jc'];
+const SKILL_KEYS = ['charges', 'hookGap', 'swordsOut', 'cloak', 'lunge', 'veil', 'decoy', 'decoyLife', 'bow', 'mura', 'blaze', 'gal', 'summon', 'lockOn', 'barrier', 'guardT', 'card', 'allyCard', 'powered', 'hackCast', 'hackedT', 'heldT', 'adaptCast', 'adapted', 'lastHarm', 'adaptTurns', 'adaptPop', 'sande', 'batCast', 'wraith', 'chidori', 'octo', 'steal', 'stolen', 'phase', 'jump', 'riftCool', 'deflect', 'hook', 'skillCD', 'fang', 'aurum', 'reap', 'ea', 'xc', 'jc'];
 // what's in hand (the fighter itself has those, run here at once - see stepOwn; the host's word
 // waits till it's heard about everything we've done with them)
 const HAND_KEYS = ['slot', 'quick', 'gun', 'melee', 'grenades', 'throwT', 'lastFireT'];
@@ -647,7 +647,7 @@ export function updateRemotes(dt, live) {
   for (const f of A.game.fighters) {
     if (!f.peer || f.peer === myId() || f.isDecoy) continue;
     const e = N.ctl.get(f.peer), m = N.members.find((x) => x.id === f.peer), on = live && m && !m.away;
-    const wk = f.sande ? 1 : A.game.timeK ?? 1;   // (Sandevistan: they're in the world's time, unless it's theirs)
+    const wk = f.ownTime ? 1 : A.game.timeK ?? 1;   // (Sandevistan: they're in the world's time, unless it's theirs)
     if (!e) { f.update(dt * wk, A.IDLE); continue; }
     if (!f.alive || !on) {
       e.ran = now;
@@ -671,7 +671,7 @@ export function updateRemotes(dt, live) {
       if (c.pickup) f.pickupPressed = true;
       f.shotSeed = c.seq;
       f.preyHint = c.prey === undefined ? undefined : A.game.fighters.find((o) => o.nid === c.prey) ?? null;
-      f.update(STEP * A.slow * (f.sande ? 1 : A.game.timeK ?? 1), c);
+      f.update(STEP * A.slow * (f.ownTime ? 1 : A.game.timeK ?? 1), c);
       ran++;
     }
     if (!e.q.length) e.pace = Math.min(e.pace, STEP);
@@ -905,7 +905,7 @@ function makeGhost(f) {
   Object.defineProperty(game, 'viewer', { get: () => gh });
   game.kick = (...args) => { if (!N.replaying) A.game.kick?.(...args); };
   // what a skill does out in the world is the host's
-  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'cloakStab', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist', 'drain', 'throwFangs', 'recallFangs', 'aurumOn', 'aurumOff', 'reapCut', 'fangDash', 'lockMissile', 'blazeGo', 'eaFire', 'eaBeam', 'xcFire', 'xcBeam', 'jcOpen', 'jcCut']) game[k] = () => {};
+  for (const k of ['dropDecoy', 'galaxy', 'summonSwords', 'barrierBurst', 'hackBurst', 'pickCard', 'shareCard', 'summonBats', 'deflectCut', 'deflectEnd', 'chidoriStrike', 'chidoriHold', 'chidoriRelease', 'stealHit', 'openRift', 'cloakStab', 'onShieldHit', 'hollowPurple', 'loose', 'flameFist', 'drain', 'throwFangs', 'recallFangs', 'aurumOn', 'aurumOff', 'reapCut', 'fangDash', 'lockMissile', 'blazeGo', 'eaFire', 'eaBeam', 'xcFire', 'xcBeam', 'jcOpen', 'jcCut', 'adaptStart', 'adaptDone', 'adaptNothing', 'onAdapted']) game[k] = () => {};
   game.spawnDecoy = () => ({ stub: true });
   const gh = new Fighter(game, A.images, { name: f.name, hue: 0, sat: 1 });
   gh.updateCombat = () => {};   // (moves and its skill only: what's in hand is the fighter's)
@@ -1028,7 +1028,7 @@ function runOwn(f, dt) {
   N.acc = Math.min(N.acc + dt, STEP * 12);
   while (N.acc >= STEP) {
     N.acc -= STEP;
-    const cmd = { ...c, ...NO_PRESS, ...N.latch, seq: ++N.seq, dt: STEP * A.slow * (gh.sande ? 1 : A.game.timeK ?? 1), kx: 0, ky: 0 };
+    const cmd = { ...c, ...NO_PRESS, ...N.latch, seq: ++N.seq, dt: STEP * A.slow * (gh.ownTime ? 1 : A.game.timeK ?? 1), kx: 0, ky: 0 };
     N.latch = {};
     stepOwn(gh, f, cmd);
     if (N.pending.length < MAX_PENDING) N.pending.push(cmd);

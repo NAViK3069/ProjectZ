@@ -32,6 +32,7 @@ import { drawJcMark, drawJcSphere, drawJcWind, drawJcTrail, drawJcAura, drawJcSh
 import { drawExSword, drawExVeil, drawExCharge, drawExSlash, drawExWave, drawExBlast, drawExAfter, drawExGuide, EX_LEN, EX_SUPPORT } from './holyfx.js';
 import { GUN_ART } from '../combat/gunart.js';
 import { drawCardRange } from './skillfx.js';
+import { ADAPT_MAX, ADAPT_SPIN, ADAPT_CD, ADAPT_RECENT, harmFrom } from './adapt.js';
 import { drawShieldBubble, drawCard, drawCardAura, drawCardFan, drawCardFly, CARD_SPOT, drawPowered, drawHackCast, drawHacked, drawGuard, drawBatCast, drawWraith, drawStealTether, drawStolen, drawChidori, drawChidoriStab, drawShocked, drawDeflectField, drawDeflectAim, drawDeflectBar, drawDeflectDash, HACKED_H, CARD_HOLD, SANDE_HUES } from './skillfx.js';
 
 // movement
@@ -214,8 +215,8 @@ const JC_DRAW = 0.18, JC_SPIN = 0.36, JC_SLIDE = 0.2, JC_MOUTH = 22, JC_GAP = 5,
 export const JC_R = 46, JC_RANGE = 300, JC_HIT = 11, JC_LAST = 70;
 const JC_CUT = JC_CUTS * JC_EVERY + 0.1;
 export const EA_RANGE = 900;
-export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD, judge: JC_CD };
-export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_GUIDE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK };
+export const SKILL_CD = { grapple: GRAPPLE_CD, cloak: CLOAK_CD, decoy: DECOY_CD, archery: ARCH_CD, murasaki: MURA_CD, blaze: BLAZE_CD, galaxy: GAL_CD, demon: SUM_CD, lock: LOCK_CD, shield: BARRIER_CD, cards: CARD_CD, hack: HACK_CD, sande: SANDE_CD, vampire: BAT_CD, deflect: DEFLECT_CD, chidori: CHIDORI_CD, octo: OCTO_CD, steal: STEAL_CD, jumper: JUMPER_CD, fang: FANG_CD, aurum: AURUM_CD, reap: REAP_CD, ea: EA_CD, excal: EX_CD, judge: JC_CD, adapt: ADAPT_CD };
+export const SKILL_TIME = { cloak: CLOAK_TIME, decoy: DECOY_LIFE, veil: VEIL_TIME, archery: ARCH_CHARGE, murasaki: MURA_CHARGE, blaze: BLAZE_CHARGE, galaxy: GAL_CAST, demon: SUM_CAST, lock: LOCK_TIME, shield: BARRIER_TIME, hack: HACK_CAST, sande: SANDE_MAX_T, vampire: BAT_CAST, deflect: DEFLECT_TIME, chidori: CHIDORI_TIME, octo: OCTO_TIME, steal: STEAL_LOCK, jumper: PHASE_TIME, fang: FANG_TIME, aurum: AURUM_TIME, reap: REAP_DRAW + REAP_IN + REAP_CUTS * REAP_EVERY + REAP_OUT, ea: EA_RAISE + EA_CHARGE + EA_FIRE, excal: EX_RAISE + EX_CHARGE + EX_GUIDE + EX_FIRE, judge: JC_STANCE + JC_CUT + JC_BREAK, adapt: ADAPT_SPIN };
 // health / damage
 export const MAX_HP = 300;
 export const DAMAGE = 0.36;    // guns hit for this much of their main-game damage
@@ -398,7 +399,7 @@ export class Fighter {
     Object.assign(this, {
       x, y, vx: 0, vy: 0, facing: 1, aim: 0, aimTarget: null, hp: MAX_HP, alive: true,
       padT: 0, flipT: -1, flipDir: 1, exposeT: 0, swordsOut: false, stamina: MAX_STAMINA, staminaRest: 0, winded: false, sprinting: false, rollCool: 0, rollCrouch: 0, sq: 0, sqV: 0, hook: null, charges: GRAPPLE_SHOTS, hookGap: 0, trail: [], cuts: [], skillCD: 0, boostT: 0, cloak: null, lunge: null, fade: null, veil: null, decoy: null, decoyLife: 0, bow: null, mura: null, blaze: null, gal: null, summon: null, lockOn: null, barrier: null, guardT: 0, card: null, allyCard: null, powered: null, hackCast: null, hackedT: 0, sande: null, batCast: null, deflect: null, shield: 0,
-      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, xc: null, jc: null, jamT: 0,
+      onGround: false, onLadder: false, ladderCool: 0, coyote: 0, jumpBuf: 0, airJumps: 1, wall: null, wallGrabs: 1, wraith: null, chidori: null, octo: null, steal: null, stolen: null, phase: null, jump: null, riftCool: 0, dropT: 0, fang: null, aurum: null, reap: null, ea: null, xc: null, jc: null, jamT: 0, adaptCast: null, adapted: [], lastHarm: null, adaptTurns: 0, adaptPop: null, heldT: 0,
       roll: null, flash: 0, hurtT: 9, animT: 0, frame: 0, climbT: 0,
       state: 'idle', settle: 0, pose: { legL: [0, 0], legR: [0, 0], body: 0, head: 0, headX: 0 },
       blinkIn: 1 + Math.random() * 3, blinkLeft: 0, tilt: 0, triggerHeld: false, crouch: false,
@@ -633,6 +634,7 @@ export class Fighter {
     // but a Sandevistan of your own can be set off in it, and then you're out of it too - and it comes round as
     // slowly as everything else
     const frozen = this.frozen;
+    if (frozen) this.noteHarm('skill:sande', 'sande');   // (that's being done to them: something to adapt to)
     if (frozen) c = { ...c, roll: false, fire: false, melee: false, meleeHeld: false, grenade: false, throwWeapon: false, skill: !!c.skill && this.usingSkill === 'sande' };
     // the chidori in someone: the two of you held there till it's done - no jumping, rolling, walking or climbing out
     // of it, either of you (heldT: the one it's in - see main.js, chidoriHold)
@@ -752,6 +754,7 @@ export class Fighter {
     else if (sk === 'ea') this.updateEa(dt, c);
     else if (sk === 'excal') this.updateExcal(dt, c);
     else if (sk === 'judge') this.updateJudge(dt, c);
+    else if (sk === 'adapt') this.updateAdapt(dt, c);
     if (this.jc || (this.reap && this.reap.phase !== 'out') || (this.ea && this.ea.phase !== 'out') || (this.xc && this.xc.phase !== 'out')) c = { ...c, move: 0, jump: false, sprint: false, up: false, down: false, crouch: false };   // (drawing the sword, or a shadow, or the sword up to the sky: held where it is)
     // a skill taken: once it's been used and is over (or it's been held too long unused), back to taking them
     const st = this.stolen;
@@ -1268,7 +1271,11 @@ export class Fighter {
     return (!!this.cloak && !this.cloak.out) || !!this.veil || this.phantom;
   }
   get frozen() {   // (the world's stopped, and not for them)
-    return (this.game.timeK ?? 1) < 1 && !this.sande;
+    return (this.game.timeK ?? 1) < 1 && !this.ownTime;
+  }
+  // In their own time while the world's stopped: theirs is the Sandevistan - or they've adapted to it.
+  get ownTime() {
+    return !!this.sande || this.adaptedTo('skill:sande');
   }
   get phantom() {   // (the purple card: gone, and nothing can touch you)
     return this.cardPower('purple') > 0;
@@ -1309,7 +1316,7 @@ export class Fighter {
   // Whoever's looking at the screen isn't fooled by this one being unseen: it's them, or someone on their side.
   get seesThrough() {
     const v = this.game.viewer;
-    return !!v && (v === this || !this.game.foes(v, this));
+    return !!v && (v === this || !this.game.foes(v, this) || !!v.adaptSees?.(this));
   }
   get hidden() {
     return (this.stealthed && !(this.exposeT > 0)) || !!this.jump || this.shade;   // (going through a rift: nothing to see but the light)
@@ -2110,7 +2117,10 @@ export class Fighter {
     }
   }
   // Got by a hack: everything going is cut off.
-  hacked(time) {
+  hacked(time, src = 'skill:hack') {
+    if (this.adaptedTo(src)) { this.game.onAdapted?.(this, src); return; }   // (adapted to it: nothing)
+    this.noteHarm(src, src.slice(6));
+    if (this.adaptCast) { this.adaptCast = null; this.skillCD = ADAPT_CD; }   // (the wheel stopped mid-turn)
     this.hook = null;
     if (this.cloak) this.uncloak();
     if (this.decoy) this.dropDecoy();
@@ -2297,7 +2307,7 @@ export class Fighter {
   // it would be left with nothing to finish it.
   get skillBusy() {
     return !!(this.cloak || this.decoy || this.veil || this.lunge || this.bow || this.mura || this.blaze || this.gal || this.summon || this.batCast || this.wraith || this.chidori || this.octo
-      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea || this.xc || this.jc);
+      || this.deflect || this.sande || this.lockOn || this.barrier || this.card || this.hackCast || this.hook || this.swordsOut || this.steal || this.phase || this.fang || this.aurum || this.reap || this.ea || this.xc || this.jc || this.adaptCast);
   }
 
   // ---------- golden fangs (skill, Q) ----------
@@ -2797,6 +2807,55 @@ export class Fighter {
     if (m.phase === 'cut') drawJcAura(ctx, this.x, this.y, hx, hy, 1, t, m.seed);
   }
 
+  // ---------- adaptation (skill, Q) ----------
+  // Q: the wheel over the head turns to whatever last did something to them (lastHarm - see adapt.js), a moment
+  // (ADAPT_SPIN), and from then on that does nothing to them; ADAPT_MAX at once, a new one pushing out the oldest.
+  // Nothing to adapt to - nothing lately, or only what's adapted to already - and Q does nothing (it isn't spent).
+  // Free to move and fight while it turns.
+  updateAdapt(dt, c) {
+    const m = this.adaptCast, G = this.game;
+    if (this.adaptPop && (this.adaptPop.t += dt) > 1.4) this.adaptPop = null;
+    if (!m) {
+      if (!c.skill || this.skillCD > 0 || !this.alive) return;
+      const h = this.lastHarm;
+      if (!h || G.time - h.at > ADAPT_RECENT || this.adaptedTo(h.key)) { G.adaptNothing?.(this, h); return; }
+      this.adaptCast = { t: 0, key: h.key, ref: h.ref, seed: Math.random() * 100 };
+      this.adaptPop = null;
+      G.adaptStart?.(this);
+      return;
+    }
+    m.t += dt;
+    if (m.t < ADAPT_SPIN) return;
+    this.adapted = [...this.adapted.filter((a) => a.key !== m.key), { key: m.key, ref: m.ref }].slice(-ADAPT_MAX);
+    this.adaptTurns++;
+    this.adaptCast = null;
+    this.skillCD = ADAPT_CD;
+    this.adaptPop = { key: m.key, ref: m.ref, t: 0 };
+    G.adaptDone?.(this, m);
+  }
+  // Adapted to this (a harm key - adapt.js)?
+  adaptedTo(key) {
+    return !!key && !!this.adapted?.some((a) => a.key === key);
+  }
+  // Something done to them that isn't a hit (caught in a Sandevistan, hacked, a shot stopped by a shield...): the last
+  // thing, as far as adapting goes.
+  noteHarm(key, ref = null) {
+    if (key && this.alive) this.lastHarm = { key, ref, at: this.game.time };
+  }
+  // Someone hidden that adapting lets them see: the shadow clone's maker, the cloaked, the phantom.
+  adaptSees(o) {
+    if (!this.adapted?.length || !o) return false;
+    return (!!o.veil && this.adaptedTo('skill:decoy')) || (!!o.cloak && !o.cloak.out && this.adaptedTo('skill:cloak')) || (!!o.phantom && this.adaptedTo('skill:cards'));
+  }
+  // How far the wheel's turned: a notch (an eighth) for every adaptation - and while adapting, a whole turn and the
+  // next notch, quick in the middle, settling into it.
+  wheelAngle() {
+    const base = (this.adaptTurns * Math.PI) / 4, m = this.adaptCast;
+    if (!m) return base;
+    const k = Math.min(1, m.t / ADAPT_SPIN), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    return base + e * (Math.PI * 2 + Math.PI / 4);
+  }
+
   // ---------- jumper (skill, Q) ----------
   // Q: a rift tears open where you stand and you step through it into the other place - nothing touches you there,
   // you're quicker, and you can't shoot - and wherever you go is the path (see main.js: updateRifts, which lays it).
@@ -2935,7 +2994,7 @@ export class Fighter {
     const mx = tip.x + ux * ox - uy * oy, my = tip.y + uy * ox + ux * oy, pellets = d.pellets ?? 1;
     for (let j = 0; j < pellets; j++) {
       const spread = pellets > 1 ? ((j / (pellets - 1)) * 2 - 1 + (Math.random() - 0.5) * 0.4) * d.spread : (Math.random() * 2 - 1) * d.spread * 1.2;
-      this.game.fireBullet(this, mx, my, tip.ang + spread, d.bulletSpeed * (pellets > 1 ? 0.85 + Math.random() * 0.3 : 1), d.damage * DAMAGE * gunMul(d) * (this.game.gunDamage ?? 1) * OCTO_DMG, d.range ?? 520, d.pierce ?? 0, FAR_HIT[d.cls] ?? 0.6);
+      this.game.fireBullet(this, mx, my, tip.ang + spread, d.bulletSpeed * (pellets > 1 ? 0.85 + Math.random() * 0.3 : 1), d.damage * DAMAGE * gunMul(d) * (this.game.gunDamage ?? 1) * OCTO_DMG, d.range ?? 520, d.pierce ?? 0, FAR_HIT[d.cls] ?? 0.6, 'skill:octo', 'octo');
     }
     this.game.muzzle(mx, my, tip.ang, { suppressed: false, shake: 0.5, def: d }, this);
     if (art.shell) this.game.fx.casing({ x: tip.x, y: tip.y - 1 }, { x: -ux * 0.3, y: -0.8 }, art.shell, 0.8);
@@ -3368,7 +3427,12 @@ export class Fighter {
   // other place, wraith form, the phantom, the shadows - and no blue shield takes any of it.
   hurt(dmg, from, kx, ky, head = false, pierce = false) {
     if (!this.alive || this.vanish) return false;
+    // what it is, to the wheel (adapt.js): adapted to it, nothing - not even true damage gets past that
+    const harm = harmFrom(this);
+    this.hitSrc = this.hitRef = null;
+    if (harm && this.adaptedTo(harm.key)) { this.game.onAdapted?.(this, harm.key); return false; }
     if (!pierce && this.untouchable) return false;
+    if (harm) this.lastHarm = { ...harm, at: this.game.time };
     if ((from?.owner ?? from)?.noDmg) { this.flash = 0.04; return true; }   // (training: a bot put in with its DAMAGE off - it lands, and nothing comes of it)
     let d = dmg * (head ? HEAD_MUL : 1) * (this.hackedT > 0 ? HACK_HURT : 1);
     // whoever hit them with a clone's charge on: it counts for more, the once (a shotgun's pellets all count as the one)
@@ -3380,7 +3444,10 @@ export class Fighter {
       charged = true;
     }
     // the shield takes it first, what's left of it - a melee blow counts double on it, a blast half as much again
-    const b = pierce ? null : this.barrier;
+    // (a blue shield: what it stops is something done to whoever hit it - and adapted to it, it stops nothing of theirs)
+    const atk = from?.isDecoy ? from.owner : (from?.owner ?? from);
+    const b = pierce || atk?.adaptedTo?.('skill:shield') ? null : this.barrier;
+    if (b) atk?.noteHarm?.('skill:shield', 'shield');
     if (b) {
       const worth = this.blast ? 1.5 : this.hitHow ? 2 : 1;
       b.hit = 1;
@@ -3443,6 +3510,10 @@ export class Fighter {
     this.ea = null;
     this.xc = null;
     this.jc = null;
+    this.adaptCast = null;
+    this.adapted = [];   // (a life's adapting: gone with it)
+    this.lastHarm = null;
+    this.adaptPop = null;
     this.jamT = 0;
     this.alive = false;
     this.hp = 0;
