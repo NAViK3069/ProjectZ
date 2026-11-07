@@ -3963,7 +3963,9 @@ export class Fighter {
     }
     if (this.guardT > 0) drawGuard(ctx, this.x, this.y, this.guardT, t);
     if (this.batCast) drawBatCast(ctx, this.x, this.y - 16, Math.min(1, this.batCast.t / BAT_CAST), t);
-    if (this.octo) drawOctoGlow(ctx, this, t);
+    // (the claws' red eyes: only with the arms there to see - not gone into a rift's light, the other place, the shadows,
+    // smoke, or unseen)
+    if (this.octo && !(this.wraith || this.phase || this.jump || this.shade || this.hidden)) drawOctoGlow(ctx, this, t);
     if (this.phase) drawPhased(ctx, this.paintSelf(0.85, '150, 90, 255')[0], this.x, this.y, t, mine);
     if (this.steal?.target) {
       const v = this.steal.target;

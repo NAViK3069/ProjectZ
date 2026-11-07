@@ -3015,7 +3015,6 @@ function drawWorld() {
   drawArrows(ctx);
   drawVoids(ctx);
   drawFists(ctx);
-  drawSande(ctx);
   drawBats(ctx);
   drawRifts(ctx);
   drawSwordsOnTop(ctx);
@@ -3026,6 +3025,9 @@ function drawWorld() {
   drawBursts(ctx);
   for (const b of game.bullets) drawBullet(ctx, b);
   for (const f of game.fighters) f.drawFlash(ctx);
+  // (the Sandevistan's wash over all of it - the last thing in the world, so nothing's left out of it; only what's
+  // said over it - numbers, names - goes on top)
+  drawSande(ctx);
   if (uiHidden) return;   // (\ : no numbers, names or prompts over the fight - for filming it)
   drawNumbers(ctx);
 
