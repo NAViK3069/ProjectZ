@@ -355,8 +355,10 @@ function tinted(images, hue, sat = 1, skin = null, teamHue) {
   }
   const [b, bg] = makeCanvas(32, 32);
   bg.drawImage(out.head, 0, 0);
+  // (a drawn look's lids are its own skin: the cheek under the eye)
+  const cheek = skin?.art && out.head ? out.head.getContext('2d').getImageData(EYES_X[0], 17, 1, 1).data : null;
   for (const ex of EYES_X) {
-    bg.fillStyle = SKIN;
+    bg.fillStyle = cheek?.[3] ? `rgb(${cheek[0]}, ${cheek[1]}, ${cheek[2]})` : SKIN;
     bg.fillRect(ex, 14, 2, 3);
     bg.fillStyle = LID;
     bg.fillRect(ex, 15, 2, 1);

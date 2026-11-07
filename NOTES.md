@@ -59,6 +59,26 @@ If it makes you untouchable: in `Fighter.untouchable`, and in `breakGuard` so ju
 Judgement cut is true damage (`hurt(..., pierce)`): nothing untouchable is out of its reach, and the blue shield
 takes none of it.
 
+## Looks and the wardrobe
+
+A fighter is four parts on one 32 px frame - head, body, two legs - and the same again from behind (no arms: the
+hands are drawn with the gun). The art is `assets/player/` (the layers of `E:\Pixelart\Sprite-0001.aseprite`).
+
+New looks are made **part by part**, never as a whole sprite cut up afterwards: `assets/player/parts/<kind>/<name>.png`,
+the part's views side by side on the 32 px frame - `head` (hair) and `body` (top) front then back, `legs` leg_l, leg_r,
+back_leg_l, back_leg_r. A head's eyes have to sit where the art's do (the left eye's white at 15,15, the iris under
+it at 16,16 and 21,16): the blink and the eye colour paint there. A body stays inside the art's 13 x 10 box (PixelLab
+draws them too big - an inpaint of just the inside keeps them to it). The legs are the art's own, recoloured.
+
+`skins.js`: `PARTS` lists every part with its wardrobe name; `SKINS` the ready-made looks (the older ones are the art
+recoloured, the newer ones a head, body and legs each); a look of your own is a key, `my:<head>.<body>.<legs>.<hair>.
+<eye>.<top>` (colours as hex, `-` as drawn), so it goes in the settings and over the net like any look's key. The
+hair, eye and top colours are `tintLook`: each keeps its shading, only brought round to the colour picked.
+
+In training, the corridor under the armory has every ready-made look on a stand (E puts one on) and, at the far
+end, the WARDROBE cupboard (`closet` in `LOCKERS`): the looks, then hair, hair colour, eyes, top, top colour and
+trousers, one at a time, each picture showing you as you'd be.
+
 ## Playing online
 
 It's on GitHub Pages: https://navik3069.github.io/ProjectZ/ (the repo's `main`

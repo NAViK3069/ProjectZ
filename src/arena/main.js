@@ -14,7 +14,7 @@ import { drawText, textWidth } from '../ui/font.js';
 import { Kit, K as KC } from '../ui/kit.js';   // (KC: the menus' colours - K here is a sprite colour)
 import { Level, T, SOLID, PLAT, ACID } from './level.js';
 import { MAPS, MAP_KEYS } from './maps.js';
-import { SKINS, skinOf } from './skins.js';
+import { SKINS, skinOf, skinName, skinParts, LOOK_ART, PARTS, COLOURS, lookOf, myKey, lookIcon } from './skins.js';
 import { placeProps, DEBRIS } from './props.js';
 import { drawFlagBase, drawFlag, drawFlagGlow, drawTag } from './objfx.js';
 import { drawGoldShot, drawFang, drawFangGlow, drawFangTrail, drawFangFlash, drawVioletShot, drawVioletMuzzle, drawVioletTrace, drawFangMark, drawFangMarked, drawFangGuide, drawFangDash, drawFangCut } from './goldfx.js';
@@ -76,6 +76,7 @@ const images = await loadImages({
   backBody: 'assets/player/back_body.png',
   backLegL: 'assets/player/back_leg_l.png',
   backLegR: 'assets/player/back_leg_r.png',
+  ...LOOK_ART,   // (the drawn looks' parts - heads, bodies, legs: skins.js)
 });
 
 // ---------- the modes ----------
@@ -3963,7 +3964,7 @@ function drawTitle(ctx, u, W, H) {
   const cy = kit.panel(px, y, pw, ph, { title: 'ROOM SETUP', note: 'CLICK A SIDE, OR A / D, TO CHANGE' });
   OPTIONS.forEach(([k, label, vals], i) => {
     const c = Math.floor(i / rows), r = i % rows;
-    let shown = vals.find(([v]) => v === settings[k])?.[1] ?? '?';
+    let shown = vals.find(([v]) => v === settings[k])?.[1] ?? (k === 'skin' ? skinName(settings.skin) : '?');   // (a look of your own: CUSTOM)
     const M = MODES[settings.mode] ?? MODES.ffa;
     if (k === 'bots' && M.duel) shown = '1 (1 V 1)';
     else if (k === 'bots' && teamMode()) { const n = settings.bots | 1; shown = `${n} (${(n + 1) / 2} V ${(n + 1) / 2})`; }
@@ -4409,7 +4410,7 @@ function trainAct(f, member, m) {
     case 'area': teleport(f, trainAreas()[m.i]); break;
     case 'goto': { const o = game.fighters.find((q) => q.nid === m.nid && q.alive); if (o && o !== f) teleport(f, { x: o.x - (o.facing || 1) * 16, y: o.y }); break; }
     case 'die': if (f?.alive) f.die(null, 'RESET', 0, 0); break;
-    case 'skin': if (f && SKINS.some((k) => k.key === m.k)) { f.setSkin(m.k); game.fx.sparks(f.x, f.y - 14, 14, 0, -1, '#ffd25a'); } break;   // (the wardrobe)
+    case 'skin': if (f && (SKINS.some((k) => k.key === m.k) || skinOf(m.k))) { f.setSkin(m.k); game.fx.sparks(f.x, f.y - 14, 14, 0, -1, '#ffd25a'); } break;   // (the wardrobe)
     case 'kick': if (online.isHost && m.id !== member?.id && (role === 'root' || (admin && online.roleOf(m.id) === 'player'))) online.trainKick(m.id); break;
     case 'role': if (online.isHost && role === 'root') online.setRole(m.id, m.role); break;
     case 'code': if (online.isHost && role === 'root') online.renewCode(); break;
@@ -4977,6 +4978,8 @@ const LOCKERS = {
     { kind: 'heal', name: 'MEDKIT', img: MEDKIT, desc: 'BACK TO FULL HEALTH' },
     { kind: 'drink', name: 'ENERGY DRINK', img: DRINK, desc: 'FULL STAMINA - AND RUNNING COSTS NOTHING FOR 15 S' },
   ] }] },
+  // training: the wardrobe - a whole look, or one bit of yours at a time (each shown on you as it'd be)
+  closet: { name: 'WARDROBE', tabs: () => closetTabs(), cell: { h: 40, img: 23 } },   // (taller cells: the pictures at twice the size)
   // BUY & FIGHT: before each round
   shop: { name: 'SHOP', close: 'B / ESC - CLOSE', tabs: () => shopTabs() },
   // TAB, anywhere in training: all three cabinets in one
@@ -4984,6 +4987,43 @@ const LOCKERS = {
 };
 
 let locker = null;   // the open cabinet: { use, tabs, tab, sel, scroll, flash } (and where it drew things, for the mouse)
+
+// The wardrobe's tabs. Your look is settings.skin (the one you'll wear from now on); a bit of it changed makes it a
+// look of your own (skins.js: myKey), starting from what the look you had is made of.
+const myLookNow = () => lookOf(settings.skin ?? 'crimson');
+function presetIcon(key) {
+  const s = skinOf(key);
+  if (s?.art) return lookIcon(images, lookOf(key), 'head');
+  const [c, g] = makeCanvas(22, 22);
+  g.drawImage((s ? skinParts(images, s) : images).head, -5, 0);
+  return c;
+}
+const PRESET_ICONS = new Map();
+function closetTabs() {
+  const now = myLookNow();
+  const bit = (part, value, name, icon, desc) => ({ kind: 'look', part, value, name, img: lookIcon(images, { ...now, [part]: value }, icon), desc });
+  return [
+    { label: 'LOOKS', items: SKINS.map((s) => {
+      if (!PRESET_ICONS.has(s.key)) PRESET_ICONS.set(s.key, presetIcon(s.key));
+      return { kind: 'look', part: 'preset', value: s.key, name: s.name, img: PRESET_ICONS.get(s.key), desc: 'A WHOLE LOOK - PUT IT ON' };
+    }) },
+    { label: 'HAIR', items: Object.entries(PARTS.head).map(([k, n]) => bit('head', k, n, 'head', 'HAIR - THE COLOUR STAYS AS YOU PICKED IT')) },
+    { label: 'HAIR COLOUR', items: COLOURS.hair.map(([c, n]) => bit('hair', c, n, 'head', c ? 'HAIR COLOUR' : 'THE HAIR IN ITS OWN COLOURS')) },
+    { label: 'EYES', items: COLOURS.eye.map(([c, n]) => bit('eye', c, n, 'eyes', c ? 'EYE COLOUR' : 'THE EYES IN THEIR OWN COLOUR')) },
+    { label: 'TOP', items: Object.entries(PARTS.body).map(([k, n]) => bit('body', k, n, 'body', 'A TOP - THE COLOUR STAYS AS YOU PICKED IT')) },
+    { label: 'TOP COLOUR', items: COLOURS.top.map(([c, n]) => bit('top', c, n, 'body', c ? 'THE TOP\'S MAIN COLOUR' : 'THE TOP IN ITS OWN COLOURS')) },
+    { label: 'TROUSERS', items: Object.entries(PARTS.legs).map(([k, n]) => bit('legs', k, n, 'legs', 'TROUSERS AND SHOES')) },
+  ];
+}
+// put on a look, or one bit of one - and wear it from now on
+function wearBit(it) {
+  const key = it.part === 'preset' ? it.value : myKey({ ...myLookNow(), [it.part]: it.value });
+  settings.skin = key;
+  saveSettings();
+  trainDo({ a: 'skin', k: key });
+  if (locker?.use === 'closet') locker.tabs = LOCKERS.closet.tabs();   // (every picture shows the new you)
+  return true;
+}
 
 // the cabinet the player is standing at (training only)
 function cabinetNear() {
@@ -5040,9 +5080,11 @@ function owned(it) {
   if (it.kind === 'melee') return f.melee.def.key === it.key;
   if (it.kind === 'skill') return (f.skill ?? null) === it.key;
   if (it.kind === 'nades') return f.nade === it.key && f.grenades > 0;
+  if (it.kind === 'look') return it.part === 'preset' ? (settings.skin ?? 'crimson') === it.value : myLookNow()[it.part] === it.value;
   return false;
 }
 function takeItem(it, f = player) {
+  if (it.kind === 'look') return f === player && wearBit(it);
   if (f === player && locker?.use === 'shop') return buyItem(it);
   if (f === player && online.isClient) { online.sendTake(it.kind, it.key ?? null); return true; }
   if (it.kind === 'cooldown' && f === player && !isAdmin(myRole())) return false;   // (the room's setting: not everyone's to change)
@@ -5148,7 +5190,7 @@ function drawLockerAt(ctx, u, W, H) {
   // a room tab (training): its own contents
   if (L.tabs[L.tab].custom) { L.cellRects = []; drawTrainTab(L.tabs[L.tab].custom, ctx, u, x0 + 8, ty + 18, pw - 16, y0 + ph - 8 - (ty + 18)); return; }
   // the grid
-  const items = L.tabs[L.tab].items, cw = 76, ch = 34, gap = 4, gx = x0 + 8, gy = ty + 16, gh = y0 + ph - 32 - gy;
+  const items = L.tabs[L.tab].items, cw = 76, ch = def.cell?.h ?? 34, imgH = def.cell?.img ?? 16, gap = 4, gx = x0 + 8, gy = ty + 16, gh = y0 + ph - 32 - gy;
   L.cols = Math.max(1, Math.floor((pw - 16 + gap) / (cw + gap)));
   L.rows = Math.max(1, Math.floor((gh + gap) / (ch + gap)));
   const rowsAll = Math.ceil(items.length / L.cols);
@@ -5163,14 +5205,14 @@ function drawLockerAt(ctx, u, W, H) {
     px(cx + 1, cy + 1, cw - 2, ch - 2, flash ? '#4a5a3a' : on ? '#2c3526' : '#1b2117');
     if (it.img) {
       const iw = artW(it.img), ih = artH(it.img), res = it.img.res ?? 1;
-      const sc = Math.max(1, Math.floor(Math.min(2, (cw - 10) / iw, 15 / ih) * u * res)) / (u * res);
+      const sc = Math.max(1, Math.floor(Math.min(2, (cw - 10) / iw, (imgH - 1) / ih) * u * res)) / (u * res);
       ctx.globalAlpha = soon ? 0.4 : 1;
-      ctx.drawImage(it.img, Math.round((cx + (cw - iw * sc) / 2) * u), Math.round((cy + 3 + (16 - ih * sc) / 2) * u), Math.round(iw * sc * u), Math.round(ih * sc * u));
+      ctx.drawImage(it.img, Math.round((cx + (cw - iw * sc) / 2) * u), Math.round((cy + 3 + (imgH - ih * sc) / 2) * u), Math.round(iw * sc * u), Math.round(ih * sc * u));
       ctx.globalAlpha = 1;
     } else text('?', cx + cw / 2 - 1, cy + 8, '#4a5450', 2);
     let name = it.name;
     while (textWidth(name) > cw - 6) name = name.slice(0, -1);
-    text(name, cx + Math.floor((cw - textWidth(name)) / 2), cy + 24, soon ? '#4a5450' : on ? '#ffffff' : '#c8cfc9');
+    text(name, cx + Math.floor((cw - textWidth(name)) / 2), cy + ch - 10, soon ? '#4a5450' : on ? '#ffffff' : '#c8cfc9');
     if (owned(it)) { px(cx + cw - 6, cy + 3, 3, 3, '#8aff9a'); }
     if (it.price !== undefined) text(`$${it.price}`, cx + 3, cy + 3, (player.money ?? 0) >= it.price ? '#ffd25a' : '#a04a3a');
     L.cellRects.push(rectOf(cx, cy, cw, ch, i));

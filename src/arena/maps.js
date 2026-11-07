@@ -651,8 +651,11 @@ export const MAPS = {
       for (const x of [6, 18, 32, 46, 60, 74, 88, 102, 116, 130]) L.lamp(x, 30);
       L.signs.push({ x: 3.5, y: 33, text: 'B1 - THE LAB' }, { x: 94, y: 33, text: 'B1 - THE LAB' });
       // THE WARDROBE (the corridor, under the armory): every look there is, on show - E by one to put it on
-      for (let i = 0; i < 12; i++) L.wardrobe.push({ x: 5 + i * 1.6, y: 36 });
-      L.signs.push({ x: 9.5, y: 31.6, text: 'WARDROBE - E: WEAR' });
+      // (twelve between the ladders at the near end, the rest further along, past the wall climb's ladder)
+      for (let i = 0; i < 22; i++) L.wardrobe.push({ x: i < 12 ? 5 + i * 1.6 : 53 + (i - 12) * 1.6, y: 36 });
+      L.signs.push({ x: 9.5, y: 31.6, text: 'WARDROBE - E: WEAR' }, { x: 59, y: 31.6, text: 'MORE LOOKS' });
+      // and the wardrobe itself, past them: hair, eyes, tops and trousers, each on its own, in the colour you like
+      L.deco.push({ kind: 'closet', x: 72.6, y: 32, w: 3, h: 4, use: 'closet' });
 
       // ACID RUN (cols 1-26): blocks to jump between over an acid bath - fall in and you're back at your spawn
       L.fill(1, 50, 26, 61, SOLID); L.row(50, 6, 22, ACID);

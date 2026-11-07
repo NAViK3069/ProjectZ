@@ -593,6 +593,31 @@ export class Level {
         rect(g, '#1c2224', x, y + H - 4, W, 4);
         break;
       }
+      case 'closet': {
+        // training's wardrobe: a tall wooden cupboard, one door ajar on a rail of clothes in every colour
+        const W = d.w * T, H = d.h * T, dw = Math.floor((W - 6) / 2);
+        rect(g, K, x, y, W, H);
+        rect(g, '#5a3e2a', x + 1, y + 1, W - 2, H - 2);
+        rect(g, '#7a5638', x + 1, y + 1, W - 2, 5);   // the cornice
+        rect(g, '#3a281c', x + 1, y + 6, W - 2, 1);
+        const ix = x + 3, iy = y + 9, ih = H - 17;
+        rect(g, '#1a120c', ix, iy, dw, ih);   // the open side: dark inside, a rail, the clothes hanging off it
+        rect(g, '#8a8e98', ix + 1, iy + 3, dw - 2, 1);
+        const CLOTHES = ['#d42a3a', '#3a6ae8', '#e8c040', '#3aa84a', '#eceef2', '#7a42c8', '#f07a2a', '#2ab8b0'];
+        for (let i = 0; ix + 2 + i * 3 < ix + dw - 2; i++) {
+          const c = CLOTHES[i % CLOTHES.length], len = 14 + ((hash(i, d.x) * 10) | 0);
+          rect(g, c, ix + 2 + i * 3, iy + 5, 2, len);
+          rect(g, '#000000', ix + 4 + i * 3, iy + 5, 1, len);
+        }
+        const rx = ix + dw + 1;   // the shut door, a mirror in it
+        rect(g, '#6e4c32', rx, iy, dw, ih);
+        rect(g, '#3a281c', rx, iy, 1, ih);
+        rect(g, '#9ab4c0', rx + 3, iy + 4, dw - 6, ih - 20);
+        rect(g, '#c8dce4', rx + 4, iy + 6, 2, 8); rect(g, '#c8dce4', rx + 7, iy + 5, 1, 4);
+        rect(g, '#d2b048', rx + 2, iy + ih / 2 + 4, 1, 4);   // its handle
+        rect(g, '#1c2224', x, y + H - 4, W, 4);
+        break;
+      }
       case 'target':
         // a range target board
         rect(g, K, x, y, 20, 28); rect(g, '#e8e2d0', x + 1, y + 1, 18, 26);
