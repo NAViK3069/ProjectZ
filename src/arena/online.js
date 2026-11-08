@@ -965,7 +965,9 @@ function loadAuth(gh, f) {
   for (const k of ['x', 'y', 'vx', 'vy', 'onGround', 'onLadder', 'crouch', 'facing', 'padT', 'coyote', 'jumpBuf', 'dropT', 'airJumps', 'wallGrabs', 'wall', 'airRoll', 'ladderCool', 'rollCool', 'rollCrouch', 'stamina', 'staminaRest', 'winded', 'boostT']) if (a[k] !== undefined) gh[k] = a[k];
   gh.roll = a.roll ? { ...a.roll, trail: gh.roll?.trail ?? [] } : null;
   const trail = gh.blaze?.trail;
-  for (const k of SKILL_KEYS) if (a[k] !== undefined) gh[k] = a[k] && typeof a[k] === 'object' && !(a[k] instanceof Fighter) ? { ...a[k] } : a[k];
+  // (a copy, so the host's word isn't changed by running it on - a list kept a list: what it's adapted to is one, and
+  // made an object it can't be looked through, which stops the whole game on this screen)
+  for (const k of SKILL_KEYS) if (a[k] !== undefined) gh[k] = a[k] && typeof a[k] === 'object' && !(a[k] instanceof Fighter) ? (Array.isArray(a[k]) ? [...a[k]] : { ...a[k] }) : a[k];
   if (gh.blaze) gh.blaze.trail = trail ?? [];
   if (gh.bow) gh.bow.locks = gh.bow.locks.map((l) => ({ ...l }));
   gh.alive = true;

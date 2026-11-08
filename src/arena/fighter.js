@@ -2906,7 +2906,7 @@ export class Fighter {
   }
   // Adapted to this (a harm key - adapt.js)?
   adaptedTo(key) {
-    return !!key && !!this.adapted?.some((a) => a.key === key);
+    return !!key && Array.isArray(this.adapted) && this.adapted.some((a) => a.key === key);   // (only ever a list - but never let a bad one stop the game)
   }
   // Something done to them that isn't a hit (caught in a Sandevistan, hacked, a shot stopped by a shield...): the last
   // thing, as far as adapting goes.
